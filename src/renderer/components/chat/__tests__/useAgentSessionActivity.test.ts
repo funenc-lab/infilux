@@ -144,18 +144,11 @@ describe('AgentSessionActivityScheduler', () => {
   it('coalesces sustained visible output without rearming a timer for every event', async () => {
     const document = new VisibilityDocument();
     const getActivity = vi.fn(async () => false);
-    const setTimeout = vi.fn(function (
-      this: typeof globalThis,
-      callback: () => void,
-      delay: number
-    ) {
-      return globalThis.setTimeout.call(this, callback, delay);
-    });
-    const clearTimeout = vi.fn(function (
-      this: typeof globalThis,
-      timer: ReturnType<typeof globalThis.setTimeout>
-    ) {
-      return globalThis.clearTimeout.call(this, timer);
+    const setTimeout = vi.fn((callback: () => void, delay: number) =>
+      globalThis.setTimeout(callback, delay)
+    );
+    const clearTimeout = vi.fn((timer: number | ReturnType<typeof globalThis.setTimeout>) => {
+      globalThis.clearTimeout(timer);
     });
     const scheduler = new AgentSessionActivityScheduler({
       clearTimeout,
@@ -184,24 +177,20 @@ describe('AgentSessionActivityScheduler', () => {
     observation.dispose();
   });
 
-  it('invokes injected timer functions with the global receiver', () => {
+  it('does not force an incompatible receiver on injected timer functions', () => {
     const document = new VisibilityDocument();
-    const timer = {} as ReturnType<typeof globalThis.setTimeout>;
-    const setTimeout = vi.fn(function (
-      this: typeof globalThis,
-      _callback: () => void,
-      _delay: number
-    ) {
-      if (this !== globalThis) {
+    const timer = {} as number | ReturnType<typeof globalThis.setTimeout>;
+    const setTimeout = vi.fn(function (this: unknown, _callback: () => void, _delay: number) {
+      if (this !== undefined) {
         throw new TypeError('Illegal invocation');
       }
       return timer;
     });
     const clearTimeout = vi.fn(function (
-      this: typeof globalThis,
-      _timer: ReturnType<typeof globalThis.setTimeout>
+      this: unknown,
+      _timer: number | ReturnType<typeof globalThis.setTimeout>
     ) {
-      if (this !== globalThis) {
+      if (this !== undefined) {
         throw new TypeError('Illegal invocation');
       }
     });

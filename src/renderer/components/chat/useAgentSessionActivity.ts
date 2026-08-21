@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 export const ACTIVE_AGENT_SESSION_ACTIVITY_POLL_INTERVAL_MS = 1_000;
 export const VISIBLE_AGENT_SESSION_ACTIVITY_POLL_INTERVAL_MS = 5_000;
 export const AGENT_SESSION_ACTIVITY_OUTPUT_STALE_MS = 3_000;
+type AgentSessionActivityTimer = number | ReturnType<typeof globalThis.setTimeout>;
 
 interface SessionActivityVisibilityDocument {
   readonly hidden: boolean;
@@ -40,15 +41,15 @@ export interface AgentSessionActivityObservationHandle {
 }
 
 export interface AgentSessionActivitySchedulerOptions {
-  clearTimeout?: (timer: ReturnType<typeof setTimeout>) => void;
+  clearTimeout?: (timer: AgentSessionActivityTimer) => void;
   document?: SessionActivityVisibilityDocument;
   getActivity: (sessionId: string) => Promise<boolean>;
   now?: () => number;
-  setTimeout?: (callback: () => void, delay: number) => ReturnType<typeof globalThis.setTimeout>;
+  setTimeout?: (callback: () => void, delay: number) => AgentSessionActivityTimer;
 }
 
 export class AgentSessionActivityScheduler {
-  private readonly clearTimeoutFn: (timer: ReturnType<typeof setTimeout>) => void;
+  private readonly clearTimeoutFn: (timer: AgentSessionActivityTimer) => void;
   private readonly document: SessionActivityVisibilityDocument | undefined;
   private readonly getActivity: (sessionId: string) => Promise<boolean>;
   private readonly lastOutputAtBySessionId = new Map<string, number>();
@@ -57,7 +58,7 @@ export class AgentSessionActivityScheduler {
   private readonly observations = new Map<number, AgentSessionActivityObservation>();
   private nextObservationId = 1;
   private isPolling = false;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: AgentSessionActivityTimer | null = null;
   private timerDueAt: number | null = null;
 
   constructor(options: AgentSessionActivitySchedulerOptions) {
@@ -65,18 +66,15 @@ export class AgentSessionActivityScheduler {
     const scheduleTimer = options.setTimeout ?? globalThis.setTimeout;
 
     this.clearTimeoutFn = (timer) => {
-      clearTimer.call(globalThis, timer);
+      clearTimer(timer);
     };
     this.document = options.document;
     this.getActivity = options.getActivity;
     this.now = options.now ?? Date.now;
-    this.setTimeoutFn = (callback, delay) => scheduleTimer.call(globalThis, callback, delay);
+    this.setTimeoutFn = (callback, delay) => scheduleTimer(callback, delay);
   }
 
-  private readonly setTimeoutFn: (
-    callback: () => void,
-    delay: number
-  ) => ReturnType<typeof setTimeout>;
+  private readonly setTimeoutFn: (callback: () => void, delay: number) => AgentSessionActivityTimer;
 
   private readonly handleVisibilityChange = () => {
     if (this.document?.hidden) {
