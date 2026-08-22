@@ -512,6 +512,7 @@ function mountHookHarness(initialProps: Partial<UseXtermOptions> = {}) {
   render();
 
   return {
+    container,
     rerender(nextProps: Partial<UseXtermOptions> = {}) {
       render(nextProps);
     },
@@ -789,7 +790,7 @@ describe('useXterm startup loading state', () => {
     expect(testState.sessionDetach).toHaveBeenCalledWith('backend-session-1');
   });
 
-  it('restores the supplied agent replay before acknowledging a resync request', async () => {
+  it('keeps the supplied agent replay when the archive cannot confirm a complete transcript', async () => {
     const mounted = mountHookHarness();
 
     await act(async () => {
@@ -806,7 +807,10 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    expect(testState.sessionGetTranscriptPage).not.toHaveBeenCalled();
+    expect(testState.sessionGetTranscriptPage).toHaveBeenCalledWith({
+      sessionId: 'backend-session-1',
+      maxBytes: 256 * 1024,
+    });
     expect(testState.terminalWrite).toHaveBeenLastCalledWith('complete replay output');
 
     await act(async () => {
@@ -819,11 +823,17 @@ describe('useXterm startup loading state', () => {
   });
 
   it('falls back to archived agent output when a resync has no replay', async () => {
-    testState.sessionGetTranscriptPage.mockResolvedValueOnce({
-      text: 'archived output',
-      totalBytes: 15,
-      health: 'complete',
-    });
+    testState.sessionGetTranscriptPage
+      .mockResolvedValueOnce({
+        text: 'archived output',
+        totalBytes: 15,
+        health: 'complete',
+      })
+      .mockResolvedValueOnce({
+        text: 'archived output',
+        totalBytes: 15,
+        health: 'complete',
+      });
     const mounted = mountHookHarness();
 
     await act(async () => {
@@ -1383,6 +1393,116 @@ describe('useXterm startup loading state', () => {
     expect(testState.terminalScrollToBottom).toHaveBeenCalledTimes(1);
     expect(testState.latestSnapshot.isLoading).toBe(false);
 
+    await mounted.unmount();
+  });
+
+  it('keeps the replay surface hidden when a resync supersedes initial replay', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const terminalSurface = mounted.container.firstElementChild as HTMLDivElement;
+    expect(terminalSurface.style.visibility).toBe('hidden');
+
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+        replay: 'initial replay\n',
+      });
+      await flushMicrotasks();
+    });
+
+    const initialReplayCallback = testState.terminalWriteCallbacks.at(-1);
+    expect(initialReplayCallback).toBeTypeOf('function');
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: 'resynced replay\n',
+      });
+      await flushMicrotasks();
+    });
+
+    const resyncReplayCallback = testState.terminalWriteCallbacks.at(-1);
+    expect(resyncReplayCallback).toBeTypeOf('function');
+    expect(resyncReplayCallback).not.toBe(initialReplayCallback);
+
+    await act(async () => {
+      initialReplayCallback?.();
+      await flushMicrotasks();
+    });
+
+    expect(terminalSurface.style.visibility).toBe('hidden');
+    expect(testState.sessionAcknowledgeOutputResync).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resyncReplayCallback?.();
+      await flushMicrotasks();
+    });
+
+    expect(terminalSurface.style.visibility).toBe('');
+    expect(testState.sessionAcknowledgeOutputResync).toHaveBeenCalledTimes(1);
+    await mounted.unmount();
+  });
+
+  it('keeps the newest resync authoritative while an earlier resync replay is pending', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const terminalSurface = mounted.container.firstElementChild as HTMLDivElement;
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: 'first resync replay\n',
+      });
+      await flushMicrotasks();
+    });
+
+    const firstReplayCallback = testState.terminalWriteCallbacks.at(-1);
+    expect(firstReplayCallback).toBeTypeOf('function');
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: 'second resync replay\n',
+      });
+      await flushMicrotasks();
+    });
+
+    const secondReplayCallback = testState.terminalWriteCallbacks.at(-1);
+    expect(secondReplayCallback).toBeTypeOf('function');
+    expect(secondReplayCallback).not.toBe(firstReplayCallback);
+
+    await act(async () => {
+      firstReplayCallback?.();
+      await flushMicrotasks();
+    });
+
+    expect(terminalSurface.style.visibility).toBe('hidden');
+    expect(testState.sessionAcknowledgeOutputResync).not.toHaveBeenCalled();
+
+    await act(async () => {
+      secondReplayCallback?.();
+      await flushMicrotasks();
+    });
+
+    expect(terminalSurface.style.visibility).toBe('');
+    expect(testState.sessionAcknowledgeOutputResync).toHaveBeenCalledTimes(1);
     await mounted.unmount();
   });
 

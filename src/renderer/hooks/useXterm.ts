@@ -51,6 +51,8 @@ import {
 } from './xtermOutputBuffer';
 import { installXtermOutputProtocolGuard } from './xtermOutputProtocolGuard';
 import { resolveXtermRenderer } from './xtermRendererPolicy';
+import { writeXtermReplay, type XtermReplayViewport } from './xtermReplayRestore';
+import { hideXtermReplaySurface } from './xtermReplaySurface';
 import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
@@ -65,6 +67,7 @@ import {
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions, resolveTerminalFontFamily } from './xtermTerminalOptions';
 import { installXtermImeFocusBridge } from './xtermTextInputFocus';
+import { readCompleteXtermTranscript } from './xtermTranscriptReplay';
 import { syncXtermViewportToSession, type XtermViewportSyncSnapshot } from './xtermViewportSync';
 import {
   createXtermViewportSyncController,
@@ -95,40 +98,6 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
-
-function writeInitialTerminalContentChunks(
-  terminal: Terminal,
-  content: string,
-  shouldContinue: () => boolean
-): Promise<void> {
-  if (!content) {
-    return Promise.resolve();
-  }
-
-  const outputBuffer = new XtermOutputBuffer();
-  outputBuffer.append(content);
-
-  return new Promise((resolve) => {
-    const writeNextChunk = () => {
-      if (!shouldContinue()) {
-        resolve();
-        return;
-      }
-
-      const chunk = outputBuffer.take();
-      if (!chunk) {
-        terminal.scrollToBottom();
-        terminal.refresh(0, Math.max(0, terminal.rows - 1));
-        resolve();
-        return;
-      }
-
-      terminal.write(chunk, writeNextChunk);
-    };
-
-    writeNextChunk();
-  });
-}
 
 interface InternalTerminalSearchDecorations {
   matchBackground?: string;
@@ -565,6 +534,12 @@ export function useXterm({
   const terminalWriteInFlightIdentityRef = useRef<InFlightTerminalWrite | null>(null);
   const terminalWriteGenerationRef = useRef(0);
   const pendingOutputResyncRef = useRef<{ sessionId: string; replay: string } | null>(null);
+  const terminalReplaySurfaceRef = useRef<{
+    generation: number;
+    restore: () => void;
+    terminal: Terminal;
+  } | null>(null);
+  const terminalReplaySurfaceGenerationRef = useRef(0);
   const hibernateControllerRef = useRef(new XtermHibernateController());
   const hibernateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hibernatedSurfaceStateRef = useRef<HibernatedXtermSurfaceState | null>(null);
@@ -807,6 +782,72 @@ export function useXterm({
     terminalRef.current?.clear();
   }, []);
 
+  const hideTerminalReplaySurface = useCallback((terminal: Terminal): number => {
+    const generation = ++terminalReplaySurfaceGenerationRef.current;
+    const currentSurface = terminalReplaySurfaceRef.current;
+    if (currentSurface?.terminal === terminal) {
+      terminalReplaySurfaceRef.current = {
+        ...currentSurface,
+        generation,
+      };
+      return generation;
+    }
+
+    currentSurface?.restore();
+    const container = containerRef.current;
+    terminalReplaySurfaceRef.current = {
+      generation,
+      restore: container ? hideXtermReplaySurface(container) : () => undefined,
+      terminal,
+    };
+    return generation;
+  }, []);
+
+  const isTerminalReplaySurfaceCurrent = useCallback(
+    (terminal: Terminal, generation: number | null): boolean => {
+      const currentSurface = terminalReplaySurfaceRef.current;
+      return (
+        generation !== null &&
+        currentSurface?.terminal === terminal &&
+        currentSurface.generation === generation
+      );
+    },
+    []
+  );
+
+  const revealTerminalReplaySurface = useCallback(
+    (terminal?: Terminal, generation?: number | null): boolean => {
+      const currentSurface = terminalReplaySurfaceRef.current;
+      if (
+        !currentSurface ||
+        (terminal && currentSurface.terminal !== terminal) ||
+        (generation !== undefined && currentSurface.generation !== generation)
+      ) {
+        return false;
+      }
+
+      terminalReplaySurfaceRef.current = null;
+      currentSurface.restore();
+      return true;
+    },
+    []
+  );
+
+  const resolveCompleteTranscriptReplay = useCallback(
+    async (sessionId: string, fallbackReplay: string): Promise<string> => {
+      if (kind !== 'agent') {
+        return fallbackReplay;
+      }
+
+      const transcript = await readCompleteXtermTranscript({
+        getTranscriptPage: window.electronAPI.session.getTranscriptPage,
+        sessionId,
+      });
+      return transcript ?? fallbackReplay;
+    },
+    [kind]
+  );
+
   const refreshRenderer = useCallback(() => {
     refreshTerminalViewport();
   }, [refreshTerminalViewport]);
@@ -968,30 +1009,29 @@ export function useXterm({
   flushBufferedTerminalOutputRef.current = flushBufferedTerminalOutput;
 
   const writeInitialTerminalContent = useCallback(
-    async (terminal: Terminal, content: string): Promise<boolean> => {
-      if (!content) {
-        return true;
-      }
-
+    async (
+      terminal: Terminal,
+      content: string,
+      viewport: XtermReplayViewport = { kind: 'bottom' }
+    ): Promise<boolean> => {
       const initialWriteGeneration = ++initialTerminalWriteGenerationRef.current;
       const terminalWriteGeneration = terminalWriteGenerationRef.current;
       initialTerminalWriteInProgressRef.current = true;
 
       try {
-        await writeInitialTerminalContentChunks(terminal, content, () => {
-          return (
-            initialTerminalWriteGenerationRef.current === initialWriteGeneration &&
-            terminalWriteGenerationRef.current === terminalWriteGeneration &&
-            !isUnmountedRef.current &&
-            terminalRef.current === terminal
-          );
+        return await writeXtermReplay({
+          content,
+          shouldContinue: () => {
+            return (
+              initialTerminalWriteGenerationRef.current === initialWriteGeneration &&
+              terminalWriteGenerationRef.current === terminalWriteGeneration &&
+              !isUnmountedRef.current &&
+              terminalRef.current === terminal
+            );
+          },
+          terminal,
+          viewport,
         });
-        return (
-          initialTerminalWriteGenerationRef.current === initialWriteGeneration &&
-          terminalWriteGenerationRef.current === terminalWriteGeneration &&
-          !isUnmountedRef.current &&
-          terminalRef.current === terminal
-        );
       } finally {
         if (initialTerminalWriteGenerationRef.current === initialWriteGeneration) {
           initialTerminalWriteInProgressRef.current = false;
@@ -1025,28 +1065,26 @@ export function useXterm({
   }, []);
 
   const restoreOutputAfterResync = useCallback(
-    async (sessionId: string, replay: string): Promise<void> => {
+    async (sessionId: string, replay: string, viewport?: XtermReplayViewport): Promise<void> => {
       const terminal = terminalRef.current;
       if (!terminal || ptyIdRef.current !== sessionId || !isVisibleRef.current) {
         return;
       }
 
-      let restoredOutput = replay;
-      if (kind === 'agent' && !restoredOutput) {
-        try {
-          const page = await window.electronAPI.session.getTranscriptPage({
-            sessionId,
-            maxBytes: 256 * 1024,
-          });
-          if (page.health !== 'unavailable' || page.text) {
-            restoredOutput = page.text;
-          }
-        } catch (error) {
-          console.warn('[xterm] Failed to restore session output from transcript archive:', error);
-        }
-      }
+      const targetViewport = viewport ?? {
+        kind: 'line' as const,
+        line: terminal.buffer.active.viewportY,
+      };
+      const replaySurfaceGeneration = hideTerminalReplaySurface(terminal);
 
-      if (terminalRef.current !== terminal || ptyIdRef.current !== sessionId) {
+      const restoredOutput = await resolveCompleteTranscriptReplay(sessionId, replay);
+
+      if (
+        terminalRef.current !== terminal ||
+        ptyIdRef.current !== sessionId ||
+        !isTerminalReplaySurfaceCurrent(terminal, replaySurfaceGeneration)
+      ) {
+        revealTerminalReplaySurface(terminal, replaySurfaceGeneration);
         return;
       }
 
@@ -1055,15 +1093,35 @@ export function useXterm({
       terminalWriteInFlightIdentityRef.current = null;
       terminal.reset();
       replaceReplaySnapshot(restoredOutput);
-      await writeInitialTerminalContent(terminal, restoredOutput);
-      await window.electronAPI.session.acknowledgeOutputResync(sessionId).catch((error) => {
-        console.warn('[xterm] Failed to acknowledge session output resync:', error);
-      });
+      try {
+        const replayApplied = await writeInitialTerminalContent(
+          terminal,
+          restoredOutput,
+          targetViewport
+        );
+        if (!replayApplied || !isTerminalReplaySurfaceCurrent(terminal, replaySurfaceGeneration)) {
+          return;
+        }
+        await window.electronAPI.session.acknowledgeOutputResync(sessionId).catch((error) => {
+          console.warn('[xterm] Failed to acknowledge session output resync:', error);
+        });
+      } finally {
+        revealTerminalReplaySurface(terminal, replaySurfaceGeneration);
+      }
     },
-    [clearTerminalWriteFlushTimers, kind, replaceReplaySnapshot, writeInitialTerminalContent]
+    [
+      clearTerminalWriteFlushTimers,
+      hideTerminalReplaySurface,
+      isTerminalReplaySurfaceCurrent,
+      replaceReplaySnapshot,
+      revealTerminalReplaySurface,
+      resolveCompleteTranscriptReplay,
+      writeInitialTerminalContent,
+    ]
   );
 
   const disposeTerminal = useCallback(() => {
+    revealTerminalReplaySurface();
     clearTerminalWriteFlushTimers();
     terminalInputCleanupRef.current?.dispose();
     terminalInputCleanupRef.current = null;
@@ -1095,7 +1153,7 @@ export function useXterm({
     if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
       (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
     }
-  }, [clearTerminalWriteFlushTimers]);
+  }, [clearTerminalWriteFlushTimers, revealTerminalReplaySurface]);
 
   const flushPendingHostScroll = useCallback(() => {
     if (hostScrollFlushTimerRef.current) {
@@ -1304,6 +1362,7 @@ export function useXterm({
       }
 
       let terminal = terminalRef.current;
+      let terminalReplaySurfaceGeneration: number | null = null;
 
       if (terminal) {
         await resetSessionBinding();
@@ -1369,6 +1428,7 @@ export function useXterm({
         terminal.loadAddon(unicode11Addon);
         terminal.unicode.activeVersion = '11';
 
+        terminalReplaySurfaceGeneration = hideTerminalReplaySurface(terminal);
         terminal.open(container);
         fitAddon.fit();
 
@@ -1676,18 +1736,32 @@ export function useXterm({
         const sessionId = ptyIdRef.current;
         if (!sessionId) {
           isHibernatedRef.current = false;
+          revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           setIsLoading(false);
           return;
         }
 
         const hibernatedSurfaceState = hibernatedSurfaceStateRef.current;
+        const replayViewport: XtermReplayViewport = hibernatedSurfaceState
+          ? { kind: 'line', line: hibernatedSurfaceState.viewportY }
+          : { kind: 'bottom' };
         const pendingResync = pendingOutputResyncRef.current;
         flushReplaySnapshotWithPendingOutput(true);
         if (pendingResync?.sessionId === sessionId) {
           pendingOutputResyncRef.current = null;
-          await restoreOutputAfterResync(sessionId, pendingResync.replay);
+          await restoreOutputAfterResync(sessionId, pendingResync.replay, replayViewport);
         } else {
-          await writeInitialTerminalContent(terminal, replaySnapshotRef.current);
+          const replay = await resolveCompleteTranscriptReplay(
+            sessionId,
+            replaySnapshotRef.current
+          );
+          const replayApplied = await writeInitialTerminalContent(terminal, replay, replayViewport);
+          if (
+            !replayApplied ||
+            !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
+          ) {
+            return;
+          }
         }
 
         if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
@@ -1695,7 +1769,6 @@ export function useXterm({
         }
 
         if (hibernatedSurfaceState) {
-          terminal.scrollToLine(hibernatedSurfaceState.viewportY);
           setSearchState(hibernatedSurfaceState.searchState);
         }
         hibernatedSurfaceStateRef.current = null;
@@ -1703,6 +1776,13 @@ export function useXterm({
         await window.electronAPI.session.setOutputDelivery(sessionId, true).catch((error) => {
           console.warn('[xterm] Failed to resume session output delivery:', error);
         });
+        const supersedingResync = pendingOutputResyncRef.current;
+        if (supersedingResync?.sessionId === sessionId) {
+          pendingOutputResyncRef.current = null;
+          void restoreOutputAfterResync(sessionId, supersedingResync.replay);
+        } else {
+          revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
+        }
         setIsLoading(false);
         return;
       }
@@ -1720,13 +1800,20 @@ export function useXterm({
         deadRecoveryAttemptKeyRef.current = null;
         setRuntimeState('live');
 
-        if (staticContent.text) {
-          await writeInitialTerminalContent(terminal, staticContent.text);
-        }
-        if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+        const staticContentApplied = await writeInitialTerminalContent(
+          terminal,
+          staticContent.text
+        );
+        if (
+          !staticContentApplied ||
+          isUnmountedRef.current ||
+          initAttemptId !== initAttemptIdRef.current ||
+          !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
+        ) {
           return;
         }
         setIsLoading(false);
+        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
         if (initializingStaticContentKeyRef.current === staticContentKeyForAttempt) {
           appliedStaticContentKeyRef.current = staticContentKeyForAttempt;
           initializingStaticContentKeyRef.current = null;
@@ -1736,6 +1823,7 @@ export function useXterm({
       }
 
       if (deferSessionCreateRef.current) {
+        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
         setIsLoading(false);
         return;
       }
@@ -2053,38 +2141,59 @@ export function useXterm({
           persistedReplaySnapshot: recoveredReplaySnapshot,
           reusedExistingSession,
         });
+        const restoredReplay = await resolveCompleteTranscriptReplay(
+          session.sessionId,
+          initialReplay ?? ''
+        );
+        if (
+          isUnmountedRef.current ||
+          createRequestId !== createRequestIdRef.current ||
+          !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
+        ) {
+          return;
+        }
         const liveReplaySnapshot = replaySnapshotRef.current;
         const persistedReplaySnapshot = resolveRecoveredReplaySnapshotPersistence({
           attachedReplay: replay,
           reusedExistingSession,
         });
         const shouldApplyReplay = shouldApplyInitialTerminalReplay({
-          initialReplay,
+          initialReplay: restoredReplay,
           hasReceivedData: hasReceivedDataRef.current,
           liveReplaySnapshot,
         });
         replaceReplaySnapshot(persistedReplaySnapshot);
 
-        if (shouldApplyReplay && initialReplay) {
+        if (shouldApplyReplay && restoredReplay) {
           hasReceivedDataRef.current = true;
           if (
             shouldRearmDeadSessionRecovery({
               hasReceivedData: hasReceivedDataRef.current,
-              replay: initialReplay,
+              replay: restoredReplay,
             })
           ) {
             deadRecoveryAttemptKeyRef.current = null;
           }
-          await writeInitialTerminalContent(terminal, initialReplay);
-          if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
+          const replayApplied = await writeInitialTerminalContent(terminal, restoredReplay);
+          if (
+            !replayApplied ||
+            isUnmountedRef.current ||
+            createRequestId !== createRequestIdRef.current ||
+            !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
+          ) {
             return;
           }
-          onDataRef.current?.(initialReplay);
+          onDataRef.current?.(restoredReplay);
         }
         await window.electronAPI.session.activateOutput(session.sessionId);
-        if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
+        if (
+          isUnmountedRef.current ||
+          createRequestId !== createRequestIdRef.current ||
+          !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
+        ) {
           return;
         }
+        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
         setIsLoading(false);
 
         // Focus is handled by the isActive effect after loading ends.
@@ -2099,6 +2208,7 @@ export function useXterm({
         setIsLoading(false);
         terminal.writeln(`\x1b[31mFailed to start terminal.\x1b[0m`);
         terminal.writeln(`\x1b[33mError: ${error}\x1b[0m`);
+        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
       }
     },
     [
@@ -2130,6 +2240,10 @@ export function useXterm({
       flushPendingTerminalExit,
       restoreOutputAfterResync,
       clearTerminalWriteFlushTimers,
+      hideTerminalReplaySurface,
+      isTerminalReplaySurfaceCurrent,
+      revealTerminalReplaySurface,
+      resolveCompleteTranscriptReplay,
     ]
   );
 
