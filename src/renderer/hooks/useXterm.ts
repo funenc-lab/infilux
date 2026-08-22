@@ -44,6 +44,7 @@ import {
 } from './xtermClipboard';
 import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermContainerReady';
 import { XtermHibernateController } from './xtermHibernateController';
+import { shouldForwardXtermInput } from './xtermInputForwardingPolicy';
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK,
@@ -1501,7 +1502,13 @@ export function useXterm({
         copyEventHandlerRef.current = handleCopyEvent;
 
         terminalInputCleanupRef.current = terminal.onData((data) => {
-          if (ptyIdRef.current && runtimeStateRef.current === 'live') {
+          const isApplyingBackendOutput =
+            initialTerminalWriteInProgressRef.current || terminalWriteInFlightRef.current;
+          if (
+            ptyIdRef.current &&
+            runtimeStateRef.current === 'live' &&
+            shouldForwardXtermInput(data, { isApplyingBackendOutput })
+          ) {
             window.electronAPI.session.write(ptyIdRef.current, data);
           }
         });

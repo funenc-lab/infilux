@@ -1094,6 +1094,41 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('does not write terminal protocol responses generated while applying session output', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: '\x1b[>q',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('\x1b[>q');
+    expect(testState.terminalDataHandler).toBeTypeOf('function');
+
+    await act(async () => {
+      testState.terminalDataHandler?.('\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\');
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+    await mounted.unmount();
+  });
+
   it('passes the full wrapped current input line to custom key handlers', async () => {
     const capturedLine = vi.fn();
     const mounted = mountHookHarness({
