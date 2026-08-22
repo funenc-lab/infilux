@@ -255,18 +255,31 @@ function buildSanitizedAgentCommand(baseCommand: string): string {
   return `env ${buildEnvUnsetPrefix(AGENT_TMUX_UNSET_ENV_KEYS)} ${baseCommand}`.trim();
 }
 
+function buildTmuxSessionEnvironmentArgs(variableNames: readonly string[]): string {
+  return variableNames.map((variableName) => `-e ${variableName}="\${${variableName}}"`).join(' ');
+}
+
 function buildTmuxAttachCommand(
   baseCommand: string,
   tmuxServerName: string,
   tmuxSessionName: string,
-  options: { createIfMissing: boolean }
+  options: {
+    createIfMissing: boolean;
+    sessionEnvironmentVariableNames: readonly string[];
+  }
 ): string {
   const tmuxSocketDir = buildManagedTmuxSocketShellDir();
   const tmuxSocketPath = buildManagedTmuxSocketShellPath(tmuxServerName);
   const quotedBaseCommand = quotePosixShell(buildTmuxSessionCommand(baseCommand));
   const ensureSocketDirCommand = `mkdir -p "${tmuxSocketDir}"`;
+  const sessionEnvironmentArgs = buildTmuxSessionEnvironmentArgs(
+    options.sessionEnvironmentVariableNames
+  );
+  const createSessionArgs = ['-d', sessionEnvironmentArgs, '-s', tmuxSessionName]
+    .filter(Boolean)
+    .join(' ');
   const createSessionCommand =
-    `env -u TMUX tmux -S "${tmuxSocketPath}" -f /dev/null new-session -d -s ${tmuxSessionName} ` +
+    `env -u TMUX tmux -S "${tmuxSocketPath}" -f /dev/null new-session ${createSessionArgs} ` +
     `${quotedBaseCommand} >/dev/null 2>&1 || true`;
   const hideStatusCommand =
     `env -u TMUX tmux -S "${tmuxSocketPath}" set-option -t ${tmuxSessionName} status off ` +
@@ -437,6 +450,7 @@ export function buildAgentLaunchPlan({
   if (tmuxSessionName && tmuxServerName) {
     finalCommand = buildTmuxAttachCommand(baseCommand, tmuxServerName, tmuxSessionName, {
       createIfMissing: !attachExistingTmuxSession,
+      sessionEnvironmentVariableNames: agentCommand === 'codex' ? ['CODEX_HOME'] : [],
     });
   }
 

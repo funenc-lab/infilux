@@ -304,7 +304,7 @@ describe('buildAgentLaunchPlan', () => {
       mode: 'create-if-missing',
     });
     expect(plan.initialCommand).toContain(
-      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-11`
+      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -e CODEX_HOME="\${CODEX_HOME}" -s infilux-ui-session-11`
     );
     expect(plan.initialCommand).toContain(`${agentTmuxUnsetPrefix} codex`);
     expect(plan.initialCommand).toContain('-u MallocStackLogging');

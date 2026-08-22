@@ -65,6 +65,36 @@ function hasExplicitEnvironmentOverride(
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function isPathWithin(rootPath: string, targetPath: string): boolean {
+  const relativePath = path.relative(rootPath, targetPath);
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith(`..${path.sep}`) &&
+      relativePath !== '..' &&
+      !path.isAbsolute(relativePath))
+  );
+}
+
+function isInheritedCodexRuntimeHome(env: NodeJS.ProcessEnv, configRoot: string): boolean {
+  const codexHome = env.CODEX_HOME?.trim();
+  if (!codexHome) {
+    return false;
+  }
+
+  const runtimeRootPath = path.resolve(path.dirname(configRoot), 'codex-runtime-homes');
+  return isPathWithin(runtimeRootPath, path.resolve(codexHome));
+}
+
+function isInheritedGeminiRuntimeHome(env: NodeJS.ProcessEnv): boolean {
+  const geminiHome = env.GEMINI_CLI_HOME?.trim();
+  if (!geminiHome) {
+    return false;
+  }
+
+  const runtimeRootPath = path.resolve(os.tmpdir(), 'infilux-agent-capability', 'gemini');
+  return isPathWithin(runtimeRootPath, path.resolve(geminiHome));
+}
+
 function copyMissingProviderFile(
   sourcePath: string,
   targetPath: string,
@@ -519,7 +549,15 @@ export function initializeAppScopedProviderConfig(
   ];
 
   for (const seed of seeds) {
-    if (hasExplicitEnvironmentOverride(env, seed.envKey)) {
+    const usesInheritedCodexRuntimeHome =
+      seed.envKey === 'CODEX_HOME' && isInheritedCodexRuntimeHome(env, configRoot);
+    const usesInheritedGeminiRuntimeHome =
+      seed.envKey === 'GEMINI_CLI_HOME' && isInheritedGeminiRuntimeHome(env);
+    if (
+      hasExplicitEnvironmentOverride(env, seed.envKey) &&
+      !usesInheritedCodexRuntimeHome &&
+      !usesInheritedGeminiRuntimeHome
+    ) {
       continue;
     }
     if (initializeProviderScope(seed)) {
