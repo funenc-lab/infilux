@@ -5,6 +5,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -378,11 +379,58 @@ describe('AppScopedProviderConfig', () => {
     expect(scopedConfig).toContain('enabled = true');
   });
 
+  it('synchronizes Codex credentials after an already initialized scope receives a login', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const scopedAuthPath = join(configRoot, 'codex', 'auth.json');
+    const sourceAuthPath = join(homeDir, '.codex', 'auth.json');
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+    expect(existsSync(scopedAuthPath)).toBe(false);
+
+    writeTextFile(sourceAuthPath, '{"token":"first"}\n');
+    utimesSync(sourceAuthPath, new Date(1_000), new Date(1_000));
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+    expect(readFileSync(scopedAuthPath, 'utf8')).toBe('{"token":"first"}\n');
+
+    writeTextFile(scopedAuthPath, '{"token":"app-runtime"}\n');
+    utimesSync(scopedAuthPath, new Date(2_000), new Date(2_000));
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+    expect(readFileSync(scopedAuthPath, 'utf8')).toBe('{"token":"app-runtime"}\n');
+
+    writeTextFile(sourceAuthPath, '{"token":"rotated"}\n');
+    utimesSync(sourceAuthPath, new Date(3_000), new Date(3_000));
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+    expect(readFileSync(scopedAuthPath, 'utf8')).toBe('{"token":"rotated"}\n');
+
+    rmSync(sourceAuthPath, { force: true });
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+    expect(readFileSync(scopedAuthPath, 'utf8')).toBe('{"token":"rotated"}\n');
+  });
+
   it('preserves an explicit host-provided provider configuration directory', () => {
     const root = createTemporaryRoot();
     const homeDir = join(root, 'home');
     const configRoot = join(root, 'infilux-provider-config');
     const customCodexHome = join(root, 'custom-codex-home');
+    const env: NodeJS.ProcessEnv = {
+      CODEX_HOME: customCodexHome,
+      INFILUX_MANAGED_CODEX_RUNTIME_HOME: customCodexHome,
+    };
+
+    initializeAppScopedProviderConfig({ configRoot, env, homeDir });
+
+    expect(env.CODEX_HOME).toBe(customCodexHome);
+    expect(existsSync(join(configRoot, 'codex', 'config.toml'))).toBe(false);
+  });
+
+  it('preserves an explicit Codex home inside the managed runtime directory', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const sharedRoot = join(root, 'infilux');
+    const configRoot = join(sharedRoot, 'provider-config');
+    const customCodexHome = join(sharedRoot, 'codex-runtime-homes', 'external-session');
     const env: NodeJS.ProcessEnv = { CODEX_HOME: customCodexHome };
 
     initializeAppScopedProviderConfig({ configRoot, env, homeDir });
@@ -397,15 +445,20 @@ describe('AppScopedProviderConfig', () => {
     const sharedRoot = join(root, 'infilux');
     const configRoot = join(sharedRoot, 'provider-config');
     const inheritedRuntimeHome = join(sharedRoot, 'codex-runtime-homes', 'nested-session');
-    const env: NodeJS.ProcessEnv = { CODEX_HOME: inheritedRuntimeHome };
+    const env: NodeJS.ProcessEnv = {
+      CODEX_HOME: inheritedRuntimeHome,
+      INFILUX_MANAGED_CODEX_RUNTIME_HOME: inheritedRuntimeHome,
+    };
 
     writeTextFile(join(homeDir, '.codex', 'auth.json'), '{"auth":"local"}\n');
     writeTextFile(join(homeDir, '.codex', 'config.toml'), 'model = "local-model"\n');
     mkdirSync(inheritedRuntimeHome, { recursive: true });
+    writeTextFile(join(inheritedRuntimeHome, '.infilux-managed-runtime-home-v1'), '1\n');
 
     initializeAppScopedProviderConfig({ configRoot, env, homeDir });
 
     expect(env.CODEX_HOME).toBe(join(configRoot, 'codex'));
+    expect(env.INFILUX_MANAGED_CODEX_RUNTIME_HOME).toBeUndefined();
     expect(readFileSync(join(configRoot, 'codex', 'auth.json'), 'utf8')).toBe('{"auth":"local"}\n');
   });
 
@@ -419,16 +472,21 @@ describe('AppScopedProviderConfig', () => {
       'gemini',
       `provider-config-test-${Date.now()}`
     );
-    const env: NodeJS.ProcessEnv = { GEMINI_CLI_HOME: inheritedRuntimeHome };
+    const env: NodeJS.ProcessEnv = {
+      GEMINI_CLI_HOME: inheritedRuntimeHome,
+      INFILUX_MANAGED_GEMINI_RUNTIME_HOME: inheritedRuntimeHome,
+    };
     temporaryRuntimeHomes.push(inheritedRuntimeHome);
 
     writeTextFile(join(homeDir, '.gemini', '.env'), 'GEMINI_API_KEY=local\n');
     writeTextFile(join(homeDir, '.gemini', 'settings.json'), '{"theme":"local"}\n');
     mkdirSync(inheritedRuntimeHome, { recursive: true });
+    writeTextFile(join(inheritedRuntimeHome, '.infilux-managed-runtime-home-v1'), '1\n');
 
     initializeAppScopedProviderConfig({ configRoot, env, homeDir });
 
     expect(env.GEMINI_CLI_HOME).toBe(join(configRoot, 'gemini'));
+    expect(env.INFILUX_MANAGED_GEMINI_RUNTIME_HOME).toBeUndefined();
     expect(readFileSync(join(configRoot, 'gemini', 'settings.json'), 'utf8')).toBe(
       '{"theme":"local"}\n'
     );

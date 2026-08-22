@@ -7,16 +7,21 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isManagedRuntimeHome } from '../agent/RuntimeHomeProvenance';
 import { getSharedRootPath } from '../SharedSessionState';
 
 const SCOPE_MARKER_FILE_NAME = '.infilux-provider-scope-v1';
+const MANAGED_CODEX_RUNTIME_HOME_ENV_KEY = 'INFILUX_MANAGED_CODEX_RUNTIME_HOME';
+const MANAGED_GEMINI_RUNTIME_HOME_ENV_KEY = 'INFILUX_MANAGED_GEMINI_RUNTIME_HOME';
 
 export interface AppScopedProviderConfigPaths {
   claudeConfigDir: string;
@@ -36,6 +41,7 @@ interface ProviderScopeSeed {
   files: readonly string[];
   linkedDirectories?: readonly string[];
   replaceLinkedDirectories?: readonly string[];
+  synchronizedFiles?: readonly string[];
   synchronizedTomlSections?: readonly string[];
   sourceDir: string;
   targetDir: string;
@@ -65,34 +71,21 @@ function hasExplicitEnvironmentOverride(
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function isPathWithin(rootPath: string, targetPath: string): boolean {
-  const relativePath = path.relative(rootPath, targetPath);
-  return (
-    relativePath === '' ||
-    (!relativePath.startsWith(`..${path.sep}`) &&
-      relativePath !== '..' &&
-      !path.isAbsolute(relativePath))
+function isMarkedManagedRuntimeHome(
+  env: NodeJS.ProcessEnv,
+  runtimeHomeEnvKey: 'CODEX_HOME' | 'GEMINI_CLI_HOME',
+  markerEnvKey:
+    | typeof MANAGED_CODEX_RUNTIME_HOME_ENV_KEY
+    | typeof MANAGED_GEMINI_RUNTIME_HOME_ENV_KEY
+): boolean {
+  const runtimeHome = env[runtimeHomeEnvKey]?.trim();
+  const markerHome = env[markerEnvKey]?.trim();
+  return Boolean(
+    runtimeHome &&
+      markerHome &&
+      path.resolve(runtimeHome) === path.resolve(markerHome) &&
+      isManagedRuntimeHome(runtimeHome)
   );
-}
-
-function isInheritedCodexRuntimeHome(env: NodeJS.ProcessEnv, configRoot: string): boolean {
-  const codexHome = env.CODEX_HOME?.trim();
-  if (!codexHome) {
-    return false;
-  }
-
-  const runtimeRootPath = path.resolve(path.dirname(configRoot), 'codex-runtime-homes');
-  return isPathWithin(runtimeRootPath, path.resolve(codexHome));
-}
-
-function isInheritedGeminiRuntimeHome(env: NodeJS.ProcessEnv): boolean {
-  const geminiHome = env.GEMINI_CLI_HOME?.trim();
-  if (!geminiHome) {
-    return false;
-  }
-
-  const runtimeRootPath = path.resolve(os.tmpdir(), 'infilux-agent-capability', 'gemini');
-  return isPathWithin(runtimeRootPath, path.resolve(geminiHome));
 }
 
 function copyMissingProviderFile(
@@ -118,6 +111,25 @@ function copyMissingProviderFile(
 
   copyFileSync(sourcePath, targetPath);
   chmodSync(targetPath, 0o600);
+}
+
+function synchronizeProviderFile(sourcePath: string, targetPath: string): void {
+  if (!existsSync(sourcePath)) {
+    return;
+  }
+
+  if (existsSync(targetPath) && statSync(sourcePath).mtimeMs <= statSync(targetPath).mtimeMs) {
+    return;
+  }
+
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    copyFileSync(sourcePath, temporaryPath);
+    chmodSync(temporaryPath, 0o600);
+    renameSync(temporaryPath, targetPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
 }
 
 function resolveSymlinkTarget(linkPath: string, linkValue: string): string {
@@ -482,6 +494,12 @@ function initializeProviderScope(seed: ProviderScopeSeed): boolean {
       }
       writeFileSync(markerPath, '1\n', { encoding: 'utf8', mode: 0o600 });
     }
+    for (const fileName of seed.synchronizedFiles ?? []) {
+      synchronizeProviderFile(
+        path.join(seed.sourceDir, fileName),
+        path.join(seed.targetDir, fileName)
+      );
+    }
     for (const directoryName of seed.linkedDirectories ?? []) {
       ensureLinkedDirectory(
         path.join(seed.sourceDir, directoryName),
@@ -530,6 +548,7 @@ export function initializeAppScopedProviderConfig(
       files: ['auth.json', 'config.toml'],
       linkedDirectories: ['.tmp/marketplaces', 'plugins', 'sessions', 'skills', 'skills.disabled'],
       replaceLinkedDirectories: ['.tmp/marketplaces'],
+      synchronizedFiles: ['auth.json'],
       synchronizedTomlSections: ['marketplaces', 'plugins'],
       sourceDir: path.join(homeDir, '.codex'),
       targetDir: paths.codexHome,
@@ -537,6 +556,7 @@ export function initializeAppScopedProviderConfig(
     {
       envKey: 'GEMINI_CLI_HOME',
       files: ['.env', 'google_accounts.json', 'oauth_creds.json', 'settings.json'],
+      synchronizedFiles: ['.env', 'google_accounts.json', 'oauth_creds.json'],
       sourceDir: path.join(homeDir, '.gemini'),
       targetDir: paths.geminiHome,
     },
@@ -549,19 +569,26 @@ export function initializeAppScopedProviderConfig(
   ];
 
   for (const seed of seeds) {
-    const usesInheritedCodexRuntimeHome =
-      seed.envKey === 'CODEX_HOME' && isInheritedCodexRuntimeHome(env, configRoot);
-    const usesInheritedGeminiRuntimeHome =
-      seed.envKey === 'GEMINI_CLI_HOME' && isInheritedGeminiRuntimeHome(env);
-    if (
-      hasExplicitEnvironmentOverride(env, seed.envKey) &&
-      !usesInheritedCodexRuntimeHome &&
-      !usesInheritedGeminiRuntimeHome
-    ) {
+    const managedRuntimeHomeMarkerEnvKey =
+      seed.envKey === 'CODEX_HOME'
+        ? MANAGED_CODEX_RUNTIME_HOME_ENV_KEY
+        : seed.envKey === 'GEMINI_CLI_HOME'
+          ? MANAGED_GEMINI_RUNTIME_HOME_ENV_KEY
+          : undefined;
+    const usesMarkedManagedRuntimeHome =
+      seed.envKey === 'CODEX_HOME'
+        ? isMarkedManagedRuntimeHome(env, 'CODEX_HOME', MANAGED_CODEX_RUNTIME_HOME_ENV_KEY)
+        : seed.envKey === 'GEMINI_CLI_HOME'
+          ? isMarkedManagedRuntimeHome(env, 'GEMINI_CLI_HOME', MANAGED_GEMINI_RUNTIME_HOME_ENV_KEY)
+          : false;
+    if (hasExplicitEnvironmentOverride(env, seed.envKey) && !usesMarkedManagedRuntimeHome) {
       continue;
     }
     if (initializeProviderScope(seed)) {
       env[seed.envKey] = seed.targetDir;
+      if (managedRuntimeHomeMarkerEnvKey) {
+        delete env[managedRuntimeHomeMarkerEnvKey];
+      }
     }
   }
 

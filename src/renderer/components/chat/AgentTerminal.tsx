@@ -9,6 +9,7 @@ import type {
   SessionRuntimeState,
 } from '@shared/types';
 import { TASK_COMPLETION_MARKER } from '@shared/types/agent';
+import { supportsProviderSessionResume } from '@shared/utils/agentInputMode';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
@@ -432,21 +433,43 @@ export function AgentTerminal({
   replaySnapshot,
 }: AgentTerminalProps) {
   const { t } = useI18n();
-  const isReadOnlyTranscript = readOnlyTranscript !== null;
-  const transcriptTerminalText = useMemo(
-    () => (readOnlyTranscript ? formatAgentTranscriptForTerminal(readOnlyTranscript.entries) : ''),
-    [readOnlyTranscript]
-  );
-  const transcriptIdentity = readOnlyTranscript?.identity ?? transcriptTerminalText;
+  const shouldDiscoverMissingCodexProviderSession =
+    recoveryState === 'missing-host-session' &&
+    agentCommand === 'codex' &&
+    !hasResolvedProviderSessionId(id, sessionId);
+  const requiresReadOnlyRecovery =
+    recoveryState === 'dead' ||
+    (recoveryState === 'missing-host-session' &&
+      !shouldDiscoverMissingCodexProviderSession &&
+      (!hasResolvedProviderSessionId(id, sessionId) ||
+        !supportsProviderSessionResume(agentCommand)));
+  const isBaseReadOnlyTranscript = readOnlyTranscript !== null || requiresReadOnlyRecovery;
+  const transcriptTerminalText = useMemo(() => {
+    if (readOnlyTranscript) {
+      return formatAgentTranscriptForTerminal(readOnlyTranscript.entries);
+    }
+    if (!requiresReadOnlyRecovery) {
+      return '';
+    }
+    const recoveryNotice = t(
+      'Persistent host recovery is unavailable and this session cannot resume automatically. Start a fresh session to continue.'
+    );
+    return [replaySnapshot?.trim(), recoveryNotice].filter(Boolean).join('\n\n');
+  }, [readOnlyTranscript, replaySnapshot, requiresReadOnlyRecovery, t]);
+  const transcriptIdentity =
+    readOnlyTranscript?.identity ??
+    (requiresReadOnlyRecovery
+      ? `recovery-required:${id ?? sessionId ?? 'unknown'}:${replaySnapshot ?? ''}`
+      : transcriptTerminalText);
   const transcriptStaticContent = useMemo(
     () =>
-      readOnlyTranscript
+      isBaseReadOnlyTranscript
         ? {
             text: transcriptTerminalText,
             identity: transcriptIdentity,
           }
         : undefined,
-    [readOnlyTranscript, transcriptIdentity, transcriptTerminalText]
+    [isBaseReadOnlyTranscript, transcriptIdentity, transcriptTerminalText]
   );
   const {
     agentNotificationEnabled,
@@ -493,7 +516,7 @@ export function AgentTerminal({
   useEffect(() => {
     let cancelled = false;
 
-    if (isReadOnlyTranscript) {
+    if (isBaseReadOnlyTranscript) {
       setResolvedShell({
         shell: '',
         execArgs: [],
@@ -534,7 +557,7 @@ export function AgentTerminal({
   }, [
     cwd,
     executionPlatform,
-    isReadOnlyTranscript,
+    isBaseReadOnlyTranscript,
     isRemoteExecution,
     shellConfig,
     startupProbeRetryNonce,
@@ -544,7 +567,7 @@ export function AgentTerminal({
   useEffect(() => {
     let cancelled = false;
 
-    if (isReadOnlyTranscript) {
+    if (isBaseReadOnlyTranscript) {
       setHapiGlobalInstalled(true);
       return () => {
         cancelled = true;
@@ -577,12 +600,12 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [cwd, environment, isReadOnlyTranscript, startupProbeRetryNonce]);
+  }, [cwd, environment, isBaseReadOnlyTranscript, startupProbeRetryNonce]);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (isReadOnlyTranscript) {
+    if (isBaseReadOnlyTranscript) {
       setClaudeIdeStatus({
         enabled: false,
         port: null,
@@ -641,12 +664,18 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [agentCommand, agentIntegration.enabled, cwd, isReadOnlyTranscript, startupProbeRetryNonce]);
+  }, [
+    agentCommand,
+    agentIntegration.enabled,
+    cwd,
+    isBaseReadOnlyTranscript,
+    startupProbeRetryNonce,
+  ]);
   useEffect(() => {
     let cancelled = false;
     hasAutoConfirmedTrustPromptRef.current = false;
 
-    if (isReadOnlyTranscript) {
+    if (isBaseReadOnlyTranscript) {
       setClaudeWorkspaceTrusted(true);
       return;
     }
@@ -676,7 +705,7 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [agentCommand, cwd, isReadOnlyTranscript, isRemoteExecution, startupProbeRetryNonce]);
+  }, [agentCommand, cwd, isBaseReadOnlyTranscript, isRemoteExecution, startupProbeRetryNonce]);
   const outputBufferRef = useRef('');
   const currentOutputBlockRef = useRef('');
   const latestCompletedOutputBlockRef = useRef('');
@@ -780,22 +809,55 @@ export function AgentTerminal({
 
   const { providerSessionResolutionPending, resolvedProviderSessionId } =
     useAgentProviderSessionDiscovery({
-      agentCommand: isReadOnlyTranscript ? '' : agentCommand,
+      agentCommand: isBaseReadOnlyTranscript ? '' : agentCommand,
       uiSessionId: id,
       providerSessionId: sessionId,
       cwd,
       createdAt,
-      initialized: isReadOnlyTranscript ? false : initialized,
+      initialized: isBaseReadOnlyTranscript ? false : initialized,
       isRemoteExecution,
       allowRecoveryBeforeInitialization: recovered && persistenceEnabled,
       validateResolvedProviderSession: shouldValidateResolvedProviderSession,
       onProviderSessionIdChange,
     });
+  const hasResolvedCodexProviderSession = hasResolvedProviderSessionId(
+    id,
+    resolvedProviderSessionId ?? sessionId
+  );
+  const shouldDeferAgentSessionCreate =
+    !isBaseReadOnlyTranscript &&
+    agentCommand === 'codex' &&
+    recoveryState === 'missing-host-session' &&
+    (providerSessionResolutionPending || !hasResolvedCodexProviderSession);
+  const shouldShowUnresolvedCodexRecovery =
+    shouldDeferAgentSessionCreate && !providerSessionResolutionPending;
+  const unresolvedCodexRecoveryText = useMemo(() => {
+    if (!shouldShowUnresolvedCodexRecovery) {
+      return '';
+    }
+
+    const recoveryNotice = t(
+      'Persistent host recovery is unavailable and no matching Codex session was found. Start a fresh session to continue.'
+    );
+    return [replaySnapshot?.trim(), recoveryNotice].filter(Boolean).join('\n\n');
+  }, [replaySnapshot, shouldShowUnresolvedCodexRecovery, t]);
+  const unresolvedCodexRecoveryStaticContent = useMemo(
+    () =>
+      shouldShowUnresolvedCodexRecovery
+        ? {
+            text: unresolvedCodexRecoveryText,
+            identity: `recovery-required:${id ?? sessionId ?? 'unknown'}:${replaySnapshot ?? ''}`,
+          }
+        : undefined,
+    [id, replaySnapshot, sessionId, shouldShowUnresolvedCodexRecovery, unresolvedCodexRecoveryText]
+  );
+  const terminalStaticContent = transcriptStaticContent ?? unresolvedCodexRecoveryStaticContent;
+  const isReadOnlyTranscript = Boolean(terminalStaticContent);
   const lastSessionActivityAt = useAgentSessionsStore(
     (state) => state.runtimeStates[terminalSessionId ?? '']?.lastActivityAt
   );
   useAgentProviderSessionTitle({
-    agentCommand: isReadOnlyTranscript ? '' : agentCommand,
+    agentCommand: isBaseReadOnlyTranscript ? '' : agentCommand,
     uiSessionId: id,
     providerSessionId: sessionId,
     cwd,
@@ -810,10 +872,7 @@ export function AgentTerminal({
       ? id
       : (resolvedProviderSessionId ?? sessionId ?? id);
   const shouldHoldAgentSessionStartup =
-    !isReadOnlyTranscript &&
-    agentCommand === 'codex' &&
-    recoveryState === 'missing-host-session' &&
-    providerSessionResolutionPending;
+    shouldDeferAgentSessionCreate && providerSessionResolutionPending;
   const effectiveBackendSessionId = shouldHoldAgentSessionStartup ? undefined : backendSessionId;
 
   useEffect(() => {
@@ -1850,7 +1909,8 @@ export function AgentTerminal({
     fontSizeScale: terminalFontScale,
     preferCompatibilityRenderer,
     sessionCreateFallback,
-    staticContent: transcriptStaticContent,
+    deferSessionCreate: shouldDeferAgentSessionCreate,
+    staticContent: terminalStaticContent,
     metadata: agentLaunchMetadata,
     persistOnDisconnect: shouldPersistAgentSessionOnDisconnect(persistenceEnabled),
     preferHostScrollback:

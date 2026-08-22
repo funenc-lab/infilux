@@ -208,6 +208,7 @@ vi.mock('../AgentTerminal', () => ({
   AgentTerminal: (props: {
     id?: string;
     isActive?: boolean;
+    recoveryState?: string;
     layoutRefreshKey?: string;
     terminalFontScale?: number;
     canMerge?: boolean;
@@ -232,6 +233,7 @@ vi.mock('../AgentTerminal', () => ({
         'data-testid': 'agent-terminal',
         'data-session-id': props.id ?? '',
         'data-active': String(Boolean(props.isActive)),
+        'data-recovery-state': props.recoveryState ?? '',
         'data-layout-refresh-key': props.layoutRefreshKey ?? '',
         'data-terminal-font-scale': String(props.terminalFontScale ?? ''),
         'data-agent-canvas-scroll-surface': 'true',
@@ -1139,7 +1141,7 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   }, 20_000);
 
-  it('skips unresolved missing-host recovery records instead of mounting interrupted sessions', async () => {
+  it('renders unresolved missing-host recovery records without discarding their state', async () => {
     testState.electronAPI.restoreWorktreeSessions.mockResolvedValue({
       items: [
         {
@@ -1159,17 +1161,20 @@ describe('AgentPanel integration', () => {
         },
       ],
     });
-    testState.terminalRuntimeStateBySessionId['recovered-missing-1'] = 'live';
-
     const mounted = await mountAgentPanel();
     const store = useAgentSessionsStore.getState();
 
-    expect(store.sessions.some((session) => session.id === 'recovered-missing-1')).toBe(false);
+    expect(store.sessions).toContainEqual(
+      expect.objectContaining({
+        id: 'recovered-missing-1',
+        recoveryState: 'missing-host-session',
+      })
+    );
     expect(
-      mounted.container.querySelector(
-        '[data-testid="agent-terminal"][data-session-id="recovered-missing-1"]'
-      )
-    ).toBeNull();
+      mounted.container
+        .querySelector('[data-testid="agent-terminal"][data-session-id="recovered-missing-1"]')
+        ?.getAttribute('data-recovery-state')
+    ).toBe('missing-host-session');
 
     await mounted.unmount();
   });

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -235,7 +236,9 @@ describe('GeminiCapabilityProviderAdapter', () => {
     const runtimeHome = getGeminiRuntimeHome(result);
     expect(result.sessionOverrides?.env).toEqual({
       GEMINI_CLI_HOME: runtimeHome,
+      INFILUX_MANAGED_GEMINI_RUNTIME_HOME: runtimeHome,
     });
+    expect(existsSync(join(runtimeHome, '.infilux-managed-runtime-home-v1'))).toBe(true);
     expect(dirname(runtimeHome)).toBe(join(runtimeRoot, 'gemini'));
     expect(result.sessionOverrides?.metadata).toMatchObject({
       providerLaunchStrategy: 'gemini-runtime-home',

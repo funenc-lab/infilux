@@ -234,6 +234,7 @@ export interface UseXtermOptions {
   persistOnDisconnect?: boolean;
   preferHostScrollback?: boolean;
   retryOnDeadSession?: boolean;
+  deferSessionCreate?: boolean;
   sessionCreateFallback?: XtermSessionCreateFallbackOptions;
   recoveredReplaySnapshot?: string;
   staticContent?: XtermStaticContent;
@@ -399,6 +400,7 @@ export function useXterm({
   persistOnDisconnect = false,
   preferHostScrollback = false,
   retryOnDeadSession = true,
+  deferSessionCreate = false,
   sessionCreateFallback,
   recoveredReplaySnapshot,
   staticContent,
@@ -507,6 +509,9 @@ export function useXterm({
   staticContentRef.current = staticContent;
   const isStaticContentModeRef = useRef(Boolean(staticContent));
   isStaticContentModeRef.current = Boolean(staticContent);
+  const deferSessionCreateRef = useRef(deferSessionCreate);
+  deferSessionCreateRef.current = deferSessionCreate;
+  const wasSessionCreationDeferredRef = useRef(deferSessionCreate);
   const [isLoading, setIsLoading] = useState(false);
   const [runtimeState, setRuntimeState] = useState<SessionRuntimeState>('live');
   const [wheelHandlerAttachmentEpoch, setWheelHandlerAttachmentEpoch] = useState(0);
@@ -1664,7 +1669,8 @@ export function useXterm({
         return true;
       });
 
-      terminal.options.disableStdin = Boolean(staticContent);
+      terminal.options.disableStdin =
+        Boolean(staticContentRef.current) || deferSessionCreateRef.current;
 
       if (restoreHibernatedSurface) {
         const sessionId = ptyIdRef.current;
@@ -1726,6 +1732,11 @@ export function useXterm({
           initializingStaticContentKeyRef.current = null;
         }
 
+        return;
+      }
+
+      if (deferSessionCreateRef.current) {
+        setIsLoading(false);
         return;
       }
 
@@ -2276,6 +2287,37 @@ export function useXterm({
     shouldActivateFromVisibleSurface,
     staticContent,
   ]);
+
+  useEffect(() => {
+    const wasSessionCreationDeferred = wasSessionCreationDeferredRef.current;
+    wasSessionCreationDeferredRef.current = deferSessionCreate;
+
+    if (
+      deferSessionCreate ||
+      !wasSessionCreationDeferred ||
+      staticContent ||
+      !hasBeenActivatedRef.current ||
+      !terminalRef.current
+    ) {
+      return;
+    }
+
+    let cancelSecondFrame: (() => void) | undefined;
+    const firstFrameId = requestAnimationFrame(() => {
+      const secondFrameId = requestAnimationFrame(() => {
+        if (!deferSessionCreateRef.current) {
+          void initTerminal();
+        }
+      });
+
+      cancelSecondFrame = () => cancelAnimationFrame(secondFrameId);
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrameId);
+      cancelSecondFrame?.();
+    };
+  }, [deferSessionCreate, initTerminal, staticContent]);
 
   useEffect(() => {
     if (staticContent) {

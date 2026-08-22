@@ -529,6 +529,7 @@ export function createCodexCapabilityProviderAdapter(
         env: {
           ...(projection.sessionOverrides?.env ?? {}),
           CODEX_HOME: runtimeHome.homePath,
+          INFILUX_MANAGED_CODEX_RUNTIME_HOME: runtimeHome.homePath,
         },
         metadata: {
           ...(projection.sessionOverrides?.metadata ?? {}),

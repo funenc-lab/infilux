@@ -450,7 +450,12 @@ export function buildAgentLaunchPlan({
   if (tmuxSessionName && tmuxServerName) {
     finalCommand = buildTmuxAttachCommand(baseCommand, tmuxServerName, tmuxSessionName, {
       createIfMissing: !attachExistingTmuxSession,
-      sessionEnvironmentVariableNames: agentCommand === 'codex' ? ['CODEX_HOME'] : [],
+      sessionEnvironmentVariableNames:
+        agentCommand === 'codex'
+          ? ['CODEX_HOME', 'INFILUX_MANAGED_CODEX_RUNTIME_HOME']
+          : agentCommand === 'gemini'
+            ? ['GEMINI_CLI_HOME', 'INFILUX_MANAGED_GEMINI_RUNTIME_HOME']
+            : [],
     });
   }
 

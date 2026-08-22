@@ -19,6 +19,8 @@ import { codexRuntimeHomeService } from '../services/agent/CodexRuntimeHomeServi
 import { resolveCodexWorkspaceSessionHistoryPath } from '../services/agent/CodexWorkspaceSessionHistory';
 import { sessionManager } from '../services/session/SessionManager';
 
+const MANAGED_CODEX_RUNTIME_HOME_ENV_KEY = 'INFILUX_MANAGED_CODEX_RUNTIME_HOME';
+
 function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCreateOptions {
   return {
     ...options,
@@ -155,6 +157,7 @@ async function ensureCodexRuntimeHome(
     env: {
       ...(options.env ?? {}),
       CODEX_HOME: runtimeHome.homePath,
+      [MANAGED_CODEX_RUNTIME_HOME_ENV_KEY]: runtimeHome.homePath,
     },
     metadata: {
       ...metadata,

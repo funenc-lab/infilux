@@ -528,6 +528,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       },
       env: {
         CODEX_HOME: '/runtime/codex/ui-session-1',
+        INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/ui-session-1',
       },
     });
     expect(result.sessionOverrides?.initialCommand).toContain(

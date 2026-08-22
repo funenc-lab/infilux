@@ -29,6 +29,7 @@ import type {
 } from './AgentCapabilityProviderAdapter';
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 import { resolveGeminiCapabilityMcpConfigEntries } from './GeminiCapabilityMcpConfigService';
+import { markManagedRuntimeHome } from './RuntimeHomeProvenance';
 
 export interface GeminiCapabilityProviderAdapterDependencies {
   listClaudeCapabilityCatalog?: typeof listClaudeCapabilityCatalog;
@@ -641,6 +642,7 @@ export function createGeminiCapabilityProviderAdapter(
           sessionOverrides: {
             env: {
               GEMINI_CLI_HOME: runtimeHome,
+              INFILUX_MANAGED_GEMINI_RUNTIME_HOME: runtimeHome,
             },
             metadata: {
               providerLaunchStrategy: 'gemini-runtime-home',
@@ -692,6 +694,7 @@ export function createGeminiCapabilityProviderAdapter(
         sessionOverrides: {
           env: {
             GEMINI_CLI_HOME: runtimeHome,
+            INFILUX_MANAGED_GEMINI_RUNTIME_HOME: runtimeHome,
           },
           metadata: {
             providerLaunchStrategy: 'gemini-runtime-home',
@@ -726,11 +729,13 @@ export function createGeminiCapabilityProviderAdapter(
       linkedSkills
     );
     if (await hasMatchingLocalGeminiRuntimeManifest(runtimeGeminiDir, manifestContent)) {
+      markManagedRuntimeHome(runtimeHome);
       return {
         warnings,
         sessionOverrides: {
           env: {
             GEMINI_CLI_HOME: runtimeHome,
+            INFILUX_MANAGED_GEMINI_RUNTIME_HOME: runtimeHome,
           },
           metadata: {
             providerLaunchStrategy: 'gemini-runtime-home',
@@ -777,12 +782,14 @@ export function createGeminiCapabilityProviderAdapter(
       path.join(runtimeGeminiDir, GEMINI_RUNTIME_MANIFEST_FILE),
       manifestContent
     );
+    markManagedRuntimeHome(runtimeHome);
 
     return {
       warnings,
       sessionOverrides: {
         env: {
           GEMINI_CLI_HOME: runtimeHome,
+          INFILUX_MANAGED_GEMINI_RUNTIME_HOME: runtimeHome,
         },
         metadata: {
           providerLaunchStrategy: 'gemini-runtime-home',

@@ -436,7 +436,7 @@ describe('agentSessionRecovery', () => {
     });
   });
 
-  it('skips metadata-only sessions when the host is gone', async () => {
+  it('restores metadata-only sessions when the host is gone', async () => {
     const restoreWorktreeSessions = vi
       .fn()
       .mockResolvedValue(createNonRecoverableRestoreResult('session-missing'));
@@ -456,11 +456,19 @@ describe('agentSessionRecovery', () => {
         upsertRecoveredSession,
         updateGroupState,
       })
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(['session-missing']);
 
-    expect(upsertRecoveredSession).not.toHaveBeenCalled();
-    expect(updateGroupState).not.toHaveBeenCalled();
-    expect(groupState).toEqual(createInitialGroupState());
+    expect(upsertRecoveredSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'session-missing',
+        lastKnownState: 'missing-host-session',
+      })
+    );
+    expect(updateGroupState).toHaveBeenCalledTimes(1);
+    expect(groupState.groups[0]).toMatchObject({
+      sessionIds: ['session-missing'],
+      activeSessionId: 'session-missing',
+    });
   });
 
   it('restores provider-resumable sessions when the tmux host is gone', async () => {
@@ -535,7 +543,7 @@ describe('agentSessionRecovery', () => {
         upsertRecoveredSession,
         updateGroupState,
       })
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(['session-missing']);
 
     await expect(
       restoreWorktreeAgentSessions({
@@ -548,7 +556,7 @@ describe('agentSessionRecovery', () => {
     ).resolves.toEqual(['session-missing']);
 
     expect(restoreWorktreeSessions).toHaveBeenCalledTimes(2);
-    expect(upsertRecoveredSession).toHaveBeenCalledTimes(1);
+    expect(upsertRecoveredSession).toHaveBeenCalledTimes(2);
     expect(upsertRecoveredSession).toHaveBeenLastCalledWith(
       expect.objectContaining({
         uiSessionId: 'session-missing',
@@ -582,7 +590,7 @@ describe('agentSessionRecovery', () => {
         upsertRecoveredSession,
         updateGroupState,
       })
-    ).resolves.toEqual(['session-live']);
+    ).resolves.toEqual(['session-live', 'session-missing']);
 
     await expect(
       restoreWorktreeAgentSessions({
@@ -604,6 +612,13 @@ describe('agentSessionRecovery', () => {
     );
     expect(upsertRecoveredSession).toHaveBeenNthCalledWith(
       2,
+      expect.objectContaining({
+        uiSessionId: 'session-missing',
+        lastKnownState: 'missing-host-session',
+      })
+    );
+    expect(upsertRecoveredSession).toHaveBeenNthCalledWith(
+      3,
       expect.objectContaining({
         uiSessionId: 'session-missing',
         lastKnownState: 'live',

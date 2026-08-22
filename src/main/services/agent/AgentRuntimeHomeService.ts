@@ -9,6 +9,7 @@ import {
   unlinkSync,
 } from 'node:fs';
 import path from 'node:path';
+import { markManagedRuntimeHome } from './RuntimeHomeProvenance';
 
 export interface AgentRuntimeHomeResult {
   homePath: string;
@@ -81,6 +82,7 @@ export class AgentRuntimeHomeService {
     const safeRuntimeKey = sanitizeRuntimeKey(runtimeKey);
     const homePath = path.join(this.runtimeRootPath, safeRuntimeKey);
     mkdirSync(homePath, { recursive: true });
+    markManagedRuntimeHome(homePath);
 
     for (const entryName of this.sharedEntryNames) {
       ensureLinkedEntry(path.join(this.sourceHomePath, entryName), path.join(homePath, entryName));

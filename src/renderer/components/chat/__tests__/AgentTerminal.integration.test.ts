@@ -23,6 +23,9 @@ const testState = vi.hoisted(() => ({
   discoveryCalls: [] as Array<Record<string, unknown>>,
   providerDiscoveryState: {
     providerSessionResolutionPending: false,
+  } as {
+    providerSessionResolutionPending: boolean;
+    resolvedProviderSessionId?: string | null;
   },
   terminal: {
     rows: 24,
@@ -629,6 +632,90 @@ describe('AgentTerminal integration', () => {
       identity: 'transcript-identity',
     });
     expect(testState.electronAPI.shellResolveForCommand).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('renders a non-resumable missing-host session as a read-only recovery record', async () => {
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'provider-session-1',
+      backendSessionId: undefined,
+      agentId: 'gemini',
+      agentCommand: 'gemini',
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+      replaySnapshot: 'archived terminal output',
+    });
+
+    const terminalRoot = mounted.container.querySelector<HTMLElement>('[data-agent-terminal-mode]');
+    expect(terminalRoot?.dataset.agentTerminalMode).toBe('transcript');
+    expect(testState.useXtermOptions.at(-1)?.staticContent).toEqual({
+      text: 'archived terminal output\n\nPersistent host recovery is unavailable and this session cannot resume automatically. Start a fresh session to continue.',
+      identity: 'recovery-required:ui-session-1:archived terminal output',
+    });
+    expect(testState.electronAPI.shellResolveForCommand).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
+  it('keeps Codex provider discovery enabled for unresolved missing-host sessions', async () => {
+    testState.providerDiscoveryState = {
+      providerSessionResolutionPending: true,
+    };
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'ui-session-1',
+      backendSessionId: undefined,
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+    });
+
+    expect(testState.discoveryCalls.at(-1)).toEqual(
+      expect.objectContaining({
+        agentCommand: 'codex',
+        initialized: true,
+      })
+    );
+    expect(testState.useXtermOptions.at(-1)?.staticContent).toBeUndefined();
+    expect(testState.useXtermOptions.at(-1)?.deferSessionCreate).toBe(true);
+
+    await mounted.unmount();
+  });
+
+  it('preserves unresolved Codex missing-host sessions as read-only recovery records', async () => {
+    testState.providerDiscoveryState = {
+      providerSessionResolutionPending: false,
+      resolvedProviderSessionId: null,
+    };
+    const mounted = await mountAgentTerminal({
+      id: 'ui-session-1',
+      sessionId: 'ui-session-1',
+      backendSessionId: undefined,
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      persistenceEnabled: true,
+      recoveryState: 'missing-host-session',
+      hostSessionKey: 'infilux-ui-session-1',
+      replaySnapshot: 'archived terminal output',
+    });
+
+    expect(
+      mounted.container.querySelector<HTMLElement>('[data-agent-terminal-mode]')?.dataset
+        .agentTerminalMode
+    ).toBe('transcript');
+    expect(testState.useXtermOptions.at(-1)?.staticContent).toEqual({
+      text: 'archived terminal output\n\nPersistent host recovery is unavailable and no matching Codex session was found. Start a fresh session to continue.',
+      identity: 'recovery-required:ui-session-1:archived terminal output',
+    });
+    expect(testState.useXtermOptions.at(-1)?.deferSessionCreate).toBe(true);
 
     await mounted.unmount();
   });

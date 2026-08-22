@@ -146,13 +146,13 @@ export async function restoreWorktreeAgentSessions({
     let hasPendingMetadataOnlySession = false;
 
     for (const item of result.items) {
+      upsertRecoveredSession(item.record);
+      restoredIds.push(item.record.uiSessionId);
       if (!item.recoverable) {
         hasPendingMetadataOnlySession = true;
         continue;
       }
 
-      upsertRecoveredSession(item.record);
-      restoredIds.push(item.record.uiSessionId);
       hasRecoverableSession = true;
     }
 

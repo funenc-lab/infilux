@@ -1859,6 +1859,77 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('does not create a fallback shell while session creation is deferred', async () => {
+    const mounted = mountHookHarness({
+      deferSessionCreate: true,
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+    expect(testState.sessionAttach).not.toHaveBeenCalled();
+
+    mounted.rerender({ deferSessionCreate: false });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('cancels a deferred-start retry when session creation is deferred again', async () => {
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      const frameId = ++nextFrameId;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => {
+      queuedFrames.delete(frameId);
+    });
+    const flushQueuedFrames = async () => {
+      for (let index = 0; index < 8; index += 1) {
+        const frames = Array.from(queuedFrames.values());
+        queuedFrames.clear();
+        if (frames.length === 0) {
+          return;
+        }
+        for (const frame of frames) {
+          frame(0);
+        }
+        await flushMicrotasks();
+      }
+    };
+    const mounted = mountHookHarness({
+      deferSessionCreate: true,
+    });
+
+    await act(async () => {
+      await flushQueuedFrames();
+    });
+
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({ deferSessionCreate: false });
+    mounted.rerender({ deferSessionCreate: true });
+
+    await act(async () => {
+      await flushQueuedFrames();
+    });
+
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+    expect(testState.sessionAttach).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+  });
+
   it('still auto-starts from initialCommand while inactive when that activation path is enabled', async () => {
     const mounted = mountHookHarness({
       isActive: false,

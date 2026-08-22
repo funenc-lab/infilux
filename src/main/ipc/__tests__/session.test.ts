@@ -385,6 +385,7 @@ describe('session IPC handlers', () => {
         persistOnDisconnect: true,
         env: {
           CODEX_HOME: '/runtime/codex/session-1',
+          INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({
           uiSessionId: 'ui-session-plain-codex',
@@ -747,6 +748,7 @@ describe('session IPC handlers', () => {
           BASE_ENV: '1',
           AGENT_CAPABILITY_PROFILE: 'strict',
           CODEX_HOME: '/runtime/codex/session-1',
+          INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({
           providerLaunchStrategy: 'provider-native',

@@ -91,6 +91,7 @@ describe('CodexRuntimeHomeService', () => {
       homePath: path.join(runtimeRoot, 'session-with-spaces'),
       sourceHomePath: sourceHome,
     });
+    expect(existsSync(path.join(result.homePath, '.infilux-managed-runtime-home-v1'))).toBe(true);
     expect(readlinkSync(path.join(result.homePath, 'auth.json'))).toBe(
       path.join(sourceHome, 'auth.json')
     );

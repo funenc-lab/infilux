@@ -304,11 +304,31 @@ describe('buildAgentLaunchPlan', () => {
       mode: 'create-if-missing',
     });
     expect(plan.initialCommand).toContain(
-      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -e CODEX_HOME="\${CODEX_HOME}" -s infilux-ui-session-11`
+      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -e CODEX_HOME="\${CODEX_HOME}" -e INFILUX_MANAGED_CODEX_RUNTIME_HOME="\${INFILUX_MANAGED_CODEX_RUNTIME_HOME}" -s infilux-ui-session-11`
     );
     expect(plan.initialCommand).toContain(`${agentTmuxUnsetPrefix} codex`);
     expect(plan.initialCommand).toContain('-u MallocStackLogging');
     expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
+  });
+
+  it('passes Gemini runtime provenance to a new tmux host session', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'gemini',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-gemini-1',
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l', '-c'],
+      },
+    });
+
+    expect(plan.command?.args[2]).toContain(
+      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -e GEMINI_CLI_HOME="\${GEMINI_CLI_HOME}" -e INFILUX_MANAGED_GEMINI_RUNTIME_HOME="\${INFILUX_MANAGED_GEMINI_RUNTIME_HOME}" -s infilux-ui-session-gemini-1`
+    );
   });
 
   it('resumes codex by provider id when persistent tmux host is missing', () => {
