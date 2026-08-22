@@ -83,6 +83,12 @@ const testState = vi.hoisted(() => ({
   terminalParserRegisterCsiHandler: vi.fn((_identifier: unknown, _handler: unknown) => ({
     dispose: () => undefined,
   })),
+  terminalParserRegisterDcsHandler: vi.fn((_identifier: unknown, _handler: unknown) => ({
+    dispose: () => undefined,
+  })),
+  terminalParserRegisterOscHandler: vi.fn((_identifier: unknown, _handler: unknown) => ({
+    dispose: () => undefined,
+  })),
   terminalInstanceCount: 0,
   terminalConstructorOptions: [] as Array<Record<string, unknown>>,
   terminalScrollToBottom: vi.fn(),
@@ -143,6 +149,10 @@ vi.mock('@xterm/xterm', () => ({
     parser = {
       registerCsiHandler: (identifier: unknown, handler: unknown) =>
         testState.terminalParserRegisterCsiHandler(identifier, handler),
+      registerDcsHandler: (identifier: unknown, handler: unknown) =>
+        testState.terminalParserRegisterDcsHandler(identifier, handler),
+      registerOscHandler: (identifier: unknown, handler: unknown) =>
+        testState.terminalParserRegisterOscHandler(identifier, handler),
     };
     unicode = { activeVersion: '11' };
     buffer = {
@@ -519,6 +529,16 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+function getRegisteredCsiHandler(identifier: Record<string, string>) {
+  const registration = testState.terminalParserRegisterCsiHandler.mock.calls.find(
+    ([registeredIdentifier]) => JSON.stringify(registeredIdentifier) === JSON.stringify(identifier)
+  );
+  if (!registration) {
+    throw new Error(`Missing CSI handler: ${JSON.stringify(identifier)}`);
+  }
+  return registration[1] as (params: Array<number | number[]>) => boolean;
+}
+
 describe('useXterm startup loading state', () => {
   beforeEach(() => {
     testState.latestSnapshot = {
@@ -559,6 +579,8 @@ describe('useXterm startup loading state', () => {
     testState.terminalDispose.mockClear();
     testState.terminalLoadAddonError = null;
     testState.terminalParserRegisterCsiHandler.mockClear();
+    testState.terminalParserRegisterDcsHandler.mockClear();
+    testState.terminalParserRegisterOscHandler.mockClear();
     testState.terminalInstanceCount = 0;
     testState.terminalConstructorOptions = [];
     testState.terminalScrollToBottom.mockClear();
@@ -669,14 +691,18 @@ describe('useXterm startup loading state', () => {
     vi.unstubAllGlobals();
   });
 
-  it('leaves agent terminal private mode handling to xterm', async () => {
+  it('registers replay query guards without overriding general terminal mode handling', async () => {
     const mounted = mountHookHarness();
 
     await act(async () => {
       await flushMicrotasks();
     });
 
-    expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalled();
+    expect(testState.terminalParserRegisterCsiHandler).toHaveBeenCalled();
+    expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalledWith(
+      expect.objectContaining({ final: 'l' }),
+      expect.any(Function)
+    );
 
     await mounted.unmount();
   });
@@ -1094,7 +1120,47 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('does not write terminal protocol responses generated while applying session output', async () => {
+  it('does not write terminal protocol responses generated while replaying a session', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+      replay: '\x1b[>q',
+    });
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('\x1b[>q');
+    expect(testState.terminalDataHandler).toBeTypeOf('function');
+
+    await act(async () => {
+      const handled = getRegisteredCsiHandler({ prefix: '>', final: 'q' })([0]);
+      if (!handled) {
+        testState.terminalDataHandler?.('\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\');
+      }
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+    await mounted.unmount();
+  });
+
+  it('does not write terminal protocol responses generated while rendering live session output', async () => {
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -1110,15 +1176,21 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    expect(testState.terminalWrite).toHaveBeenCalledWith('\x1b[>q');
-    expect(testState.terminalDataHandler).toBeTypeOf('function');
-
     await act(async () => {
-      testState.terminalDataHandler?.('\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\');
+      const handled = getRegisteredCsiHandler({ prefix: '>', final: 'q' })([0]);
+      if (!handled) {
+        testState.terminalDataHandler?.('\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\');
+      }
       await flushMicrotasks();
     });
 
     expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    act(() => {
+      testState.terminalDataHandler?.('preserved input');
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', 'preserved input');
 
     await act(async () => {
       testState.terminalWriteCallbacks.splice(0).forEach((callback) => {

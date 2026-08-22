@@ -44,12 +44,12 @@ import {
 } from './xtermClipboard';
 import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermContainerReady';
 import { XtermHibernateController } from './xtermHibernateController';
-import { shouldForwardXtermInput } from './xtermInputForwardingPolicy';
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK,
   XtermOutputBuffer,
 } from './xtermOutputBuffer';
+import { installXtermOutputProtocolGuard } from './xtermOutputProtocolGuard';
 import { resolveXtermRenderer } from './xtermRendererPolicy';
 import {
   buildXtermRecoveryAttemptKey,
@@ -450,6 +450,7 @@ export function useXterm({
   const lastSyncedViewportRef = useRef<XtermViewportSyncSnapshot | null>(null);
   const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
   const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
+  const outputProtocolGuardRef = useRef<{ dispose: () => void } | null>(null);
   const terminalImeFocusCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<XtermRendererAddon | null>(null);
@@ -1061,6 +1062,8 @@ export function useXterm({
     clearTerminalWriteFlushTimers();
     terminalInputCleanupRef.current?.dispose();
     terminalInputCleanupRef.current = null;
+    outputProtocolGuardRef.current?.dispose();
+    outputProtocolGuardRef.current = null;
     terminalImeFocusCleanupRef.current?.dispose();
     terminalImeFocusCleanupRef.current = null;
     if (copyOnSelectionHandlerRef.current) {
@@ -1501,14 +1504,12 @@ export function useXterm({
         copyOnSelectionHandlerRef.current = handleCopyOnSelection;
         copyEventHandlerRef.current = handleCopyEvent;
 
+        outputProtocolGuardRef.current = installXtermOutputProtocolGuard(
+          terminal.parser,
+          () => initialTerminalWriteInProgressRef.current || terminalWriteInFlightRef.current
+        );
         terminalInputCleanupRef.current = terminal.onData((data) => {
-          const isApplyingBackendOutput =
-            initialTerminalWriteInProgressRef.current || terminalWriteInFlightRef.current;
-          if (
-            ptyIdRef.current &&
-            runtimeStateRef.current === 'live' &&
-            shouldForwardXtermInput(data, { isApplyingBackendOutput })
-          ) {
+          if (ptyIdRef.current && runtimeStateRef.current === 'live') {
             window.electronAPI.session.write(ptyIdRef.current, data);
           }
         });
