@@ -1005,7 +1005,16 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('stops reporting loading and finalizes session startup after the first session output arrives even if attach is still pending', async () => {
+  it('keeps startup loading visible until the initial replay has been rendered', async () => {
+    let resolveTranscriptPage:
+      | ((value: { health: 'complete'; text: string; totalBytes: number }) => void)
+      | null = null;
+    testState.sessionGetTranscriptPage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveTranscriptPage = resolve;
+        })
+    );
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -1024,7 +1033,7 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    expect(testState.latestSnapshot.isLoading).toBe(false);
+    expect(testState.latestSnapshot.isLoading).toBe(true);
     expect(testState.sessionOpen).toHaveBeenCalledTimes(1);
     expect(testState.sessionOpen).toHaveBeenCalledWith({
       sessionId: 'backend-session-1',
@@ -1036,6 +1045,17 @@ describe('useXterm startup loading state', () => {
       runtimeState: 'live',
       metadata: undefined,
     });
+
+    await act(async () => {
+      resolveTranscriptPage?.({
+        health: 'complete',
+        text: '',
+        totalBytes: 0,
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.latestSnapshot.isLoading).toBe(false);
 
     await mounted.unmount();
   });
@@ -1452,6 +1472,7 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(terminalSurface.style.visibility).toBe('');
+    expect(testState.latestSnapshot.isLoading).toBe(false);
     expect(testState.sessionAcknowledgeOutputResync).toHaveBeenCalledTimes(1);
     await mounted.unmount();
   });

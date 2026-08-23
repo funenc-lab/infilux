@@ -833,6 +833,17 @@ export function useXterm({
     []
   );
 
+  const finishTerminalReplaySurface = useCallback(
+    (terminal?: Terminal, generation?: number | null): boolean => {
+      const revealed = revealTerminalReplaySurface(terminal, generation);
+      if (revealed) {
+        setIsLoading(false);
+      }
+      return revealed;
+    },
+    [revealTerminalReplaySurface]
+  );
+
   const resolveCompleteTranscriptReplay = useCallback(
     async (sessionId: string, fallbackReplay: string): Promise<string> => {
       if (kind !== 'agent') {
@@ -1106,11 +1117,12 @@ export function useXterm({
           console.warn('[xterm] Failed to acknowledge session output resync:', error);
         });
       } finally {
-        revealTerminalReplaySurface(terminal, replaySurfaceGeneration);
+        finishTerminalReplaySurface(terminal, replaySurfaceGeneration);
       }
     },
     [
       clearTerminalWriteFlushTimers,
+      finishTerminalReplaySurface,
       hideTerminalReplaySurface,
       isTerminalReplaySurfaceCurrent,
       replaceReplaySnapshot,
@@ -1736,8 +1748,7 @@ export function useXterm({
         const sessionId = ptyIdRef.current;
         if (!sessionId) {
           isHibernatedRef.current = false;
-          revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
-          setIsLoading(false);
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
 
@@ -1760,11 +1771,13 @@ export function useXterm({
             !replayApplied ||
             !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
           ) {
+            finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
             return;
           }
         }
 
         if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
 
@@ -1781,9 +1794,8 @@ export function useXterm({
           pendingOutputResyncRef.current = null;
           void restoreOutputAfterResync(sessionId, supersedingResync.replay);
         } else {
-          revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
         }
-        setIsLoading(false);
         return;
       }
 
@@ -1810,10 +1822,10 @@ export function useXterm({
           initAttemptId !== initAttemptIdRef.current ||
           !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
         ) {
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
-        setIsLoading(false);
-        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
+        finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
         if (initializingStaticContentKeyRef.current === staticContentKeyForAttempt) {
           appliedStaticContentKeyRef.current = staticContentKeyForAttempt;
           initializingStaticContentKeyRef.current = null;
@@ -1823,8 +1835,7 @@ export function useXterm({
       }
 
       if (deferSessionCreateRef.current) {
-        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
-        setIsLoading(false);
+        finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
         return;
       }
 
@@ -1893,7 +1904,6 @@ export function useXterm({
                 for (const resolve of waiters) {
                   resolve();
                 }
-                setIsLoading(false);
               }
               if (
                 shouldRearmDeadSessionRecovery({
@@ -2119,6 +2129,7 @@ export function useXterm({
           sessionEventsCleanupRef.current = null;
           ptyIdRef.current = null;
           await window.electronAPI.session.kill(session.sessionId).catch(() => {});
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
 
@@ -2150,6 +2161,7 @@ export function useXterm({
           createRequestId !== createRequestIdRef.current ||
           !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
         ) {
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
         const liveReplaySnapshot = replaySnapshotRef.current;
@@ -2181,6 +2193,7 @@ export function useXterm({
             createRequestId !== createRequestIdRef.current ||
             !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
           ) {
+            finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
             return;
           }
           onDataRef.current?.(restoredReplay);
@@ -2191,10 +2204,10 @@ export function useXterm({
           createRequestId !== createRequestIdRef.current ||
           !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
         ) {
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
-        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
-        setIsLoading(false);
+        finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
 
         // Focus is handled by the isActive effect after loading ends.
       } catch (error) {
@@ -2205,10 +2218,9 @@ export function useXterm({
         if (isUnmountedRef.current) {
           return;
         }
-        setIsLoading(false);
         terminal.writeln(`\x1b[31mFailed to start terminal.\x1b[0m`);
         terminal.writeln(`\x1b[33mError: ${error}\x1b[0m`);
-        revealTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
+        finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
       }
     },
     [
@@ -2240,6 +2252,7 @@ export function useXterm({
       flushPendingTerminalExit,
       restoreOutputAfterResync,
       clearTerminalWriteFlushTimers,
+      finishTerminalReplaySurface,
       hideTerminalReplaySurface,
       isTerminalReplaySurfaceCurrent,
       revealTerminalReplaySurface,
