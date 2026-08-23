@@ -14,11 +14,23 @@ const SESSION_TRANSCRIPT_APPEND_DELAY_MS = 16;
 const SESSION_TRANSCRIPT_PENDING_APPEND_BYTES = 512 * 1024;
 const SESSION_TRANSCRIPT_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
 const SESSION_TRANSCRIPT_SEGMENT_FILE_PATTERN = /^(\\d{20})\\.log$/;
+const SESSION_TRANSCRIPT_ESC = 0x1b;
+const SESSION_TRANSCRIPT_BEL = 0x07;
+const SESSION_TRANSCRIPT_CANCEL = 0x18;
+const SESSION_TRANSCRIPT_SUBSTITUTE = 0x1a;
+const SESSION_TRANSCRIPT_STRING_TERMINATOR = 0x9c;
+const SESSION_TRANSCRIPT_C1_DCS = 0x90;
+const SESSION_TRANSCRIPT_C1_CSI = 0x9b;
+const SESSION_TRANSCRIPT_C1_OSC = 0x9d;
+const SESSION_TRANSCRIPT_C1_SOS = 0x98;
+const SESSION_TRANSCRIPT_C1_PM = 0x9e;
+const SESSION_TRANSCRIPT_C1_APC = 0x9f;
 const sessionTranscriptQueues = new Map();
 const sessionTranscriptPendingAppends = new Map();
 const sessionTranscriptOpenedIds = new Set();
 const sessionTranscriptFailures = new Map();
 const sessionTranscriptStates = new Map();
+const sessionTranscriptIncompleteTerminalReplayMetadataIds = new Set();
 
 function normalizeSessionTranscriptId(sessionId) {
   if (
@@ -72,6 +84,9 @@ function createEmptySessionTranscriptState() {
     segments: [],
     retainedBytes: 0,
     dirty: false,
+    terminalReplayMetadataComplete: true,
+    terminalReplayStateAtEnd: 'text',
+    terminalReplayStatesBySegmentId: new Map(),
   };
 }
 
@@ -176,6 +191,181 @@ function takeSessionTranscriptUtf8Prefix(buffer, maxBytes) {
   return Buffer.from(buffer.subarray(0, Math.min(buffer.length, sequenceLength)));
 }
 
+function isSessionTranscriptStringIntroducer(codeUnit) {
+  return (
+    codeUnit === SESSION_TRANSCRIPT_C1_DCS ||
+    codeUnit === SESSION_TRANSCRIPT_C1_SOS ||
+    codeUnit === SESSION_TRANSCRIPT_C1_PM ||
+    codeUnit === SESSION_TRANSCRIPT_C1_APC
+  );
+}
+
+function isSessionTranscriptControlCancellation(codeUnit) {
+  return codeUnit === SESSION_TRANSCRIPT_CANCEL || codeUnit === SESSION_TRANSCRIPT_SUBSTITUTE;
+}
+
+function isSessionTranscriptEscapeIntermediate(codeUnit) {
+  return codeUnit >= 0x20 && codeUnit <= 0x2f;
+}
+
+function resolveSessionTranscriptEscapeState(codeUnit) {
+  if (isSessionTranscriptControlCancellation(codeUnit)) return 'text';
+  if (codeUnit === SESSION_TRANSCRIPT_ESC) return 'escape';
+  if (codeUnit === 0x5b) return 'csi';
+  if (codeUnit === 0x5d) return 'osc';
+  if (codeUnit === 0x50 || codeUnit === 0x58 || codeUnit === 0x5e || codeUnit === 0x5f) {
+    return 'string';
+  }
+  if (codeUnit === SESSION_TRANSCRIPT_C1_CSI) return 'csi';
+  if (codeUnit === SESSION_TRANSCRIPT_C1_OSC) return 'osc';
+  if (isSessionTranscriptStringIntroducer(codeUnit)) return 'string';
+  return isSessionTranscriptEscapeIntermediate(codeUnit) ? 'escapeIntermediate' : 'text';
+}
+
+function advanceSessionTranscriptTerminalReplayParserState(state, codeUnit) {
+  if (state === 'text') {
+    if (codeUnit === SESSION_TRANSCRIPT_ESC) return 'escape';
+    if (codeUnit === SESSION_TRANSCRIPT_C1_CSI) return 'csi';
+    if (codeUnit === SESSION_TRANSCRIPT_C1_OSC) return 'osc';
+    return isSessionTranscriptStringIntroducer(codeUnit) ? 'string' : 'text';
+  }
+
+  if (state === 'escape') return resolveSessionTranscriptEscapeState(codeUnit);
+
+  if (state === 'escapeIntermediate') {
+    if (isSessionTranscriptControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === SESSION_TRANSCRIPT_ESC) return 'escape';
+    if (isSessionTranscriptEscapeIntermediate(codeUnit)) return 'escapeIntermediate';
+    if (codeUnit === SESSION_TRANSCRIPT_C1_CSI) return 'csi';
+    if (codeUnit === SESSION_TRANSCRIPT_C1_OSC) return 'osc';
+    return isSessionTranscriptStringIntroducer(codeUnit) ? 'string' : 'text';
+  }
+
+  if (state === 'csi') {
+    if (isSessionTranscriptControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === SESSION_TRANSCRIPT_ESC) return 'escape';
+    if (codeUnit >= 0x40 && codeUnit <= 0x7e) return 'text';
+    if (codeUnit === SESSION_TRANSCRIPT_C1_CSI) return 'csi';
+    if (codeUnit === SESSION_TRANSCRIPT_C1_OSC) return 'osc';
+    return isSessionTranscriptStringIntroducer(codeUnit) ? 'string' : 'csi';
+  }
+
+  if (state === 'osc') {
+    if (isSessionTranscriptControlCancellation(codeUnit)) return 'text';
+    if (
+      codeUnit === SESSION_TRANSCRIPT_BEL ||
+      codeUnit === SESSION_TRANSCRIPT_STRING_TERMINATOR
+    ) {
+      return 'text';
+    }
+    return codeUnit === SESSION_TRANSCRIPT_ESC ? 'oscEscape' : 'osc';
+  }
+
+  if (state === 'string') {
+    if (isSessionTranscriptControlCancellation(codeUnit)) return 'text';
+    if (codeUnit === SESSION_TRANSCRIPT_STRING_TERMINATOR) return 'text';
+    return codeUnit === SESSION_TRANSCRIPT_ESC ? 'stringEscape' : 'string';
+  }
+
+  if (state === 'oscEscape') {
+    if (isSessionTranscriptControlCancellation(codeUnit)) return 'text';
+    if (
+      codeUnit === 0x5c ||
+      codeUnit === SESSION_TRANSCRIPT_BEL ||
+      codeUnit === SESSION_TRANSCRIPT_STRING_TERMINATOR
+    ) {
+      return 'text';
+    }
+    return codeUnit === SESSION_TRANSCRIPT_ESC ? 'oscEscape' : 'osc';
+  }
+
+  if (isSessionTranscriptControlCancellation(codeUnit)) return 'text';
+  if (codeUnit === 0x5c || codeUnit === SESSION_TRANSCRIPT_STRING_TERMINATOR) return 'text';
+  return codeUnit === SESSION_TRANSCRIPT_ESC ? 'stringEscape' : 'string';
+}
+
+function resolveSessionTranscriptTerminalReplayParserState(value, initialState = 'text') {
+  let state = initialState;
+  for (let index = 0; index < value.length; index += 1) {
+    state = advanceSessionTranscriptTerminalReplayParserState(state, value.charCodeAt(index));
+  }
+  return state;
+}
+
+function isSessionTranscriptTerminalReplayParserState(value) {
+  return (
+    value === 'text' ||
+    value === 'escape' ||
+    value === 'escapeIntermediate' ||
+    value === 'csi' ||
+    value === 'osc' ||
+    value === 'string' ||
+    value === 'oscEscape' ||
+    value === 'stringEscape'
+  );
+}
+
+function createUnavailableSessionTranscriptTerminalReplayMetadata() {
+  return {
+    isComplete: false,
+    stateAtEnd: 'text',
+    statesBySegmentId: new Map(),
+  };
+}
+
+async function loadSessionTranscriptTerminalReplayMetadata(sessionId, segments) {
+  const unavailable = createUnavailableSessionTranscriptTerminalReplayMetadata();
+  let manifest;
+  try {
+    manifest = JSON.parse(await fsp.readFile(getSessionTranscriptManifestPath(sessionId), 'utf8'));
+  } catch {
+    return unavailable;
+  }
+  if (
+    !manifest ||
+    typeof manifest !== 'object' ||
+    !Array.isArray(manifest.segments) ||
+    !manifest.terminalReplay ||
+    typeof manifest.terminalReplay !== 'object'
+  ) {
+    return unavailable;
+  }
+  if (
+    manifest.segments.length !== segments.length ||
+    !manifest.segments.every((entry, index) => {
+      const segment = segments[index];
+      return entry && entry.id === (segment && segment.id) && entry.byteLength === (segment && segment.byteLength);
+    })
+  ) {
+    return unavailable;
+  }
+
+  const terminalReplay = manifest.terminalReplay;
+  if (
+    terminalReplay.isComplete !== true ||
+    !isSessionTranscriptTerminalReplayParserState(terminalReplay.stateAtEnd) ||
+    !terminalReplay.statesBySegmentId ||
+    typeof terminalReplay.statesBySegmentId !== 'object'
+  ) {
+    return unavailable;
+  }
+
+  const statesBySegmentId = new Map();
+  for (const segment of segments) {
+    const parserState = terminalReplay.statesBySegmentId[String(segment.id)];
+    if (!isSessionTranscriptTerminalReplayParserState(parserState)) {
+      return unavailable;
+    }
+    statesBySegmentId.set(segment.id, parserState);
+  }
+
+  return {
+    isComplete: true,
+    stateAtEnd: terminalReplay.stateAtEnd,
+    statesBySegmentId,
+  };
+}
+
 async function loadSessionTranscriptV2State(sessionId) {
   const normalizedSessionId = normalizeSessionTranscriptId(sessionId);
   const cached = sessionTranscriptStates.get(normalizedSessionId);
@@ -213,10 +403,17 @@ async function loadSessionTranscriptV2State(sessionId) {
     .filter(Boolean)
     .sort((left, right) => left.id - right.id);
 
+  const terminalReplayMetadata = await loadSessionTranscriptTerminalReplayMetadata(
+    normalizedSessionId,
+    segments
+  );
   const state = {
     segments,
     retainedBytes: segments.reduce((total, segment) => total + segment.byteLength, 0),
     dirty: false,
+    terminalReplayMetadataComplete: terminalReplayMetadata.isComplete,
+    terminalReplayStateAtEnd: terminalReplayMetadata.stateAtEnd,
+    terminalReplayStatesBySegmentId: terminalReplayMetadata.statesBySegmentId,
   };
   sessionTranscriptStates.set(normalizedSessionId, state);
   return state;
@@ -231,6 +428,11 @@ async function writeSessionTranscriptManifest(sessionId, state) {
     version: SESSION_TRANSCRIPT_MANIFEST_VERSION,
     retainedBytes: state.retainedBytes,
     segments: state.segments,
+    terminalReplay: {
+      isComplete: state.terminalReplayMetadataComplete,
+      stateAtEnd: state.terminalReplayStateAtEnd,
+      statesBySegmentId: Object.fromEntries(state.terminalReplayStatesBySegmentId),
+    },
   };
   const manifestPath = getSessionTranscriptManifestPath(normalizedSessionId);
   const temporaryPath = manifestPath + '.' + process.pid + '.tmp';
@@ -252,6 +454,12 @@ async function appendSessionTranscriptSegment(sessionId, state, segment, chunk) 
   await fsp.writeFile(segmentPath, chunk, { flag: 'a', mode: 0o600 });
   segment.byteLength += chunk.length;
   state.retainedBytes += chunk.length;
+  if (state.terminalReplayMetadataComplete) {
+    state.terminalReplayStateAtEnd = resolveSessionTranscriptTerminalReplayParserState(
+      chunk.toString('utf8'),
+      state.terminalReplayStateAtEnd
+    );
+  }
 }
 
 async function writeSessionTranscriptBuffer(sessionId, state, input) {
@@ -272,6 +480,9 @@ async function writeSessionTranscriptBuffer(sessionId, state, input) {
       id: getNextSessionTranscriptSegmentId(state),
       byteLength: 0,
     };
+    if (state.terminalReplayMetadataComplete) {
+      state.terminalReplayStatesBySegmentId.set(segment.id, state.terminalReplayStateAtEnd);
+    }
     state.segments.push(segment);
     const chunk = takeSessionTranscriptUtf8Prefix(remaining, SESSION_TRANSCRIPT_SEGMENT_BYTES);
     await appendSessionTranscriptSegment(sessionId, state, segment, chunk);
@@ -286,6 +497,7 @@ async function trimSessionTranscriptToCapacity(sessionId, state) {
     if (oldest.byteLength <= excessBytes) {
       await fsp.rm(getSessionTranscriptSegmentPath(sessionId, oldest.id), { force: true });
       state.segments.shift();
+      state.terminalReplayStatesBySegmentId.delete(oldest.id);
       state.retainedBytes -= oldest.byteLength;
       continue;
     }
@@ -294,6 +506,21 @@ async function trimSessionTranscriptToCapacity(sessionId, state) {
     const contents = await fsp.readFile(segmentPath);
     const retained = takeSessionTranscriptUtf8Tail(contents, oldest.byteLength - excessBytes);
     await fsp.writeFile(segmentPath, retained, { mode: 0o600 });
+    if (state.terminalReplayMetadataComplete) {
+      const initialParserState = state.terminalReplayStatesBySegmentId.get(oldest.id);
+      if (initialParserState === undefined) {
+        state.terminalReplayMetadataComplete = false;
+      } else {
+        const discardedByteLength = contents.length - retained.length;
+        state.terminalReplayStatesBySegmentId.set(
+          oldest.id,
+          resolveSessionTranscriptTerminalReplayParserState(
+            contents.subarray(0, discardedByteLength).toString('utf8'),
+            initialParserState
+          )
+        );
+      }
+    }
     oldest.byteLength = retained.length;
     state.retainedBytes -= contents.length - retained.length;
   }
@@ -317,11 +544,14 @@ async function createSessionTranscriptStateFromLegacy(sessionId) {
     throw error;
   }
 
-  await writeSessionTranscriptBuffer(
-    normalizedSessionId,
-    state,
-    takeSessionTranscriptUtf8Tail(legacyOutput, SESSION_TRANSCRIPT_MAX_BYTES)
+  const retainedLegacyOutput = takeSessionTranscriptUtf8Tail(
+    legacyOutput,
+    SESSION_TRANSCRIPT_MAX_BYTES
   );
+  if (retainedLegacyOutput.length < legacyOutput.length) {
+    state.terminalReplayMetadataComplete = false;
+  }
+  await writeSessionTranscriptBuffer(normalizedSessionId, state, retainedLegacyOutput);
   state.dirty = true;
   return state;
 }
@@ -336,6 +566,9 @@ async function ensureSessionTranscriptOpen(sessionId) {
   let state = await loadSessionTranscriptV2State(normalizedSessionId);
   if (!state) {
     state = await createSessionTranscriptStateFromLegacy(normalizedSessionId);
+  }
+  if (sessionTranscriptIncompleteTerminalReplayMetadataIds.delete(normalizedSessionId)) {
+    state.terminalReplayMetadataComplete = false;
   }
 
   sessionTranscriptStates.set(normalizedSessionId, state);
@@ -378,11 +611,12 @@ function getPendingSessionTranscriptAppend(sessionId) {
   return created;
 }
 
-function compactPendingSessionTranscriptAppend(pending) {
+function compactPendingSessionTranscriptAppend(sessionId, pending) {
   if (pending.byteLength <= SESSION_TRANSCRIPT_PENDING_APPEND_BYTES) {
     return;
   }
 
+  markSessionTranscriptTerminalReplayMetadataIncomplete(sessionId);
   const retained = takeSessionTranscriptUtf8Tail(
     Buffer.concat(pending.chunks, pending.byteLength),
     SESSION_TRANSCRIPT_PENDING_APPEND_BYTES
@@ -473,10 +707,11 @@ function drainPendingSessionTranscriptAppend(sessionId, pending) {
 }
 
 function queueSessionTranscriptAppend(sessionId, chunk) {
-  const incoming = takeSessionTranscriptUtf8Tail(
-    Buffer.from(chunk, 'utf8'),
-    SESSION_TRANSCRIPT_MAX_BYTES
-  );
+  const encoded = Buffer.from(chunk, 'utf8');
+  if (encoded.length > SESSION_TRANSCRIPT_MAX_BYTES) {
+    markSessionTranscriptTerminalReplayMetadataIncomplete(sessionId);
+  }
+  const incoming = takeSessionTranscriptUtf8Tail(encoded, SESSION_TRANSCRIPT_MAX_BYTES);
   if (incoming.length === 0) {
     return;
   }
@@ -485,7 +720,7 @@ function queueSessionTranscriptAppend(sessionId, chunk) {
   pending.chunks.push(incoming);
   pending.byteLength += incoming.length;
   pending.latestSequence += 1;
-  compactPendingSessionTranscriptAppend(pending);
+  compactPendingSessionTranscriptAppend(sessionId, pending);
 
   if (pending.inFlight) {
     return;
@@ -527,6 +762,15 @@ function discardPendingSessionTranscriptAppend(sessionId) {
     clearTimeout(pending.timer);
   }
   sessionTranscriptPendingAppends.delete(sessionId);
+}
+
+function markSessionTranscriptTerminalReplayMetadataIncomplete(sessionId) {
+  const state = sessionTranscriptStates.get(sessionId);
+  if (state) {
+    state.terminalReplayMetadataComplete = false;
+    return;
+  }
+  sessionTranscriptIncompleteTerminalReplayMetadataIds.add(sessionId);
 }
 
 function appendSessionTranscript(session, chunk) {
@@ -593,7 +837,47 @@ function normalizeSessionTranscriptCursor(beforeByteOffset, size) {
   return beforeByteOffset;
 }
 
-async function readSessionTranscriptV2Page(sessionId, state, beforeByteOffset, maxBytes) {
+async function resolveSessionTranscriptV2TerminalReplayParserState(
+  sessionId,
+  state,
+  byteOffset
+) {
+  if (!state.terminalReplayMetadataComplete) {
+    return undefined;
+  }
+  if (byteOffset === state.retainedBytes) {
+    return state.terminalReplayStateAtEnd;
+  }
+
+  let segmentStartByteOffset = 0;
+
+  for (const segment of state.segments) {
+    const segmentEndByteOffset = segmentStartByteOffset + segment.byteLength;
+    if (byteOffset < segmentEndByteOffset) {
+      const initialParserState = state.terminalReplayStatesBySegmentId.get(segment.id);
+      if (initialParserState === undefined) {
+        return undefined;
+      }
+
+      const contents = await fsp.readFile(getSessionTranscriptSegmentPath(sessionId, segment.id));
+      return resolveSessionTranscriptTerminalReplayParserState(
+        contents.subarray(0, byteOffset - segmentStartByteOffset).toString('utf8'),
+        initialParserState
+      );
+    }
+    segmentStartByteOffset = segmentEndByteOffset;
+  }
+
+  return undefined;
+}
+
+async function readSessionTranscriptV2Page(
+  sessionId,
+  state,
+  beforeByteOffset,
+  maxBytes,
+  terminalReplay
+) {
   const endByteOffset = normalizeSessionTranscriptCursor(beforeByteOffset, state.retainedBytes);
   const requestedStartByteOffset = Math.max(0, endByteOffset - maxBytes);
   const chunks = [];
@@ -617,6 +901,13 @@ async function readSessionTranscriptV2Page(sessionId, state, beforeByteOffset, m
   const safeStartOffset = findSessionTranscriptUtf8Start(pageBuffer);
   const safeEndOffset = findSessionTranscriptUtf8End(pageBuffer, safeStartOffset);
   const startByteOffset = requestedStartByteOffset + safeStartOffset;
+  const initialParserState = terminalReplay
+    ? await resolveSessionTranscriptV2TerminalReplayParserState(
+        sessionId,
+        state,
+        startByteOffset
+      )
+    : undefined;
   return {
     text: pageBuffer.subarray(safeStartOffset, safeEndOffset).toString('utf8'),
     startByteOffset,
@@ -624,6 +915,7 @@ async function readSessionTranscriptV2Page(sessionId, state, beforeByteOffset, m
     hasMore: startByteOffset > 0,
     totalBytes: state.retainedBytes,
     health: sessionTranscriptFailures.has(sessionId) ? 'degraded' : 'complete',
+    ...(initialParserState === undefined ? {} : { initialParserState }),
   };
 }
 
@@ -655,7 +947,6 @@ async function readLegacySessionTranscriptPage(sessionId, beforeByteOffset, maxB
     const safeStartOffset = findSessionTranscriptUtf8Start(pageBuffer);
     const safeEndOffset = findSessionTranscriptUtf8End(pageBuffer, safeStartOffset);
     const startByteOffset = requestedStartByteOffset + safeStartOffset;
-
     return {
       text: pageBuffer.subarray(safeStartOffset, safeEndOffset).toString('utf8'),
       startByteOffset,
@@ -676,9 +967,19 @@ async function readSessionTranscriptPage(params = {}) {
 
   const state = await loadSessionTranscriptV2State(sessionId);
   if (state) {
-    return readSessionTranscriptV2Page(sessionId, state, params.beforeByteOffset, maxBytes);
+    return readSessionTranscriptV2Page(
+      sessionId,
+      state,
+      params.beforeByteOffset,
+      maxBytes,
+      params.terminalReplay === true
+    );
   }
-  return readLegacySessionTranscriptPage(sessionId, params.beforeByteOffset, maxBytes);
+  return readLegacySessionTranscriptPage(
+    sessionId,
+    params.beforeByteOffset,
+    maxBytes
+  );
 }
 
 async function deleteSessionTranscript(params = {}) {
@@ -691,6 +992,7 @@ async function deleteSessionTranscript(params = {}) {
     ]);
     sessionTranscriptOpenedIds.delete(sessionId);
     sessionTranscriptStates.delete(sessionId);
+    sessionTranscriptIncompleteTerminalReplayMetadataIds.delete(sessionId);
   });
   await deletion;
   if (sessionTranscriptQueues.get(sessionId) === deletion) {

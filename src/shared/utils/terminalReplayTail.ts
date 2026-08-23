@@ -11,6 +11,7 @@ const C1_OSC = 0x9d;
 const C1_SOS = 0x98;
 const C1_PM = 0x9e;
 const C1_APC = 0x9f;
+const UTF8_ENCODER = new TextEncoder();
 
 export type TerminalReplayParserState =
   | 'text'
@@ -221,6 +222,57 @@ export function takeTerminalReplayTail(
   }
 
   return value.slice(safeStart);
+}
+
+function getPreviousCodePointStart(value: string, endOffset: number): number {
+  const previousCodeUnit = value.charCodeAt(endOffset - 1);
+  if (previousCodeUnit >= 0xdc00 && previousCodeUnit <= 0xdfff && endOffset >= 2) {
+    const leadingCodeUnit = value.charCodeAt(endOffset - 2);
+    if (leadingCodeUnit >= 0xd800 && leadingCodeUnit <= 0xdbff) {
+      return endOffset - 2;
+    }
+  }
+
+  return endOffset - 1;
+}
+
+function takeUtf8ByteTail(value: string, maxBytes: number): string {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || !value) {
+    return '';
+  }
+
+  let retainedBytes = 0;
+  let startOffset = value.length;
+  while (startOffset > 0) {
+    const nextStartOffset = getPreviousCodePointStart(value, startOffset);
+    const byteLength = UTF8_ENCODER.encode(value.slice(nextStartOffset, startOffset)).byteLength;
+    if (retainedBytes + byteLength > maxBytes) {
+      break;
+    }
+
+    retainedBytes += byteLength;
+    startOffset = nextStartOffset;
+  }
+
+  return value.slice(startOffset);
+}
+
+export function takeTerminalReplayByteTail(
+  value: string,
+  maxBytes: number,
+  initialState: TerminalReplayParserState = 'text'
+): string {
+  const utf8SafeTail = takeUtf8ByteTail(value, maxBytes);
+  if (!utf8SafeTail) {
+    return '';
+  }
+
+  const requestedStart = value.length - utf8SafeTail.length;
+  const stateAtTailStart = resolveTerminalReplayParserState(
+    value.slice(0, requestedStart),
+    initialState
+  );
+  return takeTerminalReplayTail(utf8SafeTail, utf8SafeTail.length, stateAtTailStart);
 }
 
 export function appendTerminalReplayTail(

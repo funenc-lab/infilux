@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { appendTerminalReplayTail, takeTerminalReplayTail } from '../terminalReplayTail';
+import {
+  appendTerminalReplayTail,
+  takeTerminalReplayByteTail,
+  takeTerminalReplayTail,
+} from '../terminalReplayTail';
 
 const ESC = '\x1b';
 const BEL = '\x07';
@@ -69,5 +73,22 @@ describe('takeTerminalReplayTail', () => {
       replay: 'prompt ready\n',
       initialParserState: 'text',
     });
+  });
+});
+
+describe('takeTerminalReplayByteTail', () => {
+  it('enforces the UTF-8 byte limit without splitting emoji or CJK output', () => {
+    const maxBytes = 128 * 1024;
+    const replay = takeTerminalReplayByteTail(`discarded-${'你'.repeat(50_000)}🚀ready`, maxBytes);
+
+    expect(new TextEncoder().encode(replay).byteLength).toBeLessThanOrEqual(maxBytes);
+    expect(replay).toMatch(/🚀ready$/u);
+    expect(replay).not.toContain('\uFFFD');
+  });
+
+  it('drops the leading remainder of an ANSI string when the page starts inside it', () => {
+    const replay = takeTerminalReplayByteTail(`0;Infilux${BEL}prompt ready\n`, 128, 'osc');
+
+    expect(replay).toBe('prompt ready\n');
   });
 });

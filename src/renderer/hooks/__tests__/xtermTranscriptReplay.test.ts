@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readCompleteXtermTranscript } from '../xtermTranscriptReplay';
+import { readLatestXtermTranscript } from '../xtermTranscriptReplay';
 
-describe('readCompleteXtermTranscript', () => {
-  it('assembles every UTF-8 page from the archive tail without truncating the transcript', async () => {
+describe('readLatestXtermTranscript', () => {
+  it('restores only the latest bounded archive page for automatic terminal recovery', async () => {
     const getTranscriptPage = vi
       .fn()
       .mockResolvedValueOnce({
@@ -10,65 +10,46 @@ describe('readCompleteXtermTranscript', () => {
         nextBeforeByteOffset: 6,
         totalBytes: 15,
         health: 'complete',
+        initialParserState: 'text',
       })
       .mockResolvedValueOnce({
         text: 'first-',
         totalBytes: 15,
         health: 'complete',
-      })
-      .mockResolvedValueOnce({
-        text: '🚀-tail',
-        nextBeforeByteOffset: 6,
-        totalBytes: 15,
-        health: 'complete',
+        initialParserState: 'text',
       });
 
     await expect(
-      readCompleteXtermTranscript({
+      readLatestXtermTranscript({
         getTranscriptPage,
         pageBytes: 9,
         sessionId: 'session-1',
       })
-    ).resolves.toBe('first-🚀-tail');
+    ).resolves.toBe('🚀-tail');
 
-    expect(getTranscriptPage).toHaveBeenNthCalledWith(1, {
+    expect(getTranscriptPage).toHaveBeenCalledOnce();
+    expect(getTranscriptPage).toHaveBeenCalledWith({
       sessionId: 'session-1',
       maxBytes: 9,
-    });
-    expect(getTranscriptPage).toHaveBeenNthCalledWith(2, {
-      sessionId: 'session-1',
-      beforeByteOffset: 6,
-      maxBytes: 9,
-    });
-    expect(getTranscriptPage).toHaveBeenNthCalledWith(3, {
-      sessionId: 'session-1',
-      maxBytes: 9,
+      terminalReplay: true,
     });
   });
 
-  it('rejects a transcript page sequence with a broken byte cursor', async () => {
-    const getTranscriptPage = vi
-      .fn()
-      .mockResolvedValueOnce({
-        text: 'tail',
-        nextBeforeByteOffset: 5,
-        totalBytes: 9,
-        health: 'complete',
-      })
-      .mockResolvedValueOnce({
-        text: 'broken',
-        nextBeforeByteOffset: 2,
-        totalBytes: 9,
-        health: 'complete',
-      });
+  it('drops an ANSI string remainder when the archive page begins inside it', async () => {
+    const getTranscriptPage = vi.fn().mockResolvedValue({
+      text: '0;Infilux\x07prompt ready\n',
+      totalBytes: 24,
+      health: 'complete',
+      initialParserState: 'osc',
+    });
 
     await expect(
-      readCompleteXtermTranscript({
+      readLatestXtermTranscript({
         getTranscriptPage,
-        pageBytes: 9,
+        pageBytes: 128,
         sessionId: 'session-1',
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('prompt ready\n');
   });
 
   it('rejects an archive that cannot confirm complete transcript health', async () => {
@@ -79,12 +60,33 @@ describe('readCompleteXtermTranscript', () => {
     });
 
     await expect(
-      readCompleteXtermTranscript({
+      readLatestXtermTranscript({
         getTranscriptPage,
         pageBytes: 16,
         sessionId: 'session-1',
       })
     ).resolves.toBeUndefined();
+  });
+
+  it('uses a bounded fallback when the archive cannot provide the latest page', async () => {
+    const latest = '🚀latest';
+    const fallbackReplay = `discarded-${'你'.repeat(50_000)}${latest}`;
+    const getTranscriptPage = vi.fn().mockResolvedValue({
+      text: 'partial replay',
+      totalBytes: 131072,
+      health: 'degraded',
+    });
+    const request = {
+      fallbackReplay,
+      getTranscriptPage,
+      pageBytes: 16,
+      sessionId: 'session-1',
+    };
+
+    const replay = await readLatestXtermTranscript(request);
+
+    expect(replay).toMatch(/🚀latest$/u);
+    expect(new TextEncoder().encode(replay).byteLength).toBeLessThanOrEqual(128 * 1024);
   });
 
   it('accepts a confirmed empty transcript instead of treating it as unavailable', async () => {
@@ -92,10 +94,11 @@ describe('readCompleteXtermTranscript', () => {
       text: '',
       totalBytes: 0,
       health: 'complete',
+      initialParserState: 'text',
     });
 
     await expect(
-      readCompleteXtermTranscript({
+      readLatestXtermTranscript({
         getTranscriptPage,
         pageBytes: 16,
         sessionId: 'session-1',
@@ -103,33 +106,17 @@ describe('readCompleteXtermTranscript', () => {
     ).resolves.toBe('');
   });
 
-  it('rejects pages when the archive changes before the completed transcript is verified', async () => {
-    const getTranscriptPage = vi
-      .fn()
-      .mockResolvedValueOnce({
-        text: '🚀-tail',
-        nextBeforeByteOffset: 6,
-        totalBytes: 15,
-        health: 'complete',
-      })
-      .mockResolvedValueOnce({
-        text: 'first-',
-        totalBytes: 15,
-        health: 'complete',
-      })
-      .mockResolvedValueOnce({
-        text: 'changed!',
-        nextBeforeByteOffset: 6,
-        totalBytes: 15,
-        health: 'complete',
-      });
+  it('does not request an archive page for an invalid recovery budget', async () => {
+    const getTranscriptPage = vi.fn();
 
     await expect(
-      readCompleteXtermTranscript({
+      readLatestXtermTranscript({
         getTranscriptPage,
-        pageBytes: 9,
+        pageBytes: 0,
         sessionId: 'session-1',
       })
     ).resolves.toBeUndefined();
+
+    expect(getTranscriptPage).not.toHaveBeenCalled();
   });
 });

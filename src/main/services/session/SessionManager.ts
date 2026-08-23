@@ -690,6 +690,7 @@ export class SessionManager {
           sessionId: transcriptArchiveId,
           beforeByteOffset: request.beforeByteOffset,
           maxBytes,
+          terminalReplay: request.terminalReplay,
         });
         return this.toSessionTranscriptPage(null, page);
       } catch {
@@ -714,6 +715,7 @@ export class SessionManager {
         sessionId: request.sessionId,
         beforeByteOffset: request.beforeByteOffset,
         maxBytes,
+        terminalReplay: request.terminalReplay,
       });
       return this.toSessionTranscriptPage(session, page);
     } catch (error) {
@@ -797,6 +799,7 @@ export class SessionManager {
       sessionId: string;
       beforeByteOffset?: number;
       maxBytes: number;
+      terminalReplay?: boolean;
     }
   ): Promise<SessionTranscriptArchivePage> {
     if (session.backend === 'remote') {
@@ -834,6 +837,9 @@ export class SessionManager {
     return {
       text: page.text,
       ...(page.hasMore ? { nextBeforeByteOffset: page.startByteOffset } : {}),
+      ...(page.initialParserState === undefined
+        ? {}
+        : { initialParserState: page.initialParserState }),
       totalBytes: page.totalBytes,
       health,
     };

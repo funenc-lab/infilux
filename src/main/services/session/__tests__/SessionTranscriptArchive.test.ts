@@ -172,6 +172,73 @@ describe('SessionTranscriptArchive', () => {
     });
   });
 
+  it('reports the ANSI parser state at a terminal replay page boundary', async () => {
+    archive.append('agent-1', 'completed\n\x1b]0;Infilux\x07prompt ready\n');
+    await archive.flush('agent-1');
+
+    await expect(
+      archive.readPage({
+        sessionId: 'agent-1',
+        maxBytes: 18,
+        terminalReplay: true,
+      })
+    ).resolves.toMatchObject({
+      text: 'ilux\x07prompt ready\n',
+      initialParserState: 'osc',
+    });
+  });
+
+  it('restores persisted ANSI parser state without rebuilding archive metadata', async () => {
+    archive.append('agent-1', 'completed\n\x1b]0;Infilux\x07prompt ready\n');
+    await archive.flush('agent-1');
+    archive = new SessionTranscriptArchive({ rootDirectory });
+
+    await expect(
+      archive.readPage({
+        sessionId: 'agent-1',
+        maxBytes: 18,
+        terminalReplay: true,
+      })
+    ).resolves.toMatchObject({
+      text: 'ilux\x07prompt ready\n',
+      initialParserState: 'osc',
+    });
+  });
+
+  it('withholds terminal replay parser state from archives created before the metadata format', async () => {
+    const segmentDirectory = join(rootDirectory, 'v2', 'agent-1', 'segments');
+    await mkdir(segmentDirectory, { recursive: true });
+    await writeFile(
+      join(segmentDirectory, '00000000000000000000.log'),
+      'completed\n\x1b]0;Infilux\x07prompt ready\n'
+    );
+
+    const page = await archive.readPage({
+      sessionId: 'agent-1',
+      maxBytes: 18,
+      terminalReplay: true,
+    });
+
+    expect(page).not.toHaveProperty('initialParserState');
+  });
+
+  it('withholds terminal replay parser state when legacy migration truncates output', async () => {
+    const boundedArchive = new SessionTranscriptArchive({ rootDirectory, maxBytes: 18 });
+    await writeFile(
+      join(rootDirectory, 'agent-1.log'),
+      'completed\n\x1b]0;Infilux\x07prompt ready\n'
+    );
+
+    await boundedArchive.open('agent-1');
+    const page = await boundedArchive.readPage({
+      sessionId: 'agent-1',
+      maxBytes: 18,
+      terminalReplay: true,
+    });
+
+    expect(page).not.toHaveProperty('initialParserState');
+  });
+
   it('creates V2 transcript manifests with owner-only permissions', async () => {
     await archive.open('agent-1');
 

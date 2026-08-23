@@ -768,7 +768,7 @@ describe('getRemoteServerSource', () => {
 
     expect(source).toContain('appendSessionTranscript(session, chunk);');
     expect(source).toContain(
-      "'session:transcript:read': ({ sessionId, beforeByteOffset, maxBytes }) =>"
+      "'session:transcript:read': ({ sessionId, beforeByteOffset, maxBytes, terminalReplay }) =>"
     );
     expect(source).toContain("'session:transcript:delete': ({ sessionId }) =>");
   });

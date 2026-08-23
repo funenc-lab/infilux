@@ -15,6 +15,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { RUNTIME_STATE_DIRNAME } from '@shared/paths';
 import type { SessionTranscriptHealth } from '@shared/types';
+import {
+  resolveTerminalReplayParserState,
+  type TerminalReplayParserState,
+} from '@shared/utils/terminalReplayTail';
 
 const SESSION_TRANSCRIPT_ARCHIVE_DIRNAME = 'session-transcripts';
 const SESSION_TRANSCRIPT_FILENAME_SUFFIX = '.log';
@@ -36,6 +40,7 @@ export interface SessionTranscriptArchivePageRequest {
   sessionId: string;
   beforeByteOffset?: number;
   maxBytes: number;
+  terminalReplay?: boolean;
 }
 
 export interface SessionTranscriptArchivePage {
@@ -45,6 +50,7 @@ export interface SessionTranscriptArchivePage {
   hasMore: boolean;
   totalBytes: number;
   health: SessionTranscriptHealth;
+  initialParserState?: TerminalReplayParserState;
 }
 
 export interface SessionTranscriptArchiveDiagnostics {
@@ -70,12 +76,28 @@ interface TranscriptState {
   segments: TranscriptSegment[];
   retainedBytes: number;
   dirty: boolean;
+  terminalReplayMetadataComplete: boolean;
+  terminalReplayStateAtEnd: TerminalReplayParserState;
+  terminalReplayStatesBySegmentId: Map<number, TerminalReplayParserState>;
 }
 
 interface TranscriptManifest {
   version: number;
   retainedBytes: number;
   segments: TranscriptSegment[];
+  terminalReplay?: TerminalReplayManifest;
+}
+
+interface TerminalReplayManifest {
+  isComplete: boolean;
+  stateAtEnd: TerminalReplayParserState;
+  statesBySegmentId: Record<string, TerminalReplayParserState>;
+}
+
+interface TerminalReplayMetadata {
+  isComplete: boolean;
+  stateAtEnd: TerminalReplayParserState;
+  statesBySegmentId: Map<number, TerminalReplayParserState>;
 }
 
 interface PendingTranscriptAppend {
@@ -135,6 +157,23 @@ function findSafeUtf8End(buffer: Buffer, start: number): number {
     cursor += validContinuation ? sequenceLength : 1;
   }
   return cursor;
+}
+
+function isTerminalReplayParserState(value: unknown): value is TerminalReplayParserState {
+  return (
+    value === 'text' ||
+    value === 'escape' ||
+    value === 'escapeIntermediate' ||
+    value === 'csi' ||
+    value === 'osc' ||
+    value === 'string' ||
+    value === 'oscEscape' ||
+    value === 'stringEscape'
+  );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizePageSize(maxBytes: number): number {
@@ -219,7 +258,14 @@ function getDefaultRootDirectory(): string {
 }
 
 function createEmptyState(): TranscriptState {
-  return { segments: [], retainedBytes: 0, dirty: false };
+  return {
+    segments: [],
+    retainedBytes: 0,
+    dirty: false,
+    terminalReplayMetadataComplete: true,
+    terminalReplayStateAtEnd: 'text',
+    terminalReplayStatesBySegmentId: new Map(),
+  };
 }
 
 export class SessionTranscriptArchive {
@@ -233,6 +279,7 @@ export class SessionTranscriptArchive {
   private readonly openedSessionIds = new Set<string>();
   private readonly failures = new Map<string, Error>();
   private readonly states = new Map<string, TranscriptState>();
+  private readonly incompleteTerminalReplayMetadataSessionIds = new Set<string>();
 
   constructor(options: SessionTranscriptArchiveOptions = {}) {
     this.rootDirectory = options.rootDirectory ?? getDefaultRootDirectory();
@@ -264,10 +311,11 @@ export class SessionTranscriptArchive {
       return;
     }
 
-    this.queuePendingAppend(
-      normalizedSessionId,
-      takeUtf8ByteTail(Buffer.from(data, 'utf8'), this.maxBytes)
-    );
+    const encoded = Buffer.from(data, 'utf8');
+    if (encoded.length > this.maxBytes) {
+      this.markTerminalReplayMetadataIncomplete(normalizedSessionId);
+    }
+    this.queuePendingAppend(normalizedSessionId, takeUtf8ByteTail(encoded, this.maxBytes));
   }
 
   async flush(sessionId: string): Promise<void> {
@@ -301,7 +349,13 @@ export class SessionTranscriptArchive {
 
     const v2State = await this.loadV2State(sessionId);
     if (v2State) {
-      return this.readV2Page(sessionId, v2State, request.beforeByteOffset, maxBytes);
+      return this.readV2Page(
+        sessionId,
+        v2State,
+        request.beforeByteOffset,
+        maxBytes,
+        request.terminalReplay === true
+      );
     }
 
     return this.readLegacyPage(sessionId, request.beforeByteOffset, maxBytes);
@@ -328,6 +382,7 @@ export class SessionTranscriptArchive {
       ]);
       this.openedSessionIds.delete(normalizedSessionId);
       this.states.delete(normalizedSessionId);
+      this.incompleteTerminalReplayMetadataSessionIds.delete(normalizedSessionId);
     });
     await deletion;
     if (this.queues.get(normalizedSessionId) === deletion) {
@@ -365,6 +420,9 @@ export class SessionTranscriptArchive {
     if (!state) {
       state = await this.createStateFromLegacyTranscript(sessionId);
     }
+    if (this.incompleteTerminalReplayMetadataSessionIds.delete(sessionId)) {
+      state.terminalReplayMetadataComplete = false;
+    }
 
     this.states.set(sessionId, state);
     await this.writeManifest(sessionId, state);
@@ -381,7 +439,7 @@ export class SessionTranscriptArchive {
     pending.buffers.push(data);
     pending.byteLength += data.length;
     pending.latestSequence += 1;
-    this.compactPendingAppend(pending);
+    this.compactPendingAppend(sessionId, pending);
 
     if (pending.inFlight) {
       return;
@@ -410,11 +468,12 @@ export class SessionTranscriptArchive {
     return created;
   }
 
-  private compactPendingAppend(pending: PendingTranscriptAppend): void {
+  private compactPendingAppend(sessionId: string, pending: PendingTranscriptAppend): void {
     if (pending.byteLength <= this.maxPendingAppendBytes) {
       return;
     }
 
+    this.markTerminalReplayMetadataIncomplete(sessionId);
     const retained = takeUtf8ByteTail(
       Buffer.concat(pending.buffers, pending.byteLength),
       this.maxPendingAppendBytes
@@ -521,6 +580,15 @@ export class SessionTranscriptArchive {
     this.pendingAppends.delete(sessionId);
   }
 
+  private markTerminalReplayMetadataIncomplete(sessionId: string): void {
+    const state = this.states.get(sessionId);
+    if (state) {
+      state.terminalReplayMetadataComplete = false;
+      return;
+    }
+    this.incompleteTerminalReplayMetadataSessionIds.add(sessionId);
+  }
+
   private async createStateFromLegacyTranscript(sessionId: string): Promise<TranscriptState> {
     const state = createEmptyState();
     await mkdir(this.getSegmentsDirectory(sessionId), { recursive: true, mode: 0o700 });
@@ -535,11 +603,11 @@ export class SessionTranscriptArchive {
       throw error;
     }
 
-    await this.writeBufferToSegments(
-      sessionId,
-      state,
-      takeUtf8ByteTail(legacyOutput, this.maxBytes)
-    );
+    const retainedLegacyOutput = takeUtf8ByteTail(legacyOutput, this.maxBytes);
+    if (retainedLegacyOutput.length < legacyOutput.length) {
+      state.terminalReplayMetadataComplete = false;
+    }
+    await this.writeBufferToSegments(sessionId, state, retainedLegacyOutput);
     state.dirty = true;
     return state;
   }
@@ -580,6 +648,9 @@ export class SessionTranscriptArchive {
         id: this.getNextSegmentId(state),
         byteLength: 0,
       };
+      if (state.terminalReplayMetadataComplete) {
+        state.terminalReplayStatesBySegmentId.set(segment.id, state.terminalReplayStateAtEnd);
+      }
       state.segments.push(segment);
       const chunk = takeUtf8BytePrefix(remaining, this.segmentBytes);
       await this.appendToSegment(sessionId, state, segment, chunk);
@@ -601,6 +672,12 @@ export class SessionTranscriptArchive {
     await writeFile(filePath, chunk, { flag: 'a', mode: 0o600 });
     segment.byteLength += chunk.length;
     state.retainedBytes += chunk.length;
+    if (state.terminalReplayMetadataComplete) {
+      state.terminalReplayStateAtEnd = resolveTerminalReplayParserState(
+        chunk.toString('utf8'),
+        state.terminalReplayStateAtEnd
+      );
+    }
   }
 
   private async trimToCapacity(sessionId: string, state: TranscriptState): Promise<void> {
@@ -610,6 +687,7 @@ export class SessionTranscriptArchive {
       if (oldest.byteLength <= excessBytes) {
         await rm(this.getSegmentPath(sessionId, oldest.id), { force: true });
         state.segments.shift();
+        state.terminalReplayStatesBySegmentId.delete(oldest.id);
         state.retainedBytes -= oldest.byteLength;
         continue;
       }
@@ -617,6 +695,21 @@ export class SessionTranscriptArchive {
       const contents = await readFile(this.getSegmentPath(sessionId, oldest.id));
       const retained = takeUtf8ByteTail(contents, oldest.byteLength - excessBytes);
       await writeFile(this.getSegmentPath(sessionId, oldest.id), retained, { mode: 0o600 });
+      if (state.terminalReplayMetadataComplete) {
+        const initialParserState = state.terminalReplayStatesBySegmentId.get(oldest.id);
+        if (initialParserState === undefined) {
+          state.terminalReplayMetadataComplete = false;
+        } else {
+          const discardedByteLength = contents.length - retained.length;
+          state.terminalReplayStatesBySegmentId.set(
+            oldest.id,
+            resolveTerminalReplayParserState(
+              contents.subarray(0, discardedByteLength).toString('utf8'),
+              initialParserState
+            )
+          );
+        }
+      }
       oldest.byteLength = retained.length;
       state.retainedBytes -= contents.length - retained.length;
     }
@@ -657,10 +750,14 @@ export class SessionTranscriptArchive {
       .filter((segment): segment is TranscriptSegment => segment !== undefined)
       .sort((left, right) => left.id - right.id);
 
+    const terminalReplayMetadata = await this.loadTerminalReplayMetadata(sessionId, segments);
     const state: TranscriptState = {
       segments,
       retainedBytes: segments.reduce((total, segment) => total + segment.byteLength, 0),
       dirty: false,
+      terminalReplayMetadataComplete: terminalReplayMetadata.isComplete,
+      terminalReplayStateAtEnd: terminalReplayMetadata.stateAtEnd,
+      terminalReplayStatesBySegmentId: terminalReplayMetadata.statesBySegmentId,
     };
     this.states.set(sessionId, state);
     return state;
@@ -673,6 +770,11 @@ export class SessionTranscriptArchive {
       version: SESSION_TRANSCRIPT_MANIFEST_VERSION,
       retainedBytes: state.retainedBytes,
       segments: state.segments,
+      terminalReplay: {
+        isComplete: state.terminalReplayMetadataComplete,
+        stateAtEnd: state.terminalReplayStateAtEnd,
+        statesBySegmentId: Object.fromEntries(state.terminalReplayStatesBySegmentId),
+      },
     };
     const manifestPath = this.getManifestPath(sessionId);
     const temporaryPath = `${manifestPath}.${process.pid}.tmp`;
@@ -681,11 +783,74 @@ export class SessionTranscriptArchive {
     await chmod(manifestPath, 0o600);
   }
 
+  private async loadTerminalReplayMetadata(
+    sessionId: string,
+    segments: readonly TranscriptSegment[]
+  ): Promise<TerminalReplayMetadata> {
+    const unavailable: TerminalReplayMetadata = {
+      isComplete: false,
+      stateAtEnd: 'text',
+      statesBySegmentId: new Map(),
+    };
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(this.getManifestPath(sessionId), 'utf8'));
+    } catch {
+      return unavailable;
+    }
+    if (
+      !isPlainObject(parsed) ||
+      !Array.isArray(parsed.segments) ||
+      !isPlainObject(parsed.terminalReplay)
+    ) {
+      return unavailable;
+    }
+    if (
+      parsed.segments.length !== segments.length ||
+      !parsed.segments.every((entry, index) => {
+        const segment = segments[index];
+        return (
+          isPlainObject(entry) &&
+          entry.id === segment?.id &&
+          entry.byteLength === segment?.byteLength
+        );
+      })
+    ) {
+      return unavailable;
+    }
+
+    const terminalReplay = parsed.terminalReplay;
+    if (
+      terminalReplay.isComplete !== true ||
+      !isTerminalReplayParserState(terminalReplay.stateAtEnd) ||
+      !isPlainObject(terminalReplay.statesBySegmentId)
+    ) {
+      return unavailable;
+    }
+
+    const statesBySegmentId = new Map<number, TerminalReplayParserState>();
+    for (const segment of segments) {
+      const parserState = terminalReplay.statesBySegmentId[String(segment.id)];
+      if (!isTerminalReplayParserState(parserState)) {
+        return unavailable;
+      }
+      statesBySegmentId.set(segment.id, parserState);
+    }
+
+    return {
+      isComplete: true,
+      stateAtEnd: terminalReplay.stateAtEnd,
+      statesBySegmentId,
+    };
+  }
+
   private async readV2Page(
     sessionId: string,
     state: TranscriptState,
     beforeByteOffset: number | undefined,
-    maxBytes: number
+    maxBytes: number,
+    terminalReplay: boolean
   ): Promise<SessionTranscriptArchivePage> {
     const endByteOffset = normalizeBeforeByteOffset(beforeByteOffset, state.retainedBytes);
     const requestedStartByteOffset = Math.max(0, endByteOffset - maxBytes);
@@ -710,6 +875,9 @@ export class SessionTranscriptArchive {
     const safeStartOffset = findSafeUtf8Start(pageBuffer);
     const safeEndOffset = findSafeUtf8End(pageBuffer, safeStartOffset);
     const startByteOffset = requestedStartByteOffset + safeStartOffset;
+    const initialParserState = terminalReplay
+      ? await this.resolveV2TerminalReplayParserState(sessionId, state, startByteOffset)
+      : undefined;
 
     return {
       text: pageBuffer.subarray(safeStartOffset, safeEndOffset).toString('utf8'),
@@ -718,6 +886,7 @@ export class SessionTranscriptArchive {
       hasMore: startByteOffset > 0,
       totalBytes: state.retainedBytes,
       health: this.failures.has(sessionId) ? 'degraded' : 'complete',
+      ...(initialParserState === undefined ? {} : { initialParserState }),
     };
   }
 
@@ -765,6 +934,40 @@ export class SessionTranscriptArchive {
     } finally {
       await file.close();
     }
+  }
+
+  private async resolveV2TerminalReplayParserState(
+    sessionId: string,
+    state: TranscriptState,
+    byteOffset: number
+  ): Promise<TerminalReplayParserState | undefined> {
+    if (!state.terminalReplayMetadataComplete) {
+      return undefined;
+    }
+    if (byteOffset === state.retainedBytes) {
+      return state.terminalReplayStateAtEnd;
+    }
+
+    let segmentStartByteOffset = 0;
+
+    for (const segment of state.segments) {
+      const segmentEndByteOffset = segmentStartByteOffset + segment.byteLength;
+      if (byteOffset < segmentEndByteOffset) {
+        const initialParserState = state.terminalReplayStatesBySegmentId.get(segment.id);
+        if (initialParserState === undefined) {
+          return undefined;
+        }
+
+        const contents = await readFile(this.getSegmentPath(sessionId, segment.id));
+        return resolveTerminalReplayParserState(
+          contents.subarray(0, byteOffset - segmentStartByteOffset).toString('utf8'),
+          initialParserState
+        );
+      }
+      segmentStartByteOffset = segmentEndByteOffset;
+    }
+
+    return undefined;
   }
 
   private getNextSegmentId(state: TranscriptState): number {

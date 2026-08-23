@@ -59,10 +59,21 @@ export interface SessionRuntimeInfo {
 
 export type SessionTranscriptHealth = 'complete' | 'degraded' | 'unavailable';
 
+export type SessionTranscriptInitialParserState =
+  | 'text'
+  | 'escape'
+  | 'escapeIntermediate'
+  | 'csi'
+  | 'osc'
+  | 'string'
+  | 'oscEscape'
+  | 'stringEscape';
+
 export interface SessionTranscriptPageRequest {
   sessionId: string;
   beforeByteOffset?: number;
   maxBytes?: number;
+  terminalReplay?: boolean;
 }
 
 export interface SessionTranscriptPage {
@@ -70,6 +81,7 @@ export interface SessionTranscriptPage {
   nextBeforeByteOffset?: number;
   totalBytes: number;
   health: SessionTranscriptHealth;
+  initialParserState?: SessionTranscriptInitialParserState;
 }
 
 export interface SessionOpenResult {

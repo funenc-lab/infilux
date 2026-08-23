@@ -11,6 +11,7 @@ type GeneratedTranscriptPage = {
   hasMore: boolean;
   totalBytes: number;
   health: 'complete' | 'degraded' | 'unavailable';
+  initialParserState?: string;
 };
 
 type GeneratedTranscriptRuntime = {
@@ -21,6 +22,7 @@ type GeneratedTranscriptRuntime = {
     sessionId: string;
     beforeByteOffset?: number;
     maxBytes: number;
+    terminalReplay?: boolean;
   }) => Promise<GeneratedTranscriptPage>;
 };
 
@@ -88,6 +90,47 @@ describe('getSessionTranscriptArchiveRuntimeSource', () => {
     expect(source).toContain('const sessionTranscriptPendingAppends = new Map();');
     expect(source).toContain('function queueSessionTranscriptAppend(sessionId, chunk) {');
     expect(source).toContain('await flushPendingSessionTranscriptAppend(normalizedSessionId);');
+  });
+
+  it('reports the ANSI parser state at a generated terminal replay page boundary', async () => {
+    const runtime = createGeneratedTranscriptRuntime(rootDirectory);
+    const session = { sessionId: 'agent-1', kind: 'agent' };
+
+    await runtime.openSessionTranscript(session);
+    runtime.appendSessionTranscript(session, 'completed\n\x1b]0;Infilux\x07prompt ready\n');
+    await runtime.flushSessionTranscript(session);
+
+    await expect(
+      runtime.readSessionTranscriptPage({
+        sessionId: 'agent-1',
+        maxBytes: 18,
+        terminalReplay: true,
+      })
+    ).resolves.toMatchObject({
+      text: 'ilux\x07prompt ready\n',
+      initialParserState: 'osc',
+    });
+  });
+
+  it('restores generated ANSI parser state from persisted archive metadata', async () => {
+    const session = { sessionId: 'agent-1', kind: 'agent' };
+    const writer = createGeneratedTranscriptRuntime(rootDirectory);
+
+    await writer.openSessionTranscript(session);
+    writer.appendSessionTranscript(session, 'completed\n\x1b]0;Infilux\x07prompt ready\n');
+    await writer.flushSessionTranscript(session);
+
+    const reader = createGeneratedTranscriptRuntime(rootDirectory);
+    await expect(
+      reader.readSessionTranscriptPage({
+        sessionId: 'agent-1',
+        maxBytes: 18,
+        terminalReplay: true,
+      })
+    ).resolves.toMatchObject({
+      text: 'ilux\x07prompt ready\n',
+      initialParserState: 'osc',
+    });
   });
 
   it('rebuilds generated V2 archive pages when the manifest is missing', async () => {

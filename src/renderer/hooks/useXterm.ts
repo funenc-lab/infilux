@@ -67,7 +67,7 @@ import {
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions, resolveTerminalFontFamily } from './xtermTerminalOptions';
 import { installXtermImeFocusBridge } from './xtermTextInputFocus';
-import { readCompleteXtermTranscript } from './xtermTranscriptReplay';
+import { readLatestXtermTranscript } from './xtermTranscriptReplay';
 import { syncXtermViewportToSession, type XtermViewportSyncSnapshot } from './xtermViewportSync';
 import {
   createXtermViewportSyncController,
@@ -844,13 +844,14 @@ export function useXterm({
     [revealTerminalReplaySurface]
   );
 
-  const resolveCompleteTranscriptReplay = useCallback(
+  const resolveLatestAgentTranscriptReplay = useCallback(
     async (sessionId: string, fallbackReplay: string): Promise<string> => {
       if (kind !== 'agent') {
         return fallbackReplay;
       }
 
-      const transcript = await readCompleteXtermTranscript({
+      const transcript = await readLatestXtermTranscript({
+        fallbackReplay,
         getTranscriptPage: window.electronAPI.session.getTranscriptPage,
         sessionId,
       });
@@ -1088,7 +1089,7 @@ export function useXterm({
       };
       const replaySurfaceGeneration = hideTerminalReplaySurface(terminal);
 
-      const restoredOutput = await resolveCompleteTranscriptReplay(sessionId, replay);
+      const restoredOutput = await resolveLatestAgentTranscriptReplay(sessionId, replay);
 
       if (
         terminalRef.current !== terminal ||
@@ -1127,7 +1128,7 @@ export function useXterm({
       isTerminalReplaySurfaceCurrent,
       replaceReplaySnapshot,
       revealTerminalReplaySurface,
-      resolveCompleteTranscriptReplay,
+      resolveLatestAgentTranscriptReplay,
       writeInitialTerminalContent,
     ]
   );
@@ -1762,7 +1763,7 @@ export function useXterm({
           pendingOutputResyncRef.current = null;
           await restoreOutputAfterResync(sessionId, pendingResync.replay, replayViewport);
         } else {
-          const replay = await resolveCompleteTranscriptReplay(
+          const replay = await resolveLatestAgentTranscriptReplay(
             sessionId,
             replaySnapshotRef.current
           );
@@ -2152,7 +2153,7 @@ export function useXterm({
           persistedReplaySnapshot: recoveredReplaySnapshot,
           reusedExistingSession,
         });
-        const restoredReplay = await resolveCompleteTranscriptReplay(
+        const restoredReplay = await resolveLatestAgentTranscriptReplay(
           session.sessionId,
           initialReplay ?? ''
         );
@@ -2256,7 +2257,7 @@ export function useXterm({
       hideTerminalReplaySurface,
       isTerminalReplaySurfaceCurrent,
       revealTerminalReplaySurface,
-      resolveCompleteTranscriptReplay,
+      resolveLatestAgentTranscriptReplay,
     ]
   );
 

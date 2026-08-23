@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import type { SessionTranscriptPage } from '@shared/types';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -59,11 +60,13 @@ const testState = vi.hoisted(() => ({
   sessionResize: vi.fn(async () => undefined),
   sessionWrite: vi.fn(async () => undefined),
   sessionGetRuntimeInfo: vi.fn(async () => null),
-  sessionGetTranscriptPage: vi.fn(async () => ({
-    text: '',
-    totalBytes: 0,
-    health: 'unavailable' as 'complete' | 'degraded' | 'unavailable',
-  })),
+  sessionGetTranscriptPage: vi.fn(
+    async (): Promise<SessionTranscriptPage> => ({
+      text: '',
+      totalBytes: 0,
+      health: 'unavailable' as 'complete' | 'degraded' | 'unavailable',
+    })
+  ),
   sessionActivateOutput: vi.fn(async () => undefined),
   sessionAcknowledgeOutputResync: vi.fn(async () => undefined),
   sessionSetOutputDelivery: vi.fn(async () => undefined),
@@ -561,7 +564,12 @@ describe('useXterm startup loading state', () => {
     testState.sessionResize.mockClear();
     testState.sessionWrite.mockClear();
     testState.sessionGetRuntimeInfo.mockClear();
-    testState.sessionGetTranscriptPage.mockClear();
+    testState.sessionGetTranscriptPage.mockReset();
+    testState.sessionGetTranscriptPage.mockResolvedValue({
+      text: '',
+      totalBytes: 0,
+      health: 'unavailable',
+    });
     testState.sessionActivateOutput.mockClear();
     testState.sessionAcknowledgeOutputResync.mockClear();
     testState.sessionSetOutputDelivery.mockClear();
@@ -809,7 +817,8 @@ describe('useXterm startup loading state', () => {
 
     expect(testState.sessionGetTranscriptPage).toHaveBeenCalledWith({
       sessionId: 'backend-session-1',
-      maxBytes: 256 * 1024,
+      maxBytes: 128 * 1024,
+      terminalReplay: true,
     });
     expect(testState.terminalWrite).toHaveBeenLastCalledWith('complete replay output');
 
@@ -828,11 +837,13 @@ describe('useXterm startup loading state', () => {
         text: 'archived output',
         totalBytes: 15,
         health: 'complete',
+        initialParserState: 'text',
       })
       .mockResolvedValueOnce({
         text: 'archived output',
         totalBytes: 15,
         health: 'complete',
+        initialParserState: 'text',
       });
     const mounted = mountHookHarness();
 
@@ -850,7 +861,8 @@ describe('useXterm startup loading state', () => {
 
     expect(testState.sessionGetTranscriptPage).toHaveBeenCalledWith({
       sessionId: 'backend-session-1',
-      maxBytes: 256 * 1024,
+      maxBytes: 128 * 1024,
+      terminalReplay: true,
     });
     expect(testState.terminalWrite).toHaveBeenLastCalledWith('archived output');
 

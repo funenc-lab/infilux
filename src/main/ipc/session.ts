@@ -237,6 +237,12 @@ function normalizeTranscriptPageRequest(value: unknown): SessionTranscriptPageRe
     }
     request.maxBytes = maxBytes;
   }
+  if (value.terminalReplay !== undefined) {
+    if (typeof value.terminalReplay !== 'boolean') {
+      throw new Error('Invalid session terminal replay request');
+    }
+    request.terminalReplay = value.terminalReplay;
+  }
 
   return request;
 }

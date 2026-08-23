@@ -4145,8 +4145,8 @@ const handlers = {
   'session:resize': ({ sessionId, cols, rows }) => resizeSession(sessionId, cols, rows),
   'session:list': () => listSessions(),
   'session:getActivity': ({ sessionId }) => getSessionActivity(sessionId),
-  'session:transcript:read': ({ sessionId, beforeByteOffset, maxBytes }) =>
-    readSessionTranscriptPage({ sessionId, beforeByteOffset, maxBytes }),
+  'session:transcript:read': ({ sessionId, beforeByteOffset, maxBytes, terminalReplay }) =>
+    readSessionTranscriptPage({ sessionId, beforeByteOffset, maxBytes, terminalReplay }),
   'session:transcript:delete': ({ sessionId }) =>
     deleteSessionTranscript({ sessionId }),
 };
