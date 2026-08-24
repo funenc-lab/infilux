@@ -75,7 +75,19 @@ export async function launchInfiluxForScenario(
     consoleMessages.push(`[main:${message.type()}] ${message.text()}${renderedValues}`);
   });
 
-  const page = await app.firstWindow();
+  let page: Page;
+  try {
+    page = await app.firstWindow();
+  } catch (error) {
+    await app.close().catch(() => undefined);
+    throw new Error(
+      [
+        error instanceof Error ? error.message : String(error),
+        'Electron startup diagnostics:',
+        consoleMessages.length > 0 ? consoleMessages.join('\n') : 'No Electron console messages.',
+      ].join('\n\n')
+    );
+  }
 
   page.on('console', (message) => {
     consoleMessages.push(`[renderer:${message.type()}] ${message.text()}`);

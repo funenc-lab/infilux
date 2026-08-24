@@ -27,6 +27,8 @@ interface CommandOptions {
 }
 
 interface CreateAgentSessionRecoveryScenarioOptions {
+  agentSessionDisplayMode?: 'canvas' | 'tab';
+  continuousOutput?: boolean;
   includeForeignWorkspace?: boolean;
 }
 
@@ -38,6 +40,7 @@ export interface AgentSessionRecoveryScenario {
   worktreeBranch: string;
   foreignRepoPath: string;
   foreignWorktreePath: string;
+  mainWorktreeBranch: string;
   uiSessionId: string;
   sessionDisplayName: string;
   foreignSessionDisplayName: string;
@@ -45,13 +48,16 @@ export interface AgentSessionRecoveryScenario {
   transcriptFirstLine: string;
   transcriptLastLine: string;
   tmuxGreeting: string;
+  liveOutputLine: string;
   tmuxSessionName: string;
+  startContinuousOutput: (() => Promise<void>) | null;
   profileName: string;
   cleanup: () => Promise<void>;
 }
 
 const RECOVERY_TRANSCRIPT_LINE_COUNT = 180;
 const RECOVERY_TRANSCRIPT_PREFIX = 'RECOVERY-LINE';
+const LIVE_OUTPUT_LINE = 'LIVE-OUTPUT';
 
 function normalizePathForRepositoryId(value: string): string {
   const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
@@ -148,6 +154,7 @@ async function createTmuxRecoverySession(options: {
   worktreePath: string;
   sessionName: string;
   greeting: string;
+  continuousOutputStartPath: string | null;
 }): Promise<void> {
   const scriptPath = join(options.rootDir, 'tmux-recovery-session.sh');
   const scriptContent = [
@@ -159,7 +166,17 @@ async function createTmuxRecoverySession(options: {
     '  i=$((i + 1))',
     'done',
     `printf '%s\\n' ${shellQuote(options.greeting)}`,
-    'exec cat',
+    ...(options.continuousOutputStartPath
+      ? [
+          `while [ ! -f ${shellQuote(options.continuousOutputStartPath)} ]; do`,
+          '  sleep 0.05',
+          'done',
+          'while :; do',
+          `  printf '%s\\n' ${shellQuote(LIVE_OUTPUT_LINE)}`,
+          '  sleep 0.25',
+          'done',
+        ]
+      : ['exec cat']),
     '',
   ].join('\n');
 
@@ -201,6 +218,8 @@ export function ensureTmuxAvailable(): void {
 export async function createAgentSessionRecoveryScenario(
   options: CreateAgentSessionRecoveryScenarioOptions = {}
 ): Promise<AgentSessionRecoveryScenario> {
+  const agentSessionDisplayMode = options.agentSessionDisplayMode ?? 'tab';
+  const continuousOutput = options.continuousOutput ?? false;
   const includeForeignWorkspace = options.includeForeignWorkspace ?? false;
   const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
   const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-recovery-'));
@@ -220,6 +239,9 @@ export async function createAgentSessionRecoveryScenario(
   const sessionDisplayName = 'Recovered Session';
   const foreignSessionDisplayName = 'Foreign Recovered Session';
   const tmuxGreeting = 'Recovered from tmux';
+  const continuousOutputStartPath = continuousOutput
+    ? join(rootDir, 'start-continuous-output')
+    : null;
   const runtimeRoot = buildRecoveryRuntimeRoot(homeDir, profileName);
   const settingsPath = join(runtimeRoot, SETTINGS_FILENAME);
   const sessionStatePath = join(runtimeRoot, SESSION_STATE_FILENAME);
@@ -236,6 +258,7 @@ export async function createAgentSessionRecoveryScenario(
     worktreePath,
     sessionName: tmuxSessionName,
     greeting: tmuxGreeting,
+    continuousOutputStartPath,
   });
   if (includeForeignWorkspace) {
     await createGitRepositoryFixture(foreignRepoPath, foreignWorktreePath);
@@ -245,12 +268,14 @@ export async function createAgentSessionRecoveryScenario(
       worktreePath: foreignWorktreePath,
       sessionName: foreignTmuxSessionName,
       greeting: foreignSessionDisplayName,
+      continuousOutputStartPath: null,
     });
   }
 
   const settingsDocument = {
     'enso-settings': {
       state: {
+        agentSessionDisplayMode,
         terminalRenderer: 'dom',
         claudeCodeIntegration: {
           tmuxEnabled: true,
@@ -342,6 +367,7 @@ export async function createAgentSessionRecoveryScenario(
     worktreeBranch,
     foreignRepoPath,
     foreignWorktreePath,
+    mainWorktreeBranch: 'main',
     uiSessionId,
     sessionDisplayName,
     foreignSessionDisplayName,
@@ -349,7 +375,13 @@ export async function createAgentSessionRecoveryScenario(
     transcriptFirstLine: `${RECOVERY_TRANSCRIPT_PREFIX}-001`,
     transcriptLastLine: `${RECOVERY_TRANSCRIPT_PREFIX}-${String(RECOVERY_TRANSCRIPT_LINE_COUNT).padStart(3, '0')}`,
     tmuxGreeting,
+    liveOutputLine: LIVE_OUTPUT_LINE,
     tmuxSessionName,
+    startContinuousOutput: continuousOutputStartPath
+      ? async () => {
+          await writeFile(continuousOutputStartPath, 'start\n', 'utf8');
+        }
+      : null,
     profileName,
     cleanup: async () => {
       ensureTmuxSessionMissing(homeDir, tmuxSessionName);

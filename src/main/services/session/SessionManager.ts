@@ -2360,7 +2360,9 @@ export class SessionManager {
       ) {
         continue;
       }
-      this.sessionOutputBatcher.requestResync(windowId, session.sessionId);
+      this.sessionOutputBatcher.requestResync(windowId, session.sessionId, {
+        supersedePending: true,
+      });
     }
   }
 

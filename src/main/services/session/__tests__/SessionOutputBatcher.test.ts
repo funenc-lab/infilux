@@ -56,8 +56,8 @@ describe('SessionOutputBatcher', () => {
     expect(requestResync).toHaveBeenCalledTimes(1);
     expect(requestResync).toHaveBeenCalledWith(1, 'agent-1');
     expect(batcher.getDiagnostics()).toEqual({
-      pendingBatchCount: 0,
-      pendingCharCount: 0,
+      pendingBatchCount: 1,
+      pendingCharCount: 1,
       resyncSessionCount: 1,
       deliveredBatchCount: 0,
       deliveredCharCount: 0,
@@ -72,7 +72,7 @@ describe('SessionOutputBatcher', () => {
     expect(deliver).toHaveBeenCalledWith(1, 'agent-1', 'next');
   });
 
-  it('requests a fresh resync after output arrives before the current resync is acknowledged', () => {
+  it('delivers output received during a resync after the current snapshot is acknowledged', () => {
     vi.useFakeTimers();
     const deliver = vi.fn();
     const requestResync = vi.fn();
@@ -81,18 +81,36 @@ describe('SessionOutputBatcher', () => {
       requestResync,
       delayMs: 10,
       maxChars: 4,
-      maxPendingChars: 16,
+      maxPendingChars: 64,
     });
 
     batcher.requestResync(1, 'agent-1');
     batcher.enqueue(1, 'agent-1', 'arrived while restoring');
+    batcher.acknowledgeResync(1, 'agent-1');
+    vi.runAllTimers();
+
+    expect(requestResync.mock.calls).toEqual([[1, 'agent-1']]);
+    expect(deliver).toHaveBeenCalledWith(1, 'agent-1', 'arri');
+    expect(deliver).toHaveBeenLastCalledWith(1, 'agent-1', 'ing');
+  });
+
+  it('requests a fresh resync when output received during a resync exceeds the bounded buffer', () => {
+    const requestResync = vi.fn();
+    const batcher = new SessionOutputBatcher({
+      deliver: vi.fn(),
+      requestResync,
+      maxChars: 2,
+      maxPendingChars: 2,
+    });
+
+    batcher.requestResync(1, 'agent-1');
+    batcher.enqueue(1, 'agent-1', 'overflow');
     batcher.acknowledgeResync(1, 'agent-1');
 
     expect(requestResync.mock.calls).toEqual([
       [1, 'agent-1'],
       [1, 'agent-1'],
     ]);
-    expect(deliver).not.toHaveBeenCalled();
   });
 
   it('requests a fresh resync when an upstream snapshot supersedes a pending snapshot', () => {
@@ -103,7 +121,7 @@ describe('SessionOutputBatcher', () => {
     });
 
     batcher.requestResync(1, 'agent-1');
-    batcher.requestResync(1, 'agent-1');
+    batcher.requestResync(1, 'agent-1', { supersedePending: true });
     batcher.acknowledgeResync(1, 'agent-1');
 
     expect(requestResync.mock.calls).toEqual([

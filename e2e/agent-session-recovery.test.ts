@@ -205,6 +205,69 @@ describe.sequential('electron agent session recovery', () => {
       await quitElectronApplication(secondLaunch.app);
     }
   });
+
+  it('keeps a recovered canvas terminal mounted when returning to its worktree', async () => {
+    const scenario = await createAgentSessionRecoveryScenario({
+      agentSessionDisplayMode: 'canvas',
+    });
+    cleanupTasks.push(scenario.cleanup);
+
+    const launch = await launchInfiluxForScenario(scenario);
+
+    try {
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await selectRecoveryWorktree(launch.page, scenario);
+
+      const terminal = resolveTerminalLocator(launch.page, scenario);
+      await terminal.waitFor({ state: 'visible', timeout: 30000 });
+      await installXtermMountProbe(launch.page, scenario.sessionPanelId);
+
+      await selectWorktreeByBranch(launch.page, scenario.mainWorktreeBranch);
+      await selectRecoveryWorktree(launch.page, scenario);
+      await terminal.waitFor({ state: 'visible', timeout: 30000 });
+
+      await expect
+        .poll(async () => await readXtermMountProbe(launch.page), { timeout: 5000 })
+        .toEqual({ added: 0, removed: 0 });
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
+  it('does not repeatedly hide a recovered canvas terminal while its session keeps producing output', async () => {
+    const scenario = await createAgentSessionRecoveryScenario({
+      agentSessionDisplayMode: 'canvas',
+      continuousOutput: true,
+    });
+    cleanupTasks.push(scenario.cleanup);
+
+    const launch = await launchInfiluxForScenario(scenario);
+
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await selectRecoveryWorktree(launch.page, scenario);
+
+      const terminal = resolveTerminalLocator(launch.page, scenario);
+      await terminal.waitFor({ state: 'visible', timeout: 30000 });
+      if (!scenario.startContinuousOutput) {
+        throw new Error('Continuous output fixture is unavailable');
+      }
+      await scenario.startContinuousOutput();
+      await expect
+        .poll(async () => await readVisibleTerminalText(launch.page, scenario), { timeout: 30000 })
+        .toContain(scenario.liveOutputLine);
+      await installXtermReplaySurfaceProbe(launch.page, scenario.sessionPanelId);
+
+      await selectWorktreeByBranch(launch.page, scenario.mainWorktreeBranch);
+      await selectRecoveryWorktree(launch.page, scenario);
+      await terminal.waitFor({ state: 'visible', timeout: 30000 });
+
+      expect(await waitForXtermReplaySurfaceToSettle(launch.page)).toBe(1);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
 });
 
 async function assertSessionIsRecoveredAfterWorktreeSelection(
@@ -233,15 +296,153 @@ async function selectRecoveryWorktree(
   page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
   scenario: AgentSessionRecoveryScenario
 ): Promise<void> {
+  await selectWorktreeByBranch(page, scenario.worktreeBranch);
+}
+
+async function selectWorktreeByBranch(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  branch: string
+): Promise<void> {
   const worktreeButton = page
     .locator('[data-node-kind="worktree"]')
-    .filter({ hasText: scenario.worktreeBranch })
+    .filter({ hasText: branch })
     .locator('button[data-surface="row"]')
     .first();
 
   await revealWorktreeSidebarForInteraction(worktreeButton);
-  console.info('[e2e] clicking recovery worktree row');
+  console.info(`[e2e] clicking worktree row: ${branch}`);
   await worktreeButton.click();
+}
+
+async function installXtermMountProbe(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  sessionPanelId: string
+): Promise<void> {
+  await page.evaluate((targetPanelId) => {
+    type XtermMountProbe = {
+      added: number;
+      observer: MutationObserver;
+      removed: number;
+    };
+    const windowWithProbe = window as typeof window & {
+      __xtermMountProbe?: XtermMountProbe;
+    };
+    windowWithProbe.__xtermMountProbe?.observer.disconnect();
+
+    const panel = document.getElementById(targetPanelId);
+    if (!panel) {
+      throw new Error(`Missing terminal panel: ${targetPanelId}`);
+    }
+
+    const probe: XtermMountProbe = {
+      added: 0,
+      observer: new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (
+              node instanceof Element &&
+              (node.matches('.xterm') || node.querySelector('.xterm'))
+            ) {
+              probe.added += 1;
+            }
+          }
+          for (const node of record.removedNodes) {
+            if (
+              node instanceof Element &&
+              (node.matches('.xterm') || node.querySelector('.xterm'))
+            ) {
+              probe.removed += 1;
+            }
+          }
+        }
+      }),
+      removed: 0,
+    };
+    probe.observer.observe(panel, { childList: true, subtree: true });
+    windowWithProbe.__xtermMountProbe = probe;
+  }, sessionPanelId);
+}
+
+async function readXtermMountProbe(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<{ added: number; removed: number }> {
+  return await page.evaluate(() => {
+    const probe = (
+      window as typeof window & {
+        __xtermMountProbe?: { added: number; removed: number };
+      }
+    ).__xtermMountProbe;
+    return {
+      added: probe?.added ?? 0,
+      removed: probe?.removed ?? 0,
+    };
+  });
+}
+
+async function installXtermReplaySurfaceProbe(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  sessionPanelId: string
+): Promise<void> {
+  await page.evaluate((targetPanelId) => {
+    type XtermReplaySurfaceProbe = {
+      hiddenCount: number;
+      observer: MutationObserver;
+    };
+    const windowWithProbe = window as typeof window & {
+      __xtermReplaySurfaceProbe?: XtermReplaySurfaceProbe;
+    };
+    windowWithProbe.__xtermReplaySurfaceProbe?.observer.disconnect();
+
+    const panel = document.getElementById(targetPanelId);
+    const surface = panel?.querySelector('.xterm')?.parentElement;
+    if (!surface) {
+      throw new Error(`Missing xterm replay surface for panel: ${targetPanelId}`);
+    }
+
+    const probe: XtermReplaySurfaceProbe = {
+      hiddenCount: 0,
+      observer: new MutationObserver(() => {
+        if (surface instanceof HTMLElement && surface.style.visibility === 'hidden') {
+          probe.hiddenCount += 1;
+        }
+      }),
+    };
+    probe.observer.observe(surface, { attributes: true, attributeFilter: ['style'] });
+    windowWithProbe.__xtermReplaySurfaceProbe = probe;
+  }, sessionPanelId);
+}
+
+async function waitForXtermReplaySurfaceToSettle(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<number> {
+  return await page.evaluate(async () => {
+    const probe = (
+      window as typeof window & {
+        __xtermReplaySurfaceProbe?: { hiddenCount: number };
+      }
+    ).__xtermReplaySurfaceProbe;
+    if (!probe) {
+      throw new Error('Missing xterm replay surface probe');
+    }
+
+    const timeoutAt = performance.now() + 10000;
+    let previousCount = probe.hiddenCount;
+    let lastChangeAt = performance.now();
+    while (performance.now() < timeoutAt) {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 50);
+      });
+      if (probe.hiddenCount !== previousCount) {
+        previousCount = probe.hiddenCount;
+        lastChangeAt = performance.now();
+      }
+      if (probe.hiddenCount > 0 && performance.now() - lastChangeAt >= 500) {
+        return probe.hiddenCount;
+      }
+    }
+
+    throw new Error(`Xterm replay surface did not settle; hide count: ${probe.hiddenCount}`);
+  });
 }
 
 async function revealWorktreeSidebarForInteraction(worktreeButton: ScenarioLocator): Promise<void> {

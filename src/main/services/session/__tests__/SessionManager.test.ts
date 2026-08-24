@@ -1644,7 +1644,7 @@ describe('SessionManager', () => {
     expect(buildDiagnosticsSnapshot()).toMatchObject({ outputSuspendedSessionCount: 0 });
   });
 
-  it('refreshes a replay snapshot when output arrives before the renderer acknowledges a resync', async () => {
+  it('delivers output received during a resync after the renderer acknowledges the snapshot', async () => {
     createWindow(1);
     const manager = new SessionManager();
     const opened = await manager.create(1, { cwd: '/repo-output-resync' });
@@ -1660,10 +1660,11 @@ describe('SessionManager', () => {
     manager.setOutputDelivery(1, sessionId, true);
     pty.emitData(sessionId, ' while restoring');
     manager.acknowledgeOutputResync(1, sessionId);
+    await vi.advanceTimersByTimeAsync(16);
 
     expect(getWindowSendCalls(1)).toEqual([
       [IPC_CHANNELS.SESSION_OUTPUT_RESYNC, { sessionId, replay: 'hidden output' }],
-      [IPC_CHANNELS.SESSION_OUTPUT_RESYNC, { sessionId, replay: 'hidden output while restoring' }],
+      [IPC_CHANNELS.SESSION_DATA, { sessionId, data: ' while restoring' }],
     ]);
   });
 

@@ -7,6 +7,10 @@ type PendingSessionOutput = {
   data: string;
 };
 
+type RequestResyncOptions = {
+  supersedePending?: boolean;
+};
+
 type SessionOutputBatcherOptions = {
   deliver: (windowId: number, sessionId: string, data: string) => void;
   requestResync?: (windowId: number, sessionId: string) => void;
@@ -46,6 +50,10 @@ function normalizePositiveInteger(value: number, name: string): number {
 
 export class SessionOutputBatcher {
   private readonly pendingByWindowId = new Map<number, Map<string, PendingSessionOutput>>();
+  private readonly postResyncPendingByWindowId = new Map<
+    number,
+    Map<string, PendingSessionOutput>
+  >();
   private readonly resyncSessionIdsByWindowId = new Map<number, Set<string>>();
   private readonly resyncDirtySessionIdsByWindowId = new Map<number, Set<string>>();
   private readonly flushTimersByWindowId = new Map<number, ReturnType<typeof setTimeout>>();
@@ -89,7 +97,7 @@ export class SessionOutputBatcher {
       return;
     }
     if (this.isResyncPending(windowId, sessionId)) {
-      this.markResyncDirty(windowId, sessionId);
+      this.enqueuePostResyncOutput(windowId, sessionId, data);
       return;
     }
 
@@ -101,14 +109,7 @@ export class SessionOutputBatcher {
       return;
     }
 
-    if (pending) {
-      pending.data += data;
-    } else {
-      bySessionId.set(sessionId, { data });
-      this.pendingBatchCount += 1;
-    }
-    this.pendingCharCount += data.length;
-    this.maxPendingCharCount = Math.max(this.maxPendingCharCount, this.pendingCharCount);
+    this.appendPendingOutput(bySessionId, sessionId, data);
     this.scheduleFlush(windowId);
   }
 
@@ -129,13 +130,14 @@ export class SessionOutputBatcher {
 
   discard(windowId: number, sessionId: string): void {
     this.removePendingSessionOutput(windowId, sessionId);
+    this.removePostResyncPendingSessionOutput(windowId, sessionId);
     this.scheduleOrDiscardWindow(windowId);
 
     this.clearResyncState(windowId, sessionId);
   }
 
-  requestResync(windowId: number, sessionId: string): void {
-    this.beginResync(windowId, sessionId, true);
+  requestResync(windowId: number, sessionId: string, options: RequestResyncOptions = {}): void {
+    this.beginResync(windowId, sessionId, options.supersedePending ?? false);
   }
 
   acknowledgeResync(windowId: number, sessionId: string): void {
@@ -149,13 +151,19 @@ export class SessionOutputBatcher {
     }
 
     const dirtySessionIds = this.resyncDirtySessionIdsByWindowId.get(windowId);
-    const receivedOutputWhileResyncing = dirtySessionIds?.delete(sessionId) ?? false;
+    const requiresReplacementSnapshot = dirtySessionIds?.delete(sessionId) ?? false;
     if (dirtySessionIds?.size === 0) {
       this.resyncDirtySessionIdsByWindowId.delete(windowId);
     }
 
-    if (hadResyncPending && receivedOutputWhileResyncing) {
+    if (hadResyncPending && requiresReplacementSnapshot) {
+      this.removePostResyncPendingSessionOutput(windowId, sessionId);
       this.beginResync(windowId, sessionId);
+      return;
+    }
+
+    if (hadResyncPending) {
+      this.promotePostResyncPendingOutput(windowId, sessionId);
     }
   }
 
@@ -168,6 +176,14 @@ export class SessionOutputBatcher {
         this.pendingCharCount -= pending.data.length;
       }
       this.pendingByWindowId.delete(windowId);
+    }
+    const postResyncPendingBySessionId = this.postResyncPendingByWindowId.get(windowId);
+    if (postResyncPendingBySessionId) {
+      this.pendingBatchCount -= postResyncPendingBySessionId.size;
+      for (const pending of postResyncPendingBySessionId.values()) {
+        this.pendingCharCount -= pending.data.length;
+      }
+      this.postResyncPendingByWindowId.delete(windowId);
     }
     this.nextSessionIdByWindowId.delete(windowId);
     const resyncSessionIds = this.resyncSessionIdsByWindowId.get(windowId);
@@ -301,13 +317,14 @@ export class SessionOutputBatcher {
     }
   }
 
-  private beginResync(windowId: number, sessionId: string, markDirtyWhenPending = false): void {
+  private beginResync(windowId: number, sessionId: string, supersedePending = false): void {
     this.removePendingSessionOutput(windowId, sessionId);
+    this.removePostResyncPendingSessionOutput(windowId, sessionId);
     this.scheduleOrDiscardWindow(windowId);
 
     const sessionIds = this.resyncSessionIdsByWindowId.get(windowId) ?? new Set<string>();
     if (sessionIds.has(sessionId)) {
-      if (markDirtyWhenPending) {
+      if (supersedePending) {
         this.markResyncDirty(windowId, sessionId);
       }
       return;
@@ -352,6 +369,69 @@ export class SessionOutputBatcher {
     return created;
   }
 
+  private getPostResyncPendingBySessionId(windowId: number): Map<string, PendingSessionOutput> {
+    const existing = this.postResyncPendingByWindowId.get(windowId);
+    if (existing) {
+      return existing;
+    }
+
+    const created = new Map<string, PendingSessionOutput>();
+    this.postResyncPendingByWindowId.set(windowId, created);
+    return created;
+  }
+
+  private enqueuePostResyncOutput(windowId: number, sessionId: string, data: string): void {
+    const bySessionId = this.getPostResyncPendingBySessionId(windowId);
+    const pending = bySessionId.get(sessionId);
+    const currentData = pending?.data ?? '';
+    if (currentData.length + data.length > this.maxPendingChars) {
+      this.removePostResyncPendingSessionOutput(windowId, sessionId);
+      this.markResyncDirty(windowId, sessionId);
+      return;
+    }
+
+    this.appendPendingOutput(bySessionId, sessionId, data);
+  }
+
+  private appendPendingOutput(
+    bySessionId: Map<string, PendingSessionOutput>,
+    sessionId: string,
+    data: string
+  ): void {
+    const pending = bySessionId.get(sessionId);
+    if (pending) {
+      pending.data += data;
+    } else {
+      bySessionId.set(sessionId, { data });
+      this.pendingBatchCount += 1;
+    }
+    this.pendingCharCount += data.length;
+    this.maxPendingCharCount = Math.max(this.maxPendingCharCount, this.pendingCharCount);
+  }
+
+  private promotePostResyncPendingOutput(windowId: number, sessionId: string): void {
+    const postResyncBySessionId = this.postResyncPendingByWindowId.get(windowId);
+    const pending = postResyncBySessionId?.get(sessionId);
+    if (!pending) {
+      return;
+    }
+
+    postResyncBySessionId?.delete(sessionId);
+    if (postResyncBySessionId?.size === 0) {
+      this.postResyncPendingByWindowId.delete(windowId);
+    }
+
+    const bySessionId = this.getPendingBySessionId(windowId);
+    const existing = bySessionId.get(sessionId);
+    if (existing) {
+      existing.data += pending.data;
+      this.pendingBatchCount -= 1;
+    } else {
+      bySessionId.set(sessionId, pending);
+    }
+    this.scheduleFlush(windowId);
+  }
+
   private removePendingSessionOutput(
     windowId: number,
     sessionId: string
@@ -365,6 +445,28 @@ export class SessionOutputBatcher {
     bySessionId?.delete(sessionId);
     this.pendingBatchCount -= 1;
     this.pendingCharCount -= pending.data.length;
+    return pending;
+  }
+
+  private removePostResyncPendingSessionOutput(
+    windowId: number,
+    sessionId: string
+  ): PendingSessionOutput | null {
+    const bySessionId = this.postResyncPendingByWindowId.get(windowId);
+    const pending = bySessionId?.get(sessionId);
+    if (!pending) {
+      if (bySessionId?.size === 0) {
+        this.postResyncPendingByWindowId.delete(windowId);
+      }
+      return null;
+    }
+
+    bySessionId?.delete(sessionId);
+    this.pendingBatchCount -= 1;
+    this.pendingCharCount -= pending.data.length;
+    if (bySessionId?.size === 0) {
+      this.postResyncPendingByWindowId.delete(windowId);
+    }
     return pending;
   }
 }
