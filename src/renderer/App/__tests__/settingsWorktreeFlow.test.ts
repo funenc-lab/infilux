@@ -19,9 +19,6 @@ const invalidateQueries = vi.fn();
 const switchEditorWorktree = vi.fn();
 const gitFetch = vi.fn(() => Promise.resolve());
 const restoreWorktreeSessions = vi.fn(() => Promise.resolve({ items: [] }));
-const getSessions = vi.fn((repoPath: string, cwd: string) => [{ id: `${repoPath}:${cwd}` }]);
-const upsertRecoveredSession = vi.fn();
-const updateGroupState = vi.fn();
 
 const settingsStoreState: {
   editorSettings: { autoSave: string };
@@ -48,6 +45,8 @@ const WORKTREE_B: GitWorktree = {
   isLocked: false,
   prunable: false,
 };
+
+const agentSessions = [{ cwd: WORKTREE_A.path }, { cwd: WORKTREE_B.path }];
 
 interface FlowHarnessProps {
   initialActiveTab?: TabId;
@@ -92,17 +91,9 @@ vi.mock('@/stores/editor', () => ({
 }));
 
 vi.mock('@/stores/agentSessions', () => ({
-  useAgentSessionsStore: (
-    selector: (state: {
-      getSessions: typeof getSessions;
-      upsertRecoveredSession: typeof upsertRecoveredSession;
-      updateGroupState: typeof updateGroupState;
-    }) => unknown
-  ) =>
+  useAgentSessionsStore: (selector: (state: { sessions: typeof agentSessions }) => unknown) =>
     selector({
-      getSessions,
-      upsertRecoveredSession,
-      updateGroupState,
+      sessions: agentSessions,
     }),
 }));
 
@@ -293,9 +284,6 @@ describe('settings worktree flow', () => {
     switchEditorWorktree.mockClear();
     gitFetch.mockClear();
     restoreWorktreeSessions.mockClear();
-    getSessions.mockClear();
-    upsertRecoveredSession.mockClear();
-    updateGroupState.mockClear();
     settingsStoreState.editorSettings.autoSave = 'afterDelay';
     settingsStoreState.settingsDisplayMode = 'draggable-modal';
 
@@ -426,6 +414,16 @@ describe('settings worktree flow', () => {
     expect(getByTestId(container, 'worktree-tab-map').textContent).not.toContain(
       `"${WORKTREE_A.path}":"settings"`
     );
+
+    await unmount();
+  });
+
+  it('does not start an additional agent session recovery when switching worktrees', async () => {
+    const { container, unmount } = await mountFlowHarness();
+
+    await click(container, 'switch-worktree-b');
+
+    expect(restoreWorktreeSessions).not.toHaveBeenCalled();
 
     await unmount();
   });

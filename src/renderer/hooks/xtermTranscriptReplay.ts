@@ -2,6 +2,7 @@ import type { SessionTranscriptPage, SessionTranscriptPageRequest } from '@share
 import { takeTerminalReplayByteTail } from '@shared/utils/terminalReplayTail';
 
 export const XTERM_AUTOMATIC_TRANSCRIPT_REPLAY_PAGE_BYTES = 128 * 1024;
+export const XTERM_AUTOMATIC_TRANSCRIPT_REPLAY_TIMEOUT_MS = 3_000;
 
 interface ReadLatestXtermTranscriptOptions {
   fallbackReplay?: string;
@@ -22,6 +23,28 @@ function getBoundedFallbackReplay(value: string | undefined): string | undefined
   return takeTerminalReplayByteTail(value, XTERM_AUTOMATIC_TRANSCRIPT_REPLAY_PAGE_BYTES);
 }
 
+function getTranscriptPageWithinTimeout(
+  getTranscriptPage: ReadLatestXtermTranscriptOptions['getTranscriptPage'],
+  request: SessionTranscriptPageRequest
+): Promise<SessionTranscriptPage> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Timed out while reading the terminal replay transcript'));
+    }, XTERM_AUTOMATIC_TRANSCRIPT_REPLAY_TIMEOUT_MS);
+
+    void getTranscriptPage(request).then(
+      (page) => {
+        clearTimeout(timeout);
+        resolve(page);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
+
 export async function readLatestXtermTranscript({
   fallbackReplay,
   getTranscriptPage,
@@ -33,7 +56,7 @@ export async function readLatestXtermTranscript({
   }
 
   try {
-    const page = await getTranscriptPage({
+    const page = await getTranscriptPageWithinTimeout(getTranscriptPage, {
       sessionId,
       maxBytes: pageBytes,
       terminalReplay: true,
@@ -43,6 +66,12 @@ export async function readLatestXtermTranscript({
       !isSafeByteOffset(page.totalBytes) ||
       page.initialParserState === undefined
     ) {
+      return getBoundedFallbackReplay(fallbackReplay);
+    }
+
+    // A persistent archive is opened before the initial tmux replay is copied into it.
+    // Do not let that transient, but healthy, empty page erase the attached session output.
+    if (page.text.length === 0 && fallbackReplay) {
       return getBoundedFallbackReplay(fallbackReplay);
     }
 

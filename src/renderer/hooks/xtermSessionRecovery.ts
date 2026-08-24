@@ -1,6 +1,19 @@
 import type { RemoteConnectionStatus, SessionKind, SessionRuntimeInfo } from '@shared/types';
 import { isRemoteVirtualPath, parseRemoteVirtualPath } from '@shared/utils/remotePath';
 
+const ANSI_ESCAPE_CHARACTER = String.fromCharCode(0x1b);
+const ANSI_BELL_CHARACTER = String.fromCharCode(0x07);
+const ANSI_OSC_SEQUENCE_PATTERN = new RegExp(
+  `${ANSI_ESCAPE_CHARACTER}\\][\\s\\S]*?(?:${ANSI_BELL_CHARACTER}|${ANSI_ESCAPE_CHARACTER}\\\\)`,
+  'gu'
+);
+const ANSI_STRING_SEQUENCE_PATTERN = new RegExp(
+  `${ANSI_ESCAPE_CHARACTER}[P_X^][\\s\\S]*?${ANSI_ESCAPE_CHARACTER}\\\\`,
+  'gu'
+);
+const ANSI_CSI_SEQUENCE_PATTERN = new RegExp(`${ANSI_ESCAPE_CHARACTER}\\[[0-?]*[ -/]*[@-~]`, 'gu');
+const ANSI_ESCAPE_SEQUENCE_PATTERN = new RegExp(`${ANSI_ESCAPE_CHARACTER}[@-_]`, 'gu');
+
 interface ResolveReusableBackendSessionIdParams {
   backendSessionId?: string;
   cwd?: string;
@@ -151,22 +164,43 @@ export function resolveRecoveredReplaySnapshotPersistence({
 
 export function shouldApplyInitialTerminalReplay({
   initialReplay,
-  hasReceivedData,
+  hasRenderableRenderedData,
   liveReplaySnapshot,
 }: {
   initialReplay?: string;
-  hasReceivedData: boolean;
+  hasRenderableRenderedData: boolean;
   liveReplaySnapshot?: string;
 }): boolean {
   if (!initialReplay) {
     return false;
   }
 
-  if (hasReceivedData) {
+  if (hasRenderableRenderedData) {
     return false;
   }
 
-  return !liveReplaySnapshot;
+  return !hasRenderableTerminalOutput(liveReplaySnapshot);
+}
+
+export function hasRenderableTerminalOutput(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const text = value
+    .replace(ANSI_OSC_SEQUENCE_PATTERN, '')
+    .replace(ANSI_STRING_SEQUENCE_PATTERN, '')
+    .replace(ANSI_CSI_SEQUENCE_PATTERN, '')
+    .replace(ANSI_ESCAPE_SEQUENCE_PATTERN, '');
+
+  return Array.from(text).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return (
+      codePoint !== undefined &&
+      (codePoint === 9 || codePoint === 10 || codePoint === 13 || codePoint > 31) &&
+      codePoint !== 127
+    );
+  });
 }
 
 function getErrorMessage(error: unknown): string {

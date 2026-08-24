@@ -56,6 +56,7 @@ import { hideXtermReplaySurface } from './xtermReplaySurface';
 import {
   buildXtermRecoveryAttemptKey,
   createXtermSessionBindingSnapshot,
+  hasRenderableTerminalOutput,
   resolveRecoveredInitialTerminalReplay,
   resolveRecoveredReplaySnapshotPersistence,
   resolveReusableBackendSessionId,
@@ -473,6 +474,7 @@ export function useXterm({
   copyOnSelectionRef.current = copyOnSelection;
   const hasBeenActivatedRef = useRef(false);
   const hasReceivedDataRef = useRef(false);
+  const hasRenderableRenderedDataRef = useRef(false);
   const firstOutputWaitersRef = useRef(new Set<() => void>());
   const staticContentRef = useRef(staticContent);
   staticContentRef.current = staticContent;
@@ -997,6 +999,9 @@ export function useXterm({
 
         terminalWriteInFlightRef.current = false;
         terminalWriteInFlightIdentityRef.current = null;
+        if (hasRenderableTerminalOutput(bufferedData)) {
+          hasRenderableRenderedDataRef.current = true;
+        }
         if (
           terminalWriteGenerationRef.current !== writeGeneration ||
           isUnmountedRef.current ||
@@ -1031,7 +1036,7 @@ export function useXterm({
       initialTerminalWriteInProgressRef.current = true;
 
       try {
-        return await writeXtermReplay({
+        const applied = await writeXtermReplay({
           content,
           shouldContinue: () => {
             return (
@@ -1044,6 +1049,10 @@ export function useXterm({
           terminal,
           viewport,
         });
+        if (applied && hasRenderableTerminalOutput(content)) {
+          hasRenderableRenderedDataRef.current = true;
+        }
+        return applied;
       } finally {
         if (initialTerminalWriteGenerationRef.current === initialWriteGeneration) {
           initialTerminalWriteInProgressRef.current = false;
@@ -1264,6 +1273,7 @@ export function useXterm({
     activeSessionBindingRef.current = null;
     deadRecoveryAttemptKeyRef.current = null;
     hasReceivedDataRef.current = false;
+    hasRenderableRenderedDataRef.current = false;
     firstOutputWaitersRef.current.clear();
     wheelCarryRef.current = 0;
     clearPendingHostScroll();
@@ -2172,7 +2182,7 @@ export function useXterm({
         });
         const shouldApplyReplay = shouldApplyInitialTerminalReplay({
           initialReplay: restoredReplay,
-          hasReceivedData: hasReceivedDataRef.current,
+          hasRenderableRenderedData: hasRenderableRenderedDataRef.current,
           liveReplaySnapshot,
         });
         replaceReplaySnapshot(persistedReplaySnapshot);
@@ -2610,6 +2620,7 @@ export function useXterm({
       containerReadyCleanupRef.current = null;
       hasBeenActivatedRef.current = false;
       hasReceivedDataRef.current = false;
+      hasRenderableRenderedDataRef.current = false;
       firstOutputWaitersRef.current.clear();
       createRequestIdRef.current += 1;
       appliedStaticContentKeyRef.current = null;

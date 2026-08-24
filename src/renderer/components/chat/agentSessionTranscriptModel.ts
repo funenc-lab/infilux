@@ -15,6 +15,7 @@ export interface AgentSessionTranscriptView {
   matchCount: number;
   mode: AgentSessionTranscriptMode;
   omittedOlderLineCount: number;
+  omittedNewerLineCount: number;
   omittedSearchResultCount: number;
   query: string;
   totalCharacters: number;
@@ -28,6 +29,7 @@ export interface BuildAgentSessionTranscriptViewInput {
   query?: string;
   searchResultLimit?: number;
   snapshot?: string | null;
+  visibleLineEnd?: number;
   visibleLineLimit?: number;
 }
 
@@ -67,12 +69,21 @@ function buildVisibleLines(
   return visibleLines;
 }
 
+function resolveVisibleLineEnd(value: number | undefined, totalLines: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return totalLines;
+  }
+
+  return Math.min(Math.max(1, Math.floor(value)), totalLines);
+}
+
 function buildEmptyTranscriptView(snapshot: string | null | undefined): AgentSessionTranscriptView {
   return {
     hasSnapshot: false,
     matchCount: 0,
     mode: 'latest',
     omittedOlderLineCount: 0,
+    omittedNewerLineCount: 0,
     omittedSearchResultCount: 0,
     query: '',
     totalCharacters: snapshot?.length ?? 0,
@@ -108,6 +119,7 @@ function buildSearchTranscriptView(
     matchCount: matchedLines.length,
     mode: 'search',
     omittedOlderLineCount: 0,
+    omittedNewerLineCount: 0,
     omittedSearchResultCount: startIndex,
     query,
     totalCharacters,
@@ -122,6 +134,7 @@ export function buildAgentSessionTranscriptView({
   query = '',
   searchResultLimit,
   snapshot,
+  visibleLineEnd,
   visibleLineLimit,
 }: BuildAgentSessionTranscriptViewInput): AgentSessionTranscriptView {
   if (snapshot == null || snapshot.length === 0) {
@@ -152,14 +165,16 @@ export function buildAgentSessionTranscriptView({
     DEFAULT_TRANSCRIPT_VISIBLE_LINE_LIMIT,
     MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT
   );
-  const startIndex = Math.max(0, lines.length - resolvedVisibleLineLimit);
-  const visibleLines = buildVisibleLines(lines, startIndex, lines.length);
+  const endIndex = resolveVisibleLineEnd(visibleLineEnd, lines.length);
+  const startIndex = Math.max(0, endIndex - resolvedVisibleLineLimit);
+  const visibleLines = buildVisibleLines(lines, startIndex, endIndex);
 
   return {
     hasSnapshot: true,
     matchCount: 0,
     mode: 'latest',
     omittedOlderLineCount: startIndex,
+    omittedNewerLineCount: lines.length - endIndex,
     omittedSearchResultCount: 0,
     query: '',
     totalCharacters: snapshot.length,

@@ -6,6 +6,7 @@ import {
 } from '@/components/chat/agentSessionRecovery';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { TEMP_REPO_ID } from '../constants';
+import { resolveSelectedRepositoryIdentity } from '../mainContentRepoPathPolicy';
 import { normalizePath } from '../storage';
 
 interface UseStartupAgentSessionRecoveryOptions {
@@ -15,6 +16,7 @@ interface UseStartupAgentSessionRecoveryOptions {
   worktreesFetched: boolean;
   worktreesFetching: boolean;
   availableWorktreePaths: string[];
+  selectedRepoWorktrees?: GitWorktree[];
 }
 
 function hasValidatedActiveWorktreePath(
@@ -36,14 +38,18 @@ export function useStartupAgentSessionRecovery({
   worktreesFetched,
   worktreesFetching,
   availableWorktreePaths,
+  selectedRepoWorktrees = [],
 }: UseStartupAgentSessionRecoveryOptions): void {
   const getAgentSessions = useAgentSessionsStore((state) => state.getSessions);
   const upsertRecoveredSession = useAgentSessionsStore((state) => state.upsertRecoveredSession);
   const updateGroupState = useAgentSessionsStore((state) => state.updateGroupState);
   const activeWorktreePath = activeWorktree?.path ?? null;
+  const sessionRepoPath = selectedRepo
+    ? resolveSelectedRepositoryIdentity(selectedRepo, selectedRepoWorktrees)
+    : null;
 
   useEffect(() => {
-    if (!selectedRepo || selectedRepo === TEMP_REPO_ID) {
+    if (!selectedRepo || selectedRepo === TEMP_REPO_ID || !sessionRepoPath) {
       return;
     }
     if (!selectedRepoCanLoad || !worktreesFetched || worktreesFetching || !activeWorktreePath) {
@@ -52,13 +58,13 @@ export function useStartupAgentSessionRecovery({
     if (!hasValidatedActiveWorktreePath(activeWorktreePath, availableWorktreePaths)) {
       return;
     }
-    void getAgentSessions(selectedRepo, activeWorktreePath);
-    if (getWorktreeAgentSessionRecoveryStatus(selectedRepo, activeWorktreePath) === 'settled') {
+    void getAgentSessions(sessionRepoPath, activeWorktreePath);
+    if (getWorktreeAgentSessionRecoveryStatus(sessionRepoPath, activeWorktreePath) === 'settled') {
       return;
     }
 
     void restoreWorktreeAgentSessions({
-      repoPath: selectedRepo,
+      repoPath: sessionRepoPath,
       cwd: activeWorktreePath,
       restoreWorktreeSessions: window.electronAPI.agentSession.restoreWorktreeSessions,
       upsertRecoveredSession,
@@ -75,6 +81,7 @@ export function useStartupAgentSessionRecovery({
     getAgentSessions,
     selectedRepo,
     selectedRepoCanLoad,
+    sessionRepoPath,
     updateGroupState,
     upsertRecoveredSession,
     worktreesFetched,

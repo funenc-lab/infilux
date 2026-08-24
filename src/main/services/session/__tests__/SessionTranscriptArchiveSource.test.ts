@@ -92,6 +92,32 @@ describe('getSessionTranscriptArchiveRuntimeSource', () => {
     expect(source).toContain('await flushPendingSessionTranscriptAppend(normalizedSessionId);');
   });
 
+  it('reads persisted generated output for terminal replay without waiting for a buffered append', async () => {
+    const runtime = createGeneratedTranscriptRuntime(rootDirectory);
+    const session = { sessionId: 'agent-1', kind: 'agent' };
+
+    await runtime.openSessionTranscript(session);
+    runtime.appendSessionTranscript(session, 'persisted');
+    await runtime.flushSessionTranscript(session);
+    runtime.appendSessionTranscript(session, 'buffered');
+
+    try {
+      await expect(
+        runtime.readSessionTranscriptPage({
+          sessionId: 'agent-1',
+          maxBytes: 1024,
+          terminalReplay: true,
+        })
+      ).resolves.toMatchObject({
+        text: 'persisted',
+        health: 'complete',
+        initialParserState: 'text',
+      });
+    } finally {
+      await runtime.flushSessionTranscript(session);
+    }
+  });
+
   it('reports the ANSI parser state at a generated terminal replay page boundary', async () => {
     const runtime = createGeneratedTranscriptRuntime(rootDirectory);
     const session = { sessionId: 'agent-1', kind: 'agent' };

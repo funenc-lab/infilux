@@ -255,6 +255,58 @@ describe('PersistentAgentSessionService', () => {
     ]);
   });
 
+  it('backfills a missing Codex provider session identity during worktree recovery', async () => {
+    const record = makeRecord({
+      agentId: 'codex',
+      agentCommand: 'codex',
+      providerSessionId: undefined,
+      uiSessionId: 'codex-session-1',
+      hostSessionKey: 'infilux-codex-session-1',
+      createdAt: 100,
+      updatedAt: 110,
+    });
+    persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([record]);
+    const host: PersistentSessionHost = {
+      kind: 'tmux',
+      probeSession: vi.fn(async (entry) => entry.lastKnownState),
+    };
+    const resolveProviderSession = vi.fn(async () => ({
+      providerSessionId: 'codex-provider-1',
+    }));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(200);
+    const service = new PersistentAgentSessionService(
+      undefined,
+      () => host,
+      undefined,
+      resolveProviderSession
+    );
+
+    const result = await service.restoreWorktreeSessions({
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+    });
+
+    expect(resolveProviderSession).toHaveBeenCalledWith({
+      agentCommand: 'codex',
+      uiSessionId: 'codex-session-1',
+      cwd: '/repo/worktree',
+      createdAt: 100,
+      observedAt: 200,
+    });
+    expect(persistentAgentSessionServiceTestDoubles.upsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'codex-session-1',
+        providerSessionId: 'codex-provider-1',
+        updatedAt: 200,
+      })
+    );
+    expect(result.items[0]?.record).toEqual(
+      expect.objectContaining({ providerSessionId: 'codex-provider-1' })
+    );
+
+    now.mockRestore();
+  });
+
   it('deduplicates restored worktree sessions that resolve to the same provider session id', async () => {
     persistentAgentSessionServiceTestDoubles.listSessions.mockResolvedValue([
       makeRecord({

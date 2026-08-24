@@ -904,9 +904,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>()(
       const state = get();
       const activeId = state.activeIds[normalizePath(cwd)];
       if (activeId) {
-        // Verify the session exists and matches repoPath
+        // Verify the session belongs to the requested repository and worktree.
         const session = state.sessions.find((s) => s.id === activeId);
-        if (session && matchesAgentSessionRepoPath(session, repoPath)) {
+        if (session && matchesAgentSessionScope(session, repoPath, cwd)) {
           return activeId;
         }
       }

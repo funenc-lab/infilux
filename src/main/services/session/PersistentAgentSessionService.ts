@@ -1,6 +1,8 @@
 import type {
   PersistentAgentRuntimeState,
   PersistentAgentSessionRecord,
+  ResolveAgentProviderSessionRequest,
+  ResolveAgentProviderSessionResult,
   RestoreWorktreeSessionsRequest,
   RestoreWorktreeSessionsResult,
 } from '@shared/types';
@@ -8,6 +10,7 @@ import { supportsProviderSessionResume } from '@shared/utils/agentInputMode';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { requestMainProcessDiagnosticsCapture } from '../../utils/mainProcessDiagnostics';
+import { agentProviderSessionService } from '../agent/AgentProviderSessionService';
 import { SupervisorSessionHost } from './hosts/SupervisorSessionHost';
 import { TmuxSessionHost } from './hosts/TmuxSessionHost';
 import { localSupervisorRuntime } from './LocalSupervisorRuntime';
@@ -58,6 +61,29 @@ function hasUnresolvedProviderRecoveryIdentity(record: PersistentAgentSessionRec
     record.providerSessionId === record.hostSessionKey
   );
 }
+
+function shouldResolveCodexProviderSession(record: PersistentAgentSessionRecord): boolean {
+  return (
+    record.agentCommand === 'codex' &&
+    record.initialized &&
+    hasUnresolvedProviderRecoveryIdentity(record)
+  );
+}
+
+function hasExplicitProviderSessionId(
+  record: PersistentAgentSessionRecord,
+  providerSessionId: string | null
+): providerSessionId is string {
+  return Boolean(
+    providerSessionId &&
+      providerSessionId !== record.uiSessionId &&
+      providerSessionId !== record.hostSessionKey
+  );
+}
+
+type PersistentAgentProviderSessionResolver = (
+  request: ResolveAgentProviderSessionRequest
+) => Promise<ResolveAgentProviderSessionResult>;
 
 function getLocalWorkspacePlatform(): 'linux' | 'darwin' | 'win32' {
   return process.platform === 'win32' || process.platform === 'darwin' ? process.platform : 'linux';
@@ -183,7 +209,9 @@ export class PersistentAgentSessionService {
     private readonly resolveHost: (
       record: PersistentAgentSessionRecord
     ) => PersistentSessionHost = defaultHostResolver,
-    private readonly deleteTranscript: PersistentAgentTranscriptDeleter = deletePersistentAgentTranscript
+    private readonly deleteTranscript: PersistentAgentTranscriptDeleter = deletePersistentAgentTranscript,
+    private readonly resolveProviderSession: PersistentAgentProviderSessionResolver = (request) =>
+      agentProviderSessionService.resolveProviderSession(request)
   ) {}
 
   listCachedSessionsSync(): PersistentAgentSessionRecord[] {
@@ -196,7 +224,12 @@ export class PersistentAgentSessionService {
 
   async listRecoverableSessions() {
     const sessions = (await this.listSessions()).filter(supportsPersistentAgentRecovery);
-    const reconciled = await Promise.all(sessions.map((record) => this.reconcileRecord(record)));
+    const resolvedProviderSessions = await Promise.all(
+      sessions.map((record) => this.resolveProviderSessionIdentity(record))
+    );
+    const reconciled = await Promise.all(
+      resolvedProviderSessions.map((record) => this.reconcileRecord(record))
+    );
 
     return reconciled.map((record) => this.toRecoveryItem(record));
   }
@@ -244,8 +277,11 @@ export class PersistentAgentSessionService {
     const candidateRecords = (await this.listSessions()).filter(
       (record) => supportsPersistentAgentRecovery(record) && matchesWorktreeRequest(record, request)
     );
+    const resolvedProviderSessions = await Promise.all(
+      candidateRecords.map((record) => this.resolveProviderSessionIdentity(record))
+    );
     const reconciled = await Promise.all(
-      candidateRecords.map((record) => this.reconcileRecord(record))
+      resolvedProviderSessions.map((record) => this.reconcileRecord(record))
     );
 
     return deduplicateRecoveredWorktreeItems(
@@ -290,6 +326,37 @@ export class PersistentAgentSessionService {
       await this.repository.upsertSession(nextRecord);
     }
     return nextRecord;
+  }
+
+  private async resolveProviderSessionIdentity(
+    record: PersistentAgentSessionRecord
+  ): Promise<PersistentAgentSessionRecord> {
+    if (!shouldResolveCodexProviderSession(record)) {
+      return record;
+    }
+
+    try {
+      const result = await this.resolveProviderSession({
+        agentCommand: record.agentCommand,
+        uiSessionId: record.uiSessionId,
+        cwd: record.cwd,
+        createdAt: record.createdAt,
+        observedAt: Date.now(),
+      });
+      if (!hasExplicitProviderSessionId(record, result.providerSessionId)) {
+        return record;
+      }
+
+      const resolvedRecord: PersistentAgentSessionRecord = {
+        ...record,
+        providerSessionId: result.providerSessionId,
+        updatedAt: Date.now(),
+      };
+      await this.repository.upsertSession(resolvedRecord);
+      return resolvedRecord;
+    } catch {
+      return record;
+    }
   }
 
   private toRecoveryItem(record: PersistentAgentSessionRecord) {

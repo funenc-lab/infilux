@@ -8,6 +8,13 @@ interface ResolveMainContentRepoPathOptions {
   repoWorktreeMap: Record<string, string>;
 }
 
+export function resolveSelectedRepositoryIdentity(
+  selectedRepo: string,
+  selectedRepoWorktrees: GitWorktree[]
+): string {
+  return selectedRepoWorktrees.find((worktree) => worktree.isMainWorktree)?.path ?? selectedRepo;
+}
+
 export function resolveMainContentRepoPath({
   selectedRepo,
   activeWorktree,
@@ -15,14 +22,16 @@ export function resolveMainContentRepoPath({
   repoWorktreeMap,
 }: ResolveMainContentRepoPathOptions): string | null {
   if (!activeWorktree) {
-    return selectedRepo;
+    return selectedRepo
+      ? resolveSelectedRepositoryIdentity(selectedRepo, selectedRepoWorktrees)
+      : selectedRepo;
   }
 
   if (
     selectedRepo &&
     selectedRepoWorktrees.some((worktree) => pathsEqual(worktree.path, activeWorktree.path))
   ) {
-    return selectedRepo;
+    return resolveSelectedRepositoryIdentity(selectedRepo, selectedRepoWorktrees);
   }
 
   for (const [repoPath, worktreePath] of Object.entries(repoWorktreeMap)) {

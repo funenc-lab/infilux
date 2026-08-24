@@ -534,9 +534,9 @@ async function createSessionTranscriptStateFromLegacy(sessionId) {
     mode: 0o700,
   });
 
-  let legacyOutput;
+  let handle;
   try {
-    legacyOutput = await fsp.readFile(getLegacySessionTranscriptPath(normalizedSessionId));
+    handle = await fsp.open(getLegacySessionTranscriptPath(normalizedSessionId), 'r');
   } catch (error) {
     if (error && error.code === 'ENOENT') {
       return state;
@@ -544,16 +544,24 @@ async function createSessionTranscriptStateFromLegacy(sessionId) {
     throw error;
   }
 
-  const retainedLegacyOutput = takeSessionTranscriptUtf8Tail(
-    legacyOutput,
-    SESSION_TRANSCRIPT_MAX_BYTES
-  );
-  if (retainedLegacyOutput.length < legacyOutput.length) {
-    state.terminalReplayMetadataComplete = false;
+  try {
+    const info = await handle.stat();
+    const byteLength = Math.min(info.size, SESSION_TRANSCRIPT_MAX_BYTES);
+    const buffer = Buffer.alloc(byteLength);
+    const { bytesRead } = await handle.read(buffer, 0, byteLength, info.size - byteLength);
+    const retainedLegacyOutput = takeSessionTranscriptUtf8Tail(
+      buffer.subarray(0, bytesRead),
+      SESSION_TRANSCRIPT_MAX_BYTES
+    );
+    if (retainedLegacyOutput.length < info.size) {
+      state.terminalReplayMetadataComplete = false;
+    }
+    await writeSessionTranscriptBuffer(normalizedSessionId, state, retainedLegacyOutput);
+    state.dirty = true;
+    return state;
+  } finally {
+    await handle.close();
   }
-  await writeSessionTranscriptBuffer(normalizedSessionId, state, retainedLegacyOutput);
-  state.dirty = true;
-  return state;
 }
 
 async function ensureSessionTranscriptOpen(sessionId) {
@@ -963,7 +971,9 @@ async function readLegacySessionTranscriptPage(sessionId, beforeByteOffset, maxB
 async function readSessionTranscriptPage(params = {}) {
   const sessionId = normalizeSessionTranscriptId(params.sessionId);
   const maxBytes = normalizeSessionTranscriptPageSize(params.maxBytes);
-  await flushSessionTranscriptById(sessionId);
+  if (params.terminalReplay !== true) {
+    await flushSessionTranscriptById(sessionId);
+  }
 
   const state = await loadSessionTranscriptV2State(sessionId);
   if (state) {

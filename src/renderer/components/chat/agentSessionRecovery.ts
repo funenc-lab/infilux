@@ -1,6 +1,7 @@
 import type { PersistentAgentSessionRecord, RestoreWorktreeSessionsResult } from '@shared/types';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { normalizePath } from '@/App/storage';
+import { matchesAgentSessionScope } from './agentSessionScope';
 import type { AgentGroupState } from './types';
 
 interface RestoreWorktreeAgentSessionsOptions {
@@ -142,27 +143,21 @@ export async function restoreWorktreeAgentSessions({
   const request = (async () => {
     const result = await restoreWorktreeSessions({ repoPath, cwd });
     const restoredIds: string[] = [];
-    let hasRecoverableSession = false;
-    let hasPendingMetadataOnlySession = false;
 
     for (const item of result.items) {
-      upsertRecoveredSession(item.record);
-      restoredIds.push(item.record.uiSessionId);
-      if (!item.recoverable) {
-        hasPendingMetadataOnlySession = true;
+      if (!matchesAgentSessionScope(item.record, repoPath, cwd)) {
         continue;
       }
 
-      hasRecoverableSession = true;
+      upsertRecoveredSession(item.record);
+      restoredIds.push(item.record.uiSessionId);
     }
 
     if (restoredIds.length > 0) {
       updateGroupState(cwd, (state) => mergeRecoveredSessionsIntoGroupState(state, restoredIds));
     }
 
-    if (hasRecoverableSession && !hasPendingMetadataOnlySession) {
-      completedRecoveryKeys.add(recoveryKey);
-    }
+    completedRecoveryKeys.add(recoveryKey);
     return restoredIds;
   })().finally(() => {
     inFlightRecoveryRequests.delete(recoveryKey);

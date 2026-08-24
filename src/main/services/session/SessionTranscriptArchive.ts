@@ -345,7 +345,9 @@ export class SessionTranscriptArchive {
   ): Promise<SessionTranscriptArchivePage> {
     const sessionId = this.validateSessionId(request.sessionId);
     const maxBytes = normalizePageSize(request.maxBytes);
-    await this.flush(sessionId);
+    if (request.terminalReplay !== true) {
+      await this.flush(sessionId);
+    }
 
     const v2State = await this.loadV2State(sessionId);
     if (v2State) {
@@ -593,9 +595,9 @@ export class SessionTranscriptArchive {
     const state = createEmptyState();
     await mkdir(this.getSegmentsDirectory(sessionId), { recursive: true, mode: 0o700 });
 
-    let legacyOutput: Buffer;
+    let file: FileHandle;
     try {
-      legacyOutput = await readFile(this.getLegacyFilePath(sessionId));
+      file = await openFile(this.getLegacyFilePath(sessionId), 'r');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return state;
@@ -603,13 +605,21 @@ export class SessionTranscriptArchive {
       throw error;
     }
 
-    const retainedLegacyOutput = takeUtf8ByteTail(legacyOutput, this.maxBytes);
-    if (retainedLegacyOutput.length < legacyOutput.length) {
-      state.terminalReplayMetadataComplete = false;
+    try {
+      const { size } = await file.stat();
+      const byteLength = Math.min(size, this.maxBytes);
+      const buffer = Buffer.alloc(byteLength);
+      const { bytesRead } = await file.read(buffer, 0, byteLength, size - byteLength);
+      const retainedLegacyOutput = takeUtf8ByteTail(buffer.subarray(0, bytesRead), this.maxBytes);
+      if (retainedLegacyOutput.length < size) {
+        state.terminalReplayMetadataComplete = false;
+      }
+      await this.writeBufferToSegments(sessionId, state, retainedLegacyOutput);
+      state.dirty = true;
+      return state;
+    } finally {
+      await file.close();
     }
-    await this.writeBufferToSegments(sessionId, state, retainedLegacyOutput);
-    state.dirty = true;
-    return state;
   }
 
   private async appendBounded(sessionId: string, data: Buffer): Promise<void> {

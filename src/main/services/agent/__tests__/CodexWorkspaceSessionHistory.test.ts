@@ -162,7 +162,7 @@ describe('resolveCodexWorkspaceSessionHistoryPath', () => {
       'long-metadata-session'
     );
     expect(
-      existsSync(path.join(path.dirname(sessionHistoryPath), '.legacy-session-history-migrated-v1'))
+      existsSync(path.join(path.dirname(sessionHistoryPath), '.legacy-session-history-migrated-v2'))
     ).toBe(true);
   });
 
@@ -186,7 +186,7 @@ describe('resolveCodexWorkspaceSessionHistoryPath', () => {
     });
 
     expect(
-      existsSync(path.join(path.dirname(sessionHistoryPath), '.legacy-session-history-migrated-v1'))
+      existsSync(path.join(path.dirname(sessionHistoryPath), '.legacy-session-history-migrated-v2'))
     ).toBe(false);
 
     writeFileSync(

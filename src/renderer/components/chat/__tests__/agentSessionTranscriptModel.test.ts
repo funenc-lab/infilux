@@ -41,6 +41,24 @@ describe('agentSessionTranscriptModel', () => {
     expect(view.omittedOlderLineCount).toBe(50);
   });
 
+  it('renders a bounded older window without discarding the newly loaded page', () => {
+    const snapshot = buildLines(MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT * 2 + 20);
+
+    const view = buildAgentSessionTranscriptView({
+      snapshot,
+      visibleLineEnd: MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT + 20,
+    });
+
+    expect(view.visibleLines).toHaveLength(MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT);
+    expect(view.visibleLines[0]).toMatchObject({ lineNumber: 21, text: 'entry-0021' });
+    expect(view.visibleLines.at(-1)).toMatchObject({
+      lineNumber: MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT + 20,
+      text: `entry-${String(MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT + 20).padStart(4, '0')}`,
+    });
+    expect(view.omittedOlderLineCount).toBe(20);
+    expect(view.omittedNewerLineCount).toBe(MAX_TRANSCRIPT_VISIBLE_LINE_LIMIT);
+  });
+
   it('returns latest matching search results without rendering every match', () => {
     const snapshot = [
       'error old 1',

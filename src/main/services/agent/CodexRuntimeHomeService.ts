@@ -25,6 +25,7 @@ import {
 } from './CodexWorkspaceHistoryMigrationCoordinator';
 import {
   type CodexWorkspaceSessionHistoryScope,
+  listLegacyCodexWorkspaceSessionHistoryPaths,
   migrateCodexWorkspaceSessionHistory,
 } from './CodexWorkspaceSessionHistory';
 
@@ -252,6 +253,8 @@ export class CodexRuntimeHomeService {
   ): void {
     const sessionHistoryPath = options.sessionHistoryPath;
     void this.migrationCoordinator.schedule(path.resolve(sessionHistoryPath), async () => {
+      const legacyWorkspaceSessionPaths =
+        await listLegacyCodexWorkspaceSessionHistoryPaths(sessionHistoryPath);
       await migrateCodexWorkspaceSessionHistory({
         sessionHistoryPath,
         sourceSessionsPaths: [
@@ -259,6 +262,7 @@ export class CodexRuntimeHomeService {
           ...(options.legacySessionPaths ?? []),
           path.join(runtimeHome.sourceHomePath, 'sessions'),
           ...this.collectLegacyRuntimeSessionPaths(sessionHistoryPath),
+          ...legacyWorkspaceSessionPaths,
         ],
         worktreePath: options.sessionHistoryScope.worktreePath ?? '',
       });

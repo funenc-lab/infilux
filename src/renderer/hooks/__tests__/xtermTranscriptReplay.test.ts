@@ -89,6 +89,30 @@ describe('readLatestXtermTranscript', () => {
     expect(new TextEncoder().encode(replay).byteLength).toBeLessThanOrEqual(128 * 1024);
   });
 
+  it('uses the saved replay when the archive request does not settle', async () => {
+    vi.useFakeTimers();
+    try {
+      const getTranscriptPage = vi.fn(() => new Promise<never>(() => undefined));
+      let resolvedReplay: string | undefined;
+
+      void readLatestXtermTranscript({
+        fallbackReplay: 'saved replay',
+        getTranscriptPage,
+        pageBytes: 16,
+        sessionId: 'session-1',
+      }).then((replay) => {
+        resolvedReplay = replay;
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      await Promise.resolve();
+
+      expect(resolvedReplay).toBe('saved replay');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('accepts a confirmed empty transcript instead of treating it as unavailable', async () => {
     const getTranscriptPage = vi.fn().mockResolvedValue({
       text: '',
@@ -104,6 +128,24 @@ describe('readLatestXtermTranscript', () => {
         sessionId: 'session-1',
       })
     ).resolves.toBe('');
+  });
+
+  it('keeps the attached replay when a newly opened archive is confirmed empty', async () => {
+    const getTranscriptPage = vi.fn().mockResolvedValue({
+      text: '',
+      totalBytes: 0,
+      health: 'complete',
+      initialParserState: 'text',
+    });
+
+    await expect(
+      readLatestXtermTranscript({
+        fallbackReplay: 'tmux session history',
+        getTranscriptPage,
+        pageBytes: 16,
+        sessionId: 'session-1',
+      })
+    ).resolves.toBe('tmux session history');
   });
 
   it('does not request an archive page for an invalid recovery budget', async () => {

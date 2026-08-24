@@ -14,6 +14,25 @@ function makeWorktree(path: string): GitWorktree {
 }
 
 describe('mainContentRepoPathPolicy', () => {
+  it('uses the main worktree as the session repository identity when a linked worktree is selected as a repository', () => {
+    const mainWorktree = {
+      ...makeWorktree('/repo/main'),
+      isMainWorktree: true,
+    };
+    const selectedWorktree = makeWorktree('/repo/worktrees/feature');
+
+    expect(
+      resolveMainContentRepoPath({
+        selectedRepo: selectedWorktree.path,
+        activeWorktree: selectedWorktree,
+        selectedRepoWorktrees: [mainWorktree, selectedWorktree],
+        repoWorktreeMap: {
+          [selectedWorktree.path]: selectedWorktree.path,
+        },
+      })
+    ).toBe(mainWorktree.path);
+  });
+
   it('keeps the retained worktree bound to its original repo while the next repo is still loading', () => {
     expect(
       resolveMainContentRepoPath({

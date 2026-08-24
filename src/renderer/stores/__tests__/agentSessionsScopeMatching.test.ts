@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const REPOSITORY_PATH = '/repo-a';
+const MAIN_WORKTREE_PATH = '/repo-a';
+const FEATURE_WORKTREE_PATH = '/repo-a/.worktrees/feature';
+const NORMALIZATION_REPOSITORY_PATH = '/Repo-Normalization';
+const NORMALIZATION_WORKTREE_PATH = '/Repo-Normalization/.worktrees/feature';
+
 function createLocalStorageMock(initial?: Record<string, string>) {
   const data = new Map(Object.entries(initial ?? {}));
   return {
@@ -50,18 +56,54 @@ describe('agent session scope matching in store selectors', () => {
       agentCommand: 'codex',
       initialized: true,
       activated: true,
-      repoPath: '/Users/tanzv/Development/Git/Lads-Gateway/',
-      cwd: '/Users/tanzv/Development/Git/Lads-Gateway/worktrees/feat-skill-mcp/',
+      repoPath: `${NORMALIZATION_REPOSITORY_PATH}/`,
+      cwd: `${NORMALIZATION_WORKTREE_PATH}/`,
       environment: 'native',
     });
 
-    const repoPath = '/users/tanzv/development/git/lads-gateway';
-    const cwd = '/users/tanzv/development/git/lads-gateway/worktrees/feat-skill-mcp';
+    const repoPath = NORMALIZATION_REPOSITORY_PATH.toLowerCase();
+    const cwd = NORMALIZATION_WORKTREE_PATH.toLowerCase();
 
     expect(store.getSessions(repoPath, cwd)).toEqual([
       expect.objectContaining({ id: 'session-1', agentId: 'codex' }),
     ]);
     expect(store.getActiveSessionId(repoPath, cwd)).toBe('session-1');
     expect(store.getAggregatedByRepo(repoPath)).toMatchObject({ total: 1 });
+  });
+
+  it('does not select an active session from another worktree in the same repository', async () => {
+    const env = await loadAgentSessionsStore();
+    const store = env.useAgentSessionsStore.getState();
+
+    store.addSession({
+      id: 'main-worktree-session',
+      sessionId: 'provider-main',
+      name: 'Main Worktree',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      repoPath: REPOSITORY_PATH,
+      cwd: MAIN_WORKTREE_PATH,
+      environment: 'native',
+    });
+    store.addSession({
+      id: 'feature-worktree-session',
+      sessionId: 'provider-feature',
+      name: 'Feature Worktree',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      initialized: true,
+      activated: true,
+      repoPath: REPOSITORY_PATH,
+      cwd: FEATURE_WORKTREE_PATH,
+      environment: 'native',
+    });
+
+    store.setActiveId(MAIN_WORKTREE_PATH, 'feature-worktree-session');
+
+    expect(store.getActiveSessionId(REPOSITORY_PATH, MAIN_WORKTREE_PATH)).toBe(
+      'main-worktree-session'
+    );
   });
 });

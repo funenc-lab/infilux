@@ -280,7 +280,7 @@ describe('CodexRuntimeHomeService', () => {
     expect(existsSync(path.join(workspaceSessionsPath, siblingRelativePath))).toBe(false);
   });
 
-  it('does not treat isolated workspace sessions as legacy migration sources', async () => {
+  it('recovers sessions misfiled in an isolated workspace history despite a v1 marker', async () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();
     const historyRoot = createTempRoot();
@@ -305,6 +305,11 @@ describe('CodexRuntimeHomeService', () => {
         payload: { id: 'isolated-session', cwd: worktreePath },
       })}\n`
     );
+    mkdirSync(path.dirname(workspaceSessionsPath), { recursive: true });
+    writeFileSync(
+      path.join(path.dirname(workspaceSessionsPath), '.legacy-session-history-migrated-v1'),
+      'legacy migration completed'
+    );
     mkdirSync(isolatedRuntimeHome, { recursive: true });
     symlinkSync(siblingSessionsPath, path.join(isolatedRuntimeHome, 'sessions'));
     const migration = createControlledMigrationCoordinator();
@@ -316,7 +321,9 @@ describe('CodexRuntimeHomeService', () => {
     });
     await migration.flush();
 
-    expect(existsSync(path.join(workspaceSessionsPath, relativeSessionPath))).toBe(false);
+    expect(readFileSync(path.join(workspaceSessionsPath, relativeSessionPath), 'utf8')).toContain(
+      'isolated-session'
+    );
   });
 
   it('keeps concurrent UI runtime homes on one worktree history', async () => {

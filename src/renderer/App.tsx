@@ -840,6 +840,7 @@ export default function App() {
     worktreesFetched,
     worktreesFetching,
     availableWorktreePaths: validatedSelectedWorktreePaths,
+    selectedRepoWorktrees: safeWorktrees,
   });
 
   const sortedWorktrees = useMemo(

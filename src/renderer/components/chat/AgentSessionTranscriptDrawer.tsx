@@ -72,6 +72,15 @@ function formatSnapshotCapturedAt(timestamp?: number): string | null {
   return new Date(timestamp).toLocaleString();
 }
 
+function countTranscriptLines(text: string): number {
+  if (!text) {
+    return 0;
+  }
+
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  return lines.at(-1) === '' ? lines.length - 1 : lines.length;
+}
+
 function buildTranscriptFileName(session: AgentSessionTranscriptSession): string {
   const safeName =
     session.name
@@ -142,6 +151,7 @@ export function AgentSessionTranscriptDrawer({
   const [archiveError, setArchiveError] = useState(false);
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [visibleLineEnd, setVisibleLineEnd] = useState<number | undefined>();
   const sessionId = session?.id ?? null;
   const backendSessionId = session?.backendSessionId ?? null;
   const subscribeToLiveSnapshot = useCallback(
@@ -170,8 +180,8 @@ export function AgentSessionTranscriptDrawer({
     archiveTranscript.health !== 'unavailable';
   const transcript = usesArchive ? (archiveTranscript?.text ?? '') : snapshot;
   const view = useMemo(
-    () => buildAgentSessionTranscriptView({ query, snapshot: transcript }),
-    [query, transcript]
+    () => buildAgentSessionTranscriptView({ query, snapshot: transcript, visibleLineEnd }),
+    [query, transcript, visibleLineEnd]
   );
   const capturedAtLabel = usesArchive
     ? null
@@ -196,6 +206,7 @@ export function AgentSessionTranscriptDrawer({
     let cancelled = false;
     setIsLoadingArchive(true);
     setArchiveError(false);
+    setVisibleLineEnd(undefined);
     void window.electronAPI.session
       .getTranscriptPage({
         sessionId: backendSessionId,
@@ -226,6 +237,7 @@ export function AgentSessionTranscriptDrawer({
   useEffect(() => {
     if (open || sessionId === null) {
       setQuery('');
+      setVisibleLineEnd(undefined);
     }
   }, [open, sessionId]);
 
@@ -268,6 +280,7 @@ export function AgentSessionTranscriptDrawer({
 
   const handleJumpToLatest = useCallback(() => {
     setQuery('');
+    setVisibleLineEnd(undefined);
     if (!backendSessionId) {
       return;
     }
@@ -311,6 +324,7 @@ export function AgentSessionTranscriptDrawer({
         maxBytes: TRANSCRIPT_ARCHIVE_PAGE_BYTES,
       })
       .then((page) => {
+        const loadedLineCount = countTranscriptLines(page.text);
         setArchiveTranscript((current) => {
           if (!current || current.backendSessionId !== backendSessionId) {
             return current;
@@ -326,6 +340,9 @@ export function AgentSessionTranscriptDrawer({
             totalBytes: page.totalBytes,
           };
         });
+        if (loadedLineCount > 0) {
+          setVisibleLineEnd(loadedLineCount);
+        }
       })
       .catch(() => {
         setArchiveError(true);
@@ -434,15 +451,28 @@ export function AgentSessionTranscriptDrawer({
             </div>
           ) : null}
 
-          {view.omittedOlderLineCount > 0 || view.omittedSearchResultCount > 0 ? (
+          {view.omittedOlderLineCount > 0 ||
+          view.omittedNewerLineCount > 0 ||
+          view.omittedSearchResultCount > 0 ? (
             <div className="rounded-lg border border-border/70 bg-muted/16 px-3 py-2 text-xs text-muted-foreground">
               {view.mode === 'search'
                 ? t('{{count}} older matches are omitted from this view.', {
                     count: formatCount(view.omittedSearchResultCount),
                   })
-                : t('{{count}} older retained lines are omitted from this view.', {
-                    count: formatCount(view.omittedOlderLineCount),
-                  })}
+                : [
+                    view.omittedOlderLineCount > 0
+                      ? t('{{count}} older retained lines are omitted from this view.', {
+                          count: formatCount(view.omittedOlderLineCount),
+                        })
+                      : null,
+                    view.omittedNewerLineCount > 0
+                      ? t('{{count}} newer retained lines are omitted from this view.', {
+                          count: formatCount(view.omittedNewerLineCount),
+                        })
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
             </div>
           ) : null}
 

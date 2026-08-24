@@ -2,32 +2,13 @@ import type { GitWorktree } from '@shared/types';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetWorktreeAgentSessionRecoveryCacheForTests } from '@/components/chat/agentSessionRecovery';
 import type { SettingsDisplayMode } from '@/stores/settings';
 import { useWorktreeSelection } from '../useWorktreeSelection';
 
 const invalidateQueries = vi.fn();
 const switchEditorWorktree = vi.fn();
 const gitFetch = vi.fn(() => Promise.resolve());
-const restoreWorktreeSessions = vi.fn(() => Promise.resolve({ items: [] }));
-const getSessions = vi.fn((): Array<{ id: string; repoPath: string; cwd: string }> => []);
-const upsertRecoveredSession = vi.fn();
-const updateGroupState = vi.fn();
-const worktreeSelectionTestDoubles = vi.hoisted(() => ({
-  getWorktreeAgentSessionRecoveryStatus: vi.fn(() => 'idle'),
-}));
-
-vi.mock('@/components/chat/agentSessionRecovery', async () => {
-  const actual = await vi.importActual<typeof import('@/components/chat/agentSessionRecovery')>(
-    '@/components/chat/agentSessionRecovery'
-  );
-
-  return {
-    ...actual,
-    getWorktreeAgentSessionRecoveryStatus:
-      worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus,
-  };
-});
+const agentSessions: Array<{ id: string; repoPath: string; cwd: string }> = [];
 const settingsStoreState: {
   editorSettings: { autoSave: string };
   settingsDisplayMode: SettingsDisplayMode;
@@ -73,17 +54,9 @@ vi.mock('@/stores/editor', () => ({
 }));
 
 vi.mock('@/stores/agentSessions', () => ({
-  useAgentSessionsStore: (
-    selector: (state: {
-      getSessions: typeof getSessions;
-      upsertRecoveredSession: typeof upsertRecoveredSession;
-      updateGroupState: typeof updateGroupState;
-    }) => unknown
-  ) =>
+  useAgentSessionsStore: (selector: (state: { sessions: typeof agentSessions }) => unknown) =>
     selector({
-      getSessions,
-      upsertRecoveredSession,
-      updateGroupState,
+      sessions: agentSessions,
     }),
 }));
 
@@ -124,24 +97,14 @@ describe('useWorktreeSelection', () => {
     invalidateQueries.mockClear();
     switchEditorWorktree.mockClear();
     gitFetch.mockClear();
-    restoreWorktreeSessions.mockClear();
-    getSessions.mockReset();
-    getSessions.mockReturnValue([]);
-    worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus.mockReset();
-    worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus.mockReturnValue('idle');
-    upsertRecoveredSession.mockClear();
-    updateGroupState.mockClear();
+    agentSessions.length = 0;
     settingsStoreState.editorSettings.autoSave = 'afterDelay';
     settingsStoreState.settingsDisplayMode = 'tab';
-    resetWorktreeAgentSessionRecoveryCacheForTests();
 
     vi.stubGlobal('window', {
       electronAPI: {
         git: {
           fetch: gitFetch,
-        },
-        agentSession: {
-          restoreWorktreeSessions,
         },
       },
     });
@@ -216,18 +179,15 @@ describe('useWorktreeSelection', () => {
 
     await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
 
-    expect(getSessions).toHaveBeenCalledWith('/repo-b', nextWorktree.path);
     expect(setActiveTab).toHaveBeenCalledWith('chat');
   });
 
-  it('restores the saved tab and still prewarms coordinated recovery when the target worktree already has agent sessions', async () => {
-    getSessions.mockReturnValue([
-      {
-        id: 'session-1',
-        repoPath: '/repo-b',
-        cwd: '/repo-b/.worktrees/feature-b',
-      },
-    ]);
+  it('restores the saved tab when the target worktree already has agent sessions', async () => {
+    agentSessions.push({
+      id: 'session-1',
+      repoPath: '/repo-b',
+      cwd: '/repo-b/.worktrees/feature-b',
+    });
 
     const setActiveWorktree = vi.fn();
     const setWorktreeTabMap = vi.fn();
@@ -261,21 +221,14 @@ describe('useWorktreeSelection', () => {
     await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
 
     expect(setActiveTab).toHaveBeenCalledWith('terminal');
-    expect(restoreWorktreeSessions).toHaveBeenCalledWith({
-      repoPath: '/repo-b',
-      cwd: nextWorktree.path,
-    });
   });
 
-  it('does not prewarm coordinated recovery again after a worktree already settled recovery', async () => {
-    getSessions.mockReturnValue([
-      {
-        id: 'session-1',
-        repoPath: '/repo-b',
-        cwd: '/repo-b/.worktrees/feature-b',
-      },
-    ]);
-    worktreeSelectionTestDoubles.getWorktreeAgentSessionRecoveryStatus.mockReturnValue('settled');
+  it('does not initiate session recovery while switching to a worktree with existing sessions', async () => {
+    agentSessions.push({
+      id: 'session-1',
+      repoPath: '/repo-b',
+      cwd: '/repo-b/.worktrees/feature-b',
+    });
 
     const setActiveWorktree = vi.fn();
     const setWorktreeTabMap = vi.fn();
@@ -309,17 +262,14 @@ describe('useWorktreeSelection', () => {
     await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
 
     expect(setActiveTab).toHaveBeenCalledWith('terminal');
-    expect(restoreWorktreeSessions).not.toHaveBeenCalled();
   });
 
   it('falls back to chat instead of restoring the file tab when switching worktrees', async () => {
-    getSessions.mockReturnValue([
-      {
-        id: 'session-1',
-        repoPath: '/repo-b',
-        cwd: '/repo-b/.worktrees/feature-b',
-      },
-    ]);
+    agentSessions.push({
+      id: 'session-1',
+      repoPath: '/repo-b',
+      cwd: '/repo-b/.worktrees/feature-b',
+    });
 
     const setActiveWorktree = vi.fn();
     const setWorktreeTabMap = vi.fn();
@@ -357,13 +307,11 @@ describe('useWorktreeSelection', () => {
 
   it('falls back to chat when a worktree still has a stale settings tab saved in draggable mode', async () => {
     settingsStoreState.settingsDisplayMode = 'draggable-modal';
-    getSessions.mockReturnValue([
-      {
-        id: 'session-1',
-        repoPath: '/repo-b',
-        cwd: '/repo-b/.worktrees/feature-b',
-      },
-    ]);
+    agentSessions.push({
+      id: 'session-1',
+      repoPath: '/repo-b',
+      cwd: '/repo-b/.worktrees/feature-b',
+    });
 
     const setActiveWorktree = vi.fn();
     const setWorktreeTabMap = vi.fn();
@@ -399,7 +347,7 @@ describe('useWorktreeSelection', () => {
     expect(setActiveTab).toHaveBeenCalledWith('chat');
   });
 
-  it('prewarms recoverable agent sessions when selecting a worktree before chat mounts', async () => {
+  it('leaves recovery ownership to the canonical session loader when selecting a worktree', async () => {
     const setActiveWorktree = vi.fn();
     const setWorktreeTabMap = vi.fn();
     const setActiveTab = vi.fn();
@@ -431,10 +379,7 @@ describe('useWorktreeSelection', () => {
 
     await capturedHandleSelectWorktree?.(nextWorktree, '/repo-b');
 
-    expect(restoreWorktreeSessions).toHaveBeenCalledWith({
-      repoPath: '/repo-b',
-      cwd: nextWorktree.path,
-    });
+    expect(setActiveWorktree).toHaveBeenCalledWith(nextWorktree);
   });
 
   it('requests an agent canvas recenter after switching to a new worktree', async () => {

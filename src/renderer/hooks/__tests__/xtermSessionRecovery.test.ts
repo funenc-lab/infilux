@@ -202,11 +202,11 @@ describe('resolveRecoveredReplaySnapshotPersistence', () => {
 });
 
 describe('shouldApplyInitialTerminalReplay', () => {
-  it('applies attached replay when no live output has reached the terminal', () => {
+  it('applies attached replay when live output is queued but has not rendered meaningful content', () => {
     expect(
       shouldApplyInitialTerminalReplay({
         initialReplay: 'attached replay',
-        hasReceivedData: false,
+        hasRenderableRenderedData: false,
         liveReplaySnapshot: undefined,
       })
     ).toBe(true);
@@ -216,7 +216,7 @@ describe('shouldApplyInitialTerminalReplay', () => {
     expect(
       shouldApplyInitialTerminalReplay({
         initialReplay: 'attached replay',
-        hasReceivedData: true,
+        hasRenderableRenderedData: true,
         liveReplaySnapshot: undefined,
       })
     ).toBe(false);
@@ -226,10 +226,20 @@ describe('shouldApplyInitialTerminalReplay', () => {
     expect(
       shouldApplyInitialTerminalReplay({
         initialReplay: 'Codex is ready\n',
-        hasReceivedData: false,
+        hasRenderableRenderedData: false,
         liveReplaySnapshot: 'Codex is ready\n',
       })
     ).toBe(false);
+  });
+
+  it('applies attached replay after terminal control sequences clear the surface', () => {
+    expect(
+      shouldApplyInitialTerminalReplay({
+        initialReplay: 'Recovered session history',
+        hasRenderableRenderedData: false,
+        liveReplaySnapshot: '\u001b[2J\u001b[H',
+      })
+    ).toBe(true);
   });
 });
 

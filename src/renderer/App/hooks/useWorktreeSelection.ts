@@ -2,10 +2,7 @@ import type { GitWorktree } from '@shared/types';
 import { useQueryClient } from '@tanstack/react-query';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect } from 'react';
-import {
-  getWorktreeAgentSessionRecoveryStatus,
-  restoreWorktreeAgentSessions,
-} from '@/components/chat/agentSessionRecovery';
+import { pathsEqual } from '@/App/storage';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildFileWorkflowToastCopy } from '@/lib/feedbackCopy';
@@ -35,9 +32,7 @@ export function useWorktreeSelection(
 ) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const getAgentSessions = useAgentSessionsStore((s) => s.getSessions);
-  const upsertRecoveredSession = useAgentSessionsStore((s) => s.upsertRecoveredSession);
-  const updateGroupState = useAgentSessionsStore((s) => s.updateGroupState);
+  const agentSessions = useAgentSessionsStore((s) => s.sessions);
   const editorSettings = useSettingsStore((s) => s.editorSettings);
   const settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
   const switchEditorWorktree = useEditorStore((s) => s.switchWorktree);
@@ -174,26 +169,9 @@ export function useWorktreeSelection(
       setActiveWorktree(worktree);
       requestAgentCanvasRecenter?.(worktree.path);
 
-      const hasAgentSessions =
-        targetRepoPath !== null && targetRepoPath !== undefined
-          ? getAgentSessions(targetRepoPath, worktree.path).length > 0
-          : false;
-
-      const shouldPrewarmRecovery =
-        targetRepoPath &&
-        getWorktreeAgentSessionRecoveryStatus(targetRepoPath, worktree.path) !== 'settled';
-
-      if (shouldPrewarmRecovery) {
-        void restoreWorktreeAgentSessions({
-          repoPath: targetRepoPath,
-          cwd: worktree.path,
-          restoreWorktreeSessions: window.electronAPI.agentSession.restoreWorktreeSessions,
-          upsertRecoveredSession,
-          updateGroupState,
-        }).catch((error) => {
-          console.error('[useWorktreeSelection] Failed to prewarm agent sessions', error);
-        });
-      }
+      const hasAgentSessions = agentSessions.some((session) =>
+        pathsEqual(session.cwd, worktree.path)
+      );
 
       // Show the agent empty state when the worktree has no session context yet.
       const savedTab = hasAgentSessions
@@ -217,12 +195,10 @@ export function useWorktreeSelection(
       settingsDisplayMode,
       t,
       refreshGitData,
-      getAgentSessions,
+      agentSessions,
       selectedRepo,
       setSelectedRepo,
       persistSelectedWorktree,
-      upsertRecoveredSession,
-      updateGroupState,
       setActiveWorktree,
       setWorktreeTabMap,
       setActiveTab,

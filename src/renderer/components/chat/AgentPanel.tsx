@@ -44,6 +44,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/shallow';
@@ -170,7 +171,11 @@ import {
   resolveAgentGroupPositions,
 } from './agentSessionLayoutIndex';
 import { isOpenAgentSession } from './agentSessionLiveness';
-import { restoreWorktreeAgentSessions } from './agentSessionRecovery';
+import {
+  getWorktreeAgentSessionRecoveryStatus,
+  restoreWorktreeAgentSessions,
+  subscribeToWorktreeAgentSessionRecovery,
+} from './agentSessionRecovery';
 import { shouldDeferBackgroundAgentRuntimeMount } from './agentSessionRuntimeSafetyPolicy';
 import { matchesAgentSessionRepoPath, matchesAgentSessionScope } from './agentSessionScope';
 import { findAutoSessionRolloverTarget } from './autoSessionRolloverPolicy';
@@ -1417,9 +1422,23 @@ export function AgentPanel({
   const [completedWorktreeSessionRecoveryKey, setCompletedWorktreeSessionRecoveryKey] = useState<
     string | null
   >(null);
+  const startedWorktreeSessionRecoveryKeyRef = useRef<string | null>(null);
+  const getWorktreeSessionRecoverySnapshot = useCallback(() => {
+    if (!worktreeSessionRecoveryKey) {
+      return 'idle';
+    }
+
+    return getWorktreeAgentSessionRecoveryStatus(repoPath, cwd);
+  }, [cwd, repoPath, worktreeSessionRecoveryKey]);
+  const worktreeSessionRecoveryStatus = useSyncExternalStore(
+    subscribeToWorktreeAgentSessionRecovery,
+    getWorktreeSessionRecoverySnapshot,
+    getWorktreeSessionRecoverySnapshot
+  );
   const isWorktreeSessionRecoveryPending =
     worktreeSessionRecoveryKey !== null &&
-    completedWorktreeSessionRecoveryKey !== worktreeSessionRecoveryKey;
+    completedWorktreeSessionRecoveryKey !== worktreeSessionRecoveryKey &&
+    worktreeSessionRecoveryStatus !== 'settled';
   const subagentScopeSessions = useMemo(
     () => (isWorkspaceCanvasDisplayMode ? allSessions : currentWorktreeSessions),
     [allSessions, currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
@@ -2050,7 +2069,18 @@ export function AgentPanel({
       return;
     }
 
-    let cancelled = false;
+    if (worktreeSessionRecoveryStatus === 'settled') {
+      setCompletedWorktreeSessionRecoveryKey((currentKey) =>
+        currentKey === worktreeSessionRecoveryKey ? currentKey : worktreeSessionRecoveryKey
+      );
+      return;
+    }
+
+    if (startedWorktreeSessionRecoveryKeyRef.current === worktreeSessionRecoveryKey) {
+      return;
+    }
+
+    startedWorktreeSessionRecoveryKeyRef.current = worktreeSessionRecoveryKey;
     void restoreWorktreeAgentSessions({
       repoPath,
       cwd,
@@ -2062,15 +2092,16 @@ export function AgentPanel({
         console.error('[AgentPanel] Failed to restore worktree sessions', error);
       })
       .finally(() => {
-        if (!cancelled) {
-          setCompletedWorktreeSessionRecoveryKey(worktreeSessionRecoveryKey);
-        }
+        setCompletedWorktreeSessionRecoveryKey(worktreeSessionRecoveryKey);
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cwd, repoPath, updateGroupState, upsertRecoveredSession, worktreeSessionRecoveryKey]);
+  }, [
+    cwd,
+    repoPath,
+    updateGroupState,
+    upsertRecoveredSession,
+    worktreeSessionRecoveryKey,
+    worktreeSessionRecoveryStatus,
+  ]);
 
   // Sync activeIds from store to group state when changed externally (e.g., from RunningProjectsPopover)
   useEffect(() => {

@@ -8,7 +8,8 @@ import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { getSharedRootPath } from '../SharedSessionState';
 
 const SESSION_META_SCAN_BYTES = 64 * 1024;
-const LEGACY_MIGRATION_MARKER = '.legacy-session-history-migrated-v1';
+const LEGACY_MIGRATION_MARKER = '.legacy-session-history-migrated-v2';
+const WORKSPACE_HISTORY_DIRECTORY_PREFIX = 'workspace-';
 
 export interface CodexWorkspaceSessionHistoryScope {
   repoPath?: string;
@@ -180,6 +181,27 @@ export function resolveCodexWorkspaceSessionHistoryPath(
   const identity = resolveWorkspaceIdentity(scope);
   const key = createHash('sha256').update(identity).digest('hex').slice(0, 32);
   return path.join(historyRoot, `workspace-${key}`, 'sessions');
+}
+
+export async function listLegacyCodexWorkspaceSessionHistoryPaths(
+  sessionHistoryPath: string
+): Promise<string[]> {
+  const historyRootPath = path.dirname(path.dirname(sessionHistoryPath));
+  const resolvedHistoryPath = path.resolve(sessionHistoryPath);
+
+  try {
+    const entries = await readdir(historyRootPath, { withFileTypes: true });
+    return entries.flatMap((entry) => {
+      if (!entry.isDirectory() || !entry.name.startsWith(WORKSPACE_HISTORY_DIRECTORY_PREFIX)) {
+        return [];
+      }
+
+      const legacySessionsPath = path.join(historyRootPath, entry.name, 'sessions');
+      return path.resolve(legacySessionsPath) === resolvedHistoryPath ? [] : [legacySessionsPath];
+    });
+  } catch {
+    return [];
+  }
 }
 
 export async function migrateCodexWorkspaceSessionHistory({

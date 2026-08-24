@@ -26,14 +26,21 @@ interface CommandOptions {
   allowFailure?: boolean;
 }
 
+interface CreateAgentSessionRecoveryScenarioOptions {
+  includeForeignWorkspace?: boolean;
+}
+
 export interface AgentSessionRecoveryScenario {
   homeDir: string;
   repoPath: string;
   repoName: string;
   worktreePath: string;
   worktreeBranch: string;
+  foreignRepoPath: string;
+  foreignWorktreePath: string;
   uiSessionId: string;
   sessionDisplayName: string;
+  foreignSessionDisplayName: string;
   sessionPanelId: string;
   transcriptFirstLine: string;
   transcriptLastLine: string;
@@ -191,19 +198,27 @@ export function ensureTmuxAvailable(): void {
   }
 }
 
-export async function createAgentSessionRecoveryScenario(): Promise<AgentSessionRecoveryScenario> {
+export async function createAgentSessionRecoveryScenario(
+  options: CreateAgentSessionRecoveryScenarioOptions = {}
+): Promise<AgentSessionRecoveryScenario> {
+  const includeForeignWorkspace = options.includeForeignWorkspace ?? false;
   const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
   const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-recovery-'));
   const homeDir = join(rootDir, 'home');
   const workspaceRoot = join(rootDir, 'workspace');
   const repoPath = join(workspaceRoot, 'repo-main');
   const worktreePath = join(workspaceRoot, 'repo-feature-recovery');
+  const foreignRepoPath = join(workspaceRoot, 'repo-foreign');
+  const foreignWorktreePath = join(workspaceRoot, 'repo-foreign-feature');
   const repoName = 'repo-main';
   const worktreeBranch = 'feature-recovery';
   const uiSessionId = `ui-recovery-${randomUUID()}`;
+  const foreignUiSessionId = `ui-foreign-${randomUUID()}`;
   const profileName = sanitizeRuntimeProfileName(`e2e-${uiSessionId}`) || 'e2e';
   const tmuxSessionName = buildTmuxSessionName(uiSessionId);
+  const foreignTmuxSessionName = buildTmuxSessionName(foreignUiSessionId);
   const sessionDisplayName = 'Recovered Session';
+  const foreignSessionDisplayName = 'Foreign Recovered Session';
   const tmuxGreeting = 'Recovered from tmux';
   const runtimeRoot = buildRecoveryRuntimeRoot(homeDir, profileName);
   const settingsPath = join(runtimeRoot, SETTINGS_FILENAME);
@@ -222,10 +237,21 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
     sessionName: tmuxSessionName,
     greeting: tmuxGreeting,
   });
+  if (includeForeignWorkspace) {
+    await createGitRepositoryFixture(foreignRepoPath, foreignWorktreePath);
+    await createTmuxRecoverySession({
+      homeDir,
+      rootDir,
+      worktreePath: foreignWorktreePath,
+      sessionName: foreignTmuxSessionName,
+      greeting: foreignSessionDisplayName,
+    });
+  }
 
   const settingsDocument = {
     'enso-settings': {
       state: {
+        terminalRenderer: 'dom',
         claudeCodeIntegration: {
           tmuxEnabled: true,
         },
@@ -241,6 +267,16 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
         path: repoPath,
         kind: 'local',
       },
+      ...(includeForeignWorkspace
+        ? [
+            {
+              id: buildLocalRepositoryId(foreignRepoPath),
+              name: 'repo-foreign',
+              path: foreignRepoPath,
+              kind: 'local',
+            },
+          ]
+        : []),
     ]),
     'enso-selected-repo': repoPath,
     'enso-tree-sidebar-expanded-repos': JSON.stringify([repoPath]),
@@ -265,13 +301,33 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
     updatedAt: now,
     lastKnownState: 'live',
   };
+  const foreignPersistentRecord = {
+    uiSessionId: foreignUiSessionId,
+    backendSessionId: `stale-backend-${foreignUiSessionId}`,
+    agentId: 'shell',
+    agentCommand: 'sh',
+    environment: 'native',
+    repoPath: foreignRepoPath,
+    cwd: foreignWorktreePath,
+    displayName: foreignSessionDisplayName,
+    activated: true,
+    initialized: true,
+    hostKind: 'tmux',
+    hostSessionKey: foreignTmuxSessionName,
+    recoveryPolicy: 'auto',
+    createdAt: now - 1000,
+    updatedAt: now,
+    lastKnownState: 'live',
+  };
 
   const sessionStateDocument = {
     version: 2,
     updatedAt: now,
     settingsData: settingsDocument,
     localStorage: localStorageSnapshot,
-    persistentAgentSessions: [persistentRecord],
+    persistentAgentSessions: includeForeignWorkspace
+      ? [persistentRecord, foreignPersistentRecord]
+      : [persistentRecord],
     todos: {},
   };
 
@@ -284,8 +340,11 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
     repoName,
     worktreePath,
     worktreeBranch,
+    foreignRepoPath,
+    foreignWorktreePath,
     uiSessionId,
     sessionDisplayName,
+    foreignSessionDisplayName,
     sessionPanelId: `agent-session-panel-${uiSessionId}`,
     transcriptFirstLine: `${RECOVERY_TRANSCRIPT_PREFIX}-001`,
     transcriptLastLine: `${RECOVERY_TRANSCRIPT_PREFIX}-${String(RECOVERY_TRANSCRIPT_LINE_COUNT).padStart(3, '0')}`,
@@ -294,6 +353,9 @@ export async function createAgentSessionRecoveryScenario(): Promise<AgentSession
     profileName,
     cleanup: async () => {
       ensureTmuxSessionMissing(homeDir, tmuxSessionName);
+      if (includeForeignWorkspace) {
+        ensureTmuxSessionMissing(homeDir, foreignTmuxSessionName);
+      }
       await rm(rootDir, { recursive: true, force: true });
     },
   };

@@ -146,6 +146,65 @@ describe.sequential('electron agent session recovery', () => {
       await quitElectronApplication(secondLaunch.app);
     }
   });
+
+  it('does not surface a foreign workspace session when selecting a worktree', async () => {
+    console.info('[e2e] creating foreign-scope recovery scenario');
+    const scenario = await createAgentSessionRecoveryScenario({ includeForeignWorkspace: true });
+    cleanupTasks.push(scenario.cleanup);
+
+    console.info('[e2e] launching first app instance');
+    const firstLaunch = await launchInfiluxForScenario(scenario);
+    console.info('[e2e] waiting for first app repository/worktree');
+    await waitForRepositoryAndWorktree(firstLaunch.page, scenario);
+    console.info('[e2e] closing first app instance');
+    await quitElectronApplication(firstLaunch.app);
+
+    console.info('[e2e] launching second app instance');
+    const secondLaunch = await launchInfiluxForScenario(scenario);
+
+    try {
+      console.info('[e2e] waiting for second app repository/worktree');
+      await waitForRepositoryAndWorktree(secondLaunch.page, scenario);
+
+      const currentSessionTab = secondLaunch.page.getByRole('tab', {
+        name: scenario.sessionDisplayName,
+      });
+      const foreignSessionTab = secondLaunch.page.getByRole('tab', {
+        name: scenario.foreignSessionDisplayName,
+      });
+      expect(await currentSessionTab.count()).toBe(0);
+      expect(await foreignSessionTab.count()).toBe(0);
+
+      await selectRecoveryWorktree(secondLaunch.page, scenario);
+      await expect
+        .poll(async () => await currentSessionTab.count(), { timeout: 30000 })
+        .toBeGreaterThanOrEqual(1);
+
+      expect(await foreignSessionTab.count()).toBe(0);
+    } catch (error) {
+      const recoveryDiagnostics = await collectRecoveryDiagnostics(
+        secondLaunch.page,
+        scenario
+      ).catch(
+        (diagnosticError) =>
+          `Failed to collect recovery diagnostics: ${
+            diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)
+          }`
+      );
+      throw new Error(
+        [
+          error instanceof Error ? error.message : String(error),
+          'Recovery diagnostics:',
+          recoveryDiagnostics,
+          'Renderer diagnostics:',
+          formatElectronDiagnostics(secondLaunch),
+        ].join('\n\n')
+      );
+    } finally {
+      console.info('[e2e] closing second app instance');
+      await quitElectronApplication(secondLaunch.app);
+    }
+  });
 });
 
 async function assertSessionIsRecoveredAfterWorktreeSelection(
@@ -157,15 +216,7 @@ async function assertSessionIsRecoveredAfterWorktreeSelection(
   const sessionTab = page.getByRole('tab', { name: scenario.sessionDisplayName });
   expect(await sessionTab.count()).toBe(0);
 
-  const worktreeButton = page
-    .locator('[data-node-kind="worktree"]')
-    .filter({ hasText: scenario.worktreeBranch })
-    .locator('button[data-surface="row"]')
-    .first();
-
-  await revealWorktreeSidebarForInteraction(worktreeButton);
-  console.info('[e2e] clicking recovery worktree row');
-  await worktreeButton.click();
+  await selectRecoveryWorktree(page, scenario);
 
   console.info('[e2e] waiting for recovered session tab');
   await expect
@@ -176,6 +227,21 @@ async function assertSessionIsRecoveredAfterWorktreeSelection(
   await expect
     .poll(async () => (await sessionTab.textContent())?.trim() ?? '', { timeout: 10000 })
     .toContain(scenario.sessionDisplayName);
+}
+
+async function selectRecoveryWorktree(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  scenario: AgentSessionRecoveryScenario
+): Promise<void> {
+  const worktreeButton = page
+    .locator('[data-node-kind="worktree"]')
+    .filter({ hasText: scenario.worktreeBranch })
+    .locator('button[data-surface="row"]')
+    .first();
+
+  await revealWorktreeSidebarForInteraction(worktreeButton);
+  console.info('[e2e] clicking recovery worktree row');
+  await worktreeButton.click();
 }
 
 async function revealWorktreeSidebarForInteraction(worktreeButton: ScenarioLocator): Promise<void> {

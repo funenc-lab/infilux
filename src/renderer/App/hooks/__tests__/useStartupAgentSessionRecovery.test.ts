@@ -98,6 +98,33 @@ describe('useStartupAgentSessionRecovery', () => {
     });
   });
 
+  it('uses the main worktree identity when a linked worktree is selected as a repository', async () => {
+    const { useStartupAgentSessionRecovery } = await loadHook();
+    const mainWorktree = {
+      ...makeWorktree('/repo/main'),
+      isMainWorktree: true,
+    };
+    const activeWorktree = makeWorktree('/repo/worktrees/feature-a');
+
+    useStartupAgentSessionRecovery({
+      selectedRepo: activeWorktree.path,
+      activeWorktree,
+      selectedRepoCanLoad: true,
+      worktreesFetched: true,
+      worktreesFetching: false,
+      availableWorktreePaths: [mainWorktree.path, activeWorktree.path],
+      selectedRepoWorktrees: [mainWorktree, activeWorktree],
+    });
+
+    expect(restoreWorktreeAgentSessions).toHaveBeenCalledWith({
+      repoPath: mainWorktree.path,
+      cwd: activeWorktree.path,
+      restoreWorktreeSessions,
+      upsertRecoveredSession,
+      updateGroupState,
+    });
+  });
+
   it('still prewarms when the startup worktree only has renderer-hydrated sessions in memory', async () => {
     getSessions.mockReturnValue([
       {

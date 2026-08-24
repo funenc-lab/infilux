@@ -212,7 +212,7 @@ describe('AgentSessionTranscriptDrawer', () => {
     });
   });
 
-  it('keeps the latest archive page when older output is loaded', async () => {
+  it('shows the newly loaded older archive page without rendering the latest page', async () => {
     getTranscriptPage
       .mockResolvedValueOnce({
         text: 'latest archive output',
@@ -259,7 +259,8 @@ describe('AgentSessionTranscriptDrawer', () => {
       maxBytes: 64 * 1024,
     });
     expect(container.textContent).toContain('older archive output');
-    expect(container.textContent).toContain('latest archive output');
+    expect(container.textContent).not.toContain('latest archive output');
+    expect(container.textContent).toContain('1 newer retained lines are omitted from this view.');
 
     await act(async () => {
       root.unmount();

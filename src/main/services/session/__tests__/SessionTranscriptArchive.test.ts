@@ -1,8 +1,29 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionTranscriptArchive } from '../SessionTranscriptArchive';
+
+const transcriptArchiveTestState = vi.hoisted(() => ({
+  rejectLegacyWholeFileRead: false,
+  legacyPath: '',
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...original,
+    readFile: async (filePath: string | URL | Buffer, options?: BufferEncoding) => {
+      if (
+        transcriptArchiveTestState.rejectLegacyWholeFileRead &&
+        String(filePath) === transcriptArchiveTestState.legacyPath
+      ) {
+        throw new Error('Legacy output must be read through a bounded file handle');
+      }
+      return original.readFile(filePath, options);
+    },
+  };
+});
 
 describe('SessionTranscriptArchive', () => {
   let rootDirectory: string;
@@ -59,6 +80,33 @@ describe('SessionTranscriptArchive', () => {
     );
   });
 
+  it('returns persisted output for terminal replay without waiting for a buffered append', async () => {
+    archive = new SessionTranscriptArchive({
+      rootDirectory,
+      appendDelayMs: 10_000,
+    });
+    archive.append('agent-1', 'persisted');
+    await archive.flush('agent-1');
+    archive.append('agent-1', 'buffered');
+
+    try {
+      await expect(
+        archive.readPage({
+          sessionId: 'agent-1',
+          maxBytes: 1024,
+          terminalReplay: true,
+        })
+      ).resolves.toMatchObject({
+        text: 'persisted',
+        totalBytes: 9,
+        health: 'complete',
+        initialParserState: 'text',
+      });
+    } finally {
+      await archive.flush('agent-1');
+    }
+  });
+
   it('retains only the newest transcript bytes when the archive reaches its capacity', async () => {
     const boundedArchive = new SessionTranscriptArchive({
       rootDirectory,
@@ -111,6 +159,27 @@ describe('SessionTranscriptArchive', () => {
       totalBytes: 13,
       health: 'complete',
     });
+  });
+
+  it('migrates legacy output without loading the whole legacy file', async () => {
+    const legacyPath = join(rootDirectory, 'agent-1.log');
+    await writeFile(legacyPath, 'legacy output');
+    transcriptArchiveTestState.legacyPath = legacyPath;
+    transcriptArchiveTestState.rejectLegacyWholeFileRead = true;
+
+    try {
+      await expect(archive.open('agent-1')).resolves.toBeUndefined();
+      await expect(
+        archive.readPage({ sessionId: 'agent-1', maxBytes: 1024 })
+      ).resolves.toMatchObject({
+        text: 'legacy output',
+        totalBytes: 13,
+        health: 'complete',
+      });
+    } finally {
+      transcriptArchiveTestState.rejectLegacyWholeFileRead = false;
+      transcriptArchiveTestState.legacyPath = '';
+    }
   });
 
   it('reports bounded V2 segment retention after rotating archived output', async () => {
