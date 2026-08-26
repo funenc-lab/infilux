@@ -4173,11 +4173,3 @@
 .xterm-screen {
   background-color: inherit !important;
 }
-
-[data-agent-host-scrollback='true'] .xterm-viewport {
-  scrollbar-width: none;
-}
-
-[data-agent-host-scrollback='true'] .xterm-viewport::-webkit-scrollbar {
-  display: none;
-}

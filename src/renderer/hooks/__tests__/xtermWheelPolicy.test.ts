@@ -58,13 +58,12 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('routes normal-buffer wheel input to tmux host scrolling when recovered agent history lives in tmux', () => {
+  it('keeps normal-buffer wheel input in xterm when the agent process is hosted by tmux', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
         activeBufferType: 'normal',
         mouseTrackingMode: 'none',
-        hostScrollMode: 'tmux',
         deltaMode: DOM_DELTA_PIXEL,
         deltaY: -120,
         carryY: 0,
@@ -72,7 +71,7 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'host-scroll',
+      action: 'consume',
       carryY: 0,
       scrollLines: -12,
     });
@@ -98,13 +97,12 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('routes alternate-buffer wheel input to tmux host scrolling when recovered agent history lives in tmux', () => {
+  it('keeps alternate-buffer wheel input in the agent program when the process is hosted by tmux', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
         activeBufferType: 'alternate',
         mouseTrackingMode: 'none',
-        hostScrollMode: 'tmux',
         deltaMode: DOM_DELTA_PIXEL,
         deltaY: -120,
         carryY: 0,
@@ -112,9 +110,10 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'host-scroll',
+      action: 'program-scroll',
       carryY: 0,
-      scrollLines: -12,
+      sequence: '\x1b[5~',
+      repeat: 2,
     });
   });
 
@@ -212,13 +211,12 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('keeps recovered tmux sessions on host scrolling even when xterm reports mouse tracking', () => {
+  it('delegates wheel input to a mouse-tracking agent even when the process is hosted by tmux', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
         activeBufferType: 'alternate',
         mouseTrackingMode: 'any',
-        hostScrollMode: 'tmux',
         deltaMode: DOM_DELTA_LINE,
         deltaY: 3,
         carryY: 0,
@@ -226,9 +224,8 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'host-scroll',
+      action: 'delegate',
       carryY: 0,
-      scrollLines: 3,
     });
   });
 });

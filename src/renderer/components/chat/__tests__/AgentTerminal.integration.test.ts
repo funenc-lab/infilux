@@ -2644,7 +2644,7 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
-  it('routes drag auto-scroll through tmux host scrollback for persistent recovered sessions', async () => {
+  it('keeps drag auto-scroll on the xterm viewport for persistent recovered sessions', async () => {
     vi.useFakeTimers();
     testState.settingsStore.agentIntegration.tmuxEnabled = true;
 
@@ -2692,13 +2692,9 @@ describe('AgentTerminal integration', () => {
       await flushMicrotasks();
     });
 
-    expect(testState.electronAPI.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
-      sessionName: 'infilux-ui-session-1',
-      serverName: 'infilux',
-      direction: 'down',
-      amount: expect.any(Number),
-    });
-    expect(testState.terminal.scrollLines).not.toHaveBeenCalled();
+    expect(testState.electronAPI.tmuxScrollClient).not.toHaveBeenCalled();
+    expect(testState.terminal.scrollLines).toHaveBeenCalled();
+    expect(testState.terminal.scrollLines.mock.calls.at(-1)?.[0]).toBeGreaterThan(0);
 
     await act(async () => {
       window.dispatchEvent(
@@ -2708,6 +2704,30 @@ describe('AgentTerminal integration', () => {
         })
       );
       await flushMicrotasks();
+    });
+
+    await mounted.unmount();
+  });
+
+  it('exits legacy tmux copy mode when a recovered session mounts', async () => {
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+
+    const mounted = await mountAgentTerminal({
+      recovered: true,
+      initialized: true,
+      persistenceEnabled: true,
+      hostSessionKey: 'infilux-ui-session-1',
+      recoveryState: 'live',
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.electronAPI.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
+      sessionName: 'infilux-ui-session-1',
+      serverName: 'infilux',
+      direction: 'bottom',
     });
 
     await mounted.unmount();
@@ -2808,52 +2828,6 @@ describe('AgentTerminal integration', () => {
     });
 
     expect(button?.className).not.toContain('pointer-events-none');
-
-    await mounted.unmount();
-  });
-
-  it('shows the scroll-to-bottom button for tmux host scrollback and exits copy mode on click', async () => {
-    testState.settingsStore.agentIntegration.tmuxEnabled = true;
-
-    const mounted = await mountAgentTerminal({
-      initialized: true,
-      persistenceEnabled: true,
-      hostSessionKey: 'infilux-ui-session-1',
-      recoveryState: 'live',
-    });
-
-    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
-      | {
-          onHostScrollbackStateChange?: (active: boolean) => void;
-        }
-      | undefined;
-    const terminalRoot = mounted.container.querySelector<HTMLElement>('[data-agent-terminal-mode]');
-
-    expect(lastUseXtermCall?.onHostScrollbackStateChange).toBeTypeOf('function');
-    expect(terminalRoot?.dataset.agentHostScrollback).toBe('false');
-    await act(async () => {
-      lastUseXtermCall?.onHostScrollbackStateChange?.(true);
-      await flushMicrotasks();
-    });
-
-    expect(terminalRoot?.dataset.agentHostScrollback).toBe('true');
-    const button = mounted.container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Scroll to bottom"]'
-    );
-    expect(button).not.toBeNull();
-
-    await act(async () => {
-      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await flushMicrotasks();
-    });
-
-    expect(testState.scrollToBottomSpy).toHaveBeenCalledTimes(1);
-    expect(testState.electronAPI.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
-      sessionName: 'infilux-ui-session-1',
-      serverName: 'infilux',
-      direction: 'bottom',
-    });
-    expect(terminalRoot?.dataset.agentHostScrollback).toBe('false');
 
     await mounted.unmount();
   });

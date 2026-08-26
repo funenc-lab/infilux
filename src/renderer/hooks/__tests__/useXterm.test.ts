@@ -2361,13 +2361,12 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('reports tmux host scrollback state after host wheel scrolling', async () => {
+  it('scrolls tmux-backed agent output in the local xterm viewport', async () => {
     testState.resolveAgentWheelPolicy.mockReturnValue({
-      action: 'host-scroll',
+      action: 'consume',
       carryY: 0,
       scrollLines: -4,
     } as never);
-    const onHostScrollbackStateChange = vi.fn();
 
     const mounted = mountHookHarness({
       hostSession: {
@@ -2375,8 +2374,7 @@ describe('useXterm startup loading state', () => {
         serverName: 'infilux',
         sessionName: 'tmux-session-1',
       },
-      preferHostScrollback: true,
-      onHostScrollbackStateChange,
+      kind: 'agent',
     });
 
     await act(async () => {
@@ -2385,7 +2383,6 @@ describe('useXterm startup loading state', () => {
 
     expect(testState.attachedWheelHandler).toBeTypeOf('function');
 
-    vi.useFakeTimers();
     const preventDefault = vi.fn();
     const stopPropagation = vi.fn();
 
@@ -2400,184 +2397,9 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(20);
-      await flushMicrotasks();
-    });
-
-    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
-      sessionName: 'tmux-session-1',
-      serverName: 'infilux',
-      direction: 'up',
-      amount: 4,
-    });
-    expect(testState.terminalScrollLines).not.toHaveBeenCalled();
-    expect(onHostScrollbackStateChange).toHaveBeenCalledWith(true);
+    expect(testState.terminalScrollLines).toHaveBeenCalledWith(-4);
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(stopPropagation).toHaveBeenCalledTimes(1);
-
-    await mounted.unmount();
-  });
-
-  it('falls back to local history when tmux host scrolling is not applied', async () => {
-    testState.resolveAgentWheelPolicy.mockReturnValue({
-      action: 'host-scroll',
-      carryY: 0,
-      scrollLines: -4,
-    } as never);
-    testState.tmuxScrollClient.mockResolvedValue({
-      applied: false,
-      inMode: false,
-      paneId: '%0',
-    });
-    const onHostScrollbackStateChange = vi.fn();
-
-    const mounted = mountHookHarness({
-      hostSession: {
-        kind: 'tmux',
-        serverName: 'infilux',
-        sessionName: 'tmux-session-1',
-      },
-      preferHostScrollback: true,
-      onHostScrollbackStateChange,
-    });
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    vi.useFakeTimers();
-
-    await act(async () => {
-      testState.attachedWheelHandler?.({
-        deltaMode: 1,
-        deltaY: -4,
-        preventDefault: vi.fn(),
-        stopPropagation: vi.fn(),
-      } as unknown as WheelEvent);
-      await vi.advanceTimersByTimeAsync(20);
-      await flushMicrotasks();
-    });
-
-    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
-      sessionName: 'tmux-session-1',
-      serverName: 'infilux',
-      direction: 'up',
-      amount: 4,
-    });
-    expect(testState.terminalScrollLines).toHaveBeenCalledWith(-4);
-    expect(onHostScrollbackStateChange).toHaveBeenCalledWith(false);
-
-    await mounted.unmount();
-  });
-
-  it('falls back to local history when tmux host scrolling fails', async () => {
-    testState.resolveAgentWheelPolicy.mockReturnValue({
-      action: 'host-scroll',
-      carryY: 0,
-      scrollLines: -3,
-    } as never);
-    testState.tmuxScrollClient.mockRejectedValue(new Error('tmux unavailable'));
-    const onHostScrollbackStateChange = vi.fn();
-
-    const mounted = mountHookHarness({
-      hostSession: {
-        kind: 'tmux',
-        serverName: 'infilux',
-        sessionName: 'tmux-session-1',
-      },
-      preferHostScrollback: true,
-      onHostScrollbackStateChange,
-    });
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    vi.useFakeTimers();
-
-    await act(async () => {
-      testState.attachedWheelHandler?.({
-        deltaMode: 1,
-        deltaY: -3,
-        preventDefault: vi.fn(),
-        stopPropagation: vi.fn(),
-      } as unknown as WheelEvent);
-      await vi.advanceTimersByTimeAsync(20);
-      await flushMicrotasks();
-    });
-
-    expect(testState.terminalScrollLines).toHaveBeenCalledWith(-3);
-    expect(onHostScrollbackStateChange).toHaveBeenCalledWith(false);
-
-    await mounted.unmount();
-  });
-
-  it('coalesces repeated tmux host wheel scroll events before sending IPC', async () => {
-    testState.resolveAgentWheelPolicy.mockReturnValue({
-      action: 'host-scroll',
-      carryY: 0,
-      scrollLines: -3,
-    } as never);
-
-    const mounted = mountHookHarness({
-      hostSession: {
-        kind: 'tmux',
-        serverName: 'infilux',
-        sessionName: 'tmux-session-1',
-      },
-      preferHostScrollback: true,
-    });
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    expect(testState.attachedWheelHandler).toBeTypeOf('function');
-
-    vi.useFakeTimers();
-    const preventDefault = vi.fn();
-    const stopPropagation = vi.fn();
-
-    await act(async () => {
-      testState.attachedWheelHandler?.({
-        deltaMode: 1,
-        deltaY: -3,
-        preventDefault,
-        stopPropagation,
-      } as unknown as WheelEvent);
-      testState.attachedWheelHandler?.({
-        deltaMode: 1,
-        deltaY: -3,
-        preventDefault,
-        stopPropagation,
-      } as unknown as WheelEvent);
-      testState.attachedWheelHandler?.({
-        deltaMode: 1,
-        deltaY: -3,
-        preventDefault,
-        stopPropagation,
-      } as unknown as WheelEvent);
-      await flushMicrotasks();
-    });
-
-    expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(20);
-      await flushMicrotasks();
-    });
-
-    expect(testState.tmuxScrollClient).toHaveBeenCalledTimes(1);
-    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
-      sessionName: 'tmux-session-1',
-      serverName: 'infilux',
-      direction: 'up',
-      amount: 9,
-    });
-    expect(preventDefault).toHaveBeenCalledTimes(3);
-    expect(stopPropagation).toHaveBeenCalledTimes(3);
 
     await mounted.unmount();
   });

@@ -118,6 +118,15 @@ describe.sequential('electron agent session recovery', () => {
 
       const visibleText = await readVisibleTerminalText(secondLaunch.page, scenario);
       expect(visibleText).toContain(scenario.transcriptFirstLine);
+      const tmuxScrollCalls = await secondLaunch.page.evaluate(() => {
+        const windowWithProbe = window as typeof window & {
+          __tmuxScrollProbe?: {
+            calls: unknown[];
+          };
+        };
+        return windowWithProbe.__tmuxScrollProbe?.calls ?? [];
+      });
+      expect(tmuxScrollCalls).toEqual([]);
     } catch (error) {
       const recoveryDiagnostics = await collectRecoveryDiagnostics(
         secondLaunch.page,

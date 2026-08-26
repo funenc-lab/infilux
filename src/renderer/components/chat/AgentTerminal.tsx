@@ -729,7 +729,6 @@ export function AgentTerminal({
   const runtimeStateRef = useRef<'live' | 'reconnecting' | 'dead'>('live');
   const trustPromptSubmitRef = useRef<(data: string) => void>(() => {});
   const terminalFocusRef = useRef<(() => void) | null>(null);
-  const initialBackendSessionIdRef = useRef(backendSessionId);
 
   // Output state tracking for global store
   const outputStateRef = useRef<OutputState>('idle');
@@ -1473,7 +1472,6 @@ export function AgentTerminal({
   const handleSessionCreateFallbackRetry = useCallback(() => {
     setShouldBypassHostSessionRecovery(true);
   }, []);
-  const [isTmuxHostScrollbackActive, setIsTmuxHostScrollbackActive] = useState(false);
   const [isMouseSelectingTerminal, setIsMouseSelectingTerminal] = useState(false);
   const mouseSelectionAutoScrollPositionRef = useRef<MouseSelectionPosition | null>(null);
   const stopMouseSelectionAutoScrollRef = useRef<(() => void) | null>(null);
@@ -1913,9 +1911,6 @@ export function AgentTerminal({
     staticContent: terminalStaticContent,
     metadata: agentLaunchMetadata,
     persistOnDisconnect: shouldPersistAgentSessionOnDisconnect(persistenceEnabled),
-    preferHostScrollback:
-      hostSession?.kind === 'tmux' &&
-      (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current))),
     retryOnDeadSession: shouldRetryDeadAgentSession({
       persistenceEnabled,
       recovered,
@@ -1929,7 +1924,6 @@ export function AgentTerminal({
     onCustomKey: handleCustomKey,
     onTitleChange: handleTitleChange,
     onSessionIdChange: handleBackendSessionIdChange,
-    onHostScrollbackStateChange: setIsTmuxHostScrollbackActive,
     onSessionOpen: (session) => {
       const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);
       if (capabilityState) {
@@ -1944,9 +1938,22 @@ export function AgentTerminal({
     onMerge,
     canMerge,
   });
-  const shouldUseMouseSelectionHostScrollback =
-    hostSession?.kind === 'tmux' &&
-    (recovered || (persistenceEnabled && Boolean(initialBackendSessionIdRef.current)));
+
+  useEffect(() => {
+    if (!recovered || !cwd || hostSession?.kind !== 'tmux') {
+      return;
+    }
+
+    // Older renderer versions could leave a recovered pane in tmux copy mode.
+    void window.electronAPI.tmux
+      .scrollClient(cwd, {
+        sessionName: hostSession.sessionName,
+        serverName: hostSession.serverName,
+        direction: 'bottom',
+      })
+      .catch(() => {});
+  }, [cwd, hostSession, recovered]);
+
   trustPromptSubmitRef.current = write;
   terminalFocusRef.current = () => focusXtermTextInput(terminal);
   runtimeStateRef.current = runtimeState;
@@ -2174,17 +2181,6 @@ export function AgentTerminal({
     showScrollToBottom: showLocalScrollToBottom,
     handleScrollToBottom: handleLocalScrollToBottom,
   } = useTerminalScrollToBottom(terminal);
-  const tmuxHostScrollbackResetKey =
-    hostSession?.kind === 'tmux'
-      ? `${terminalSessionId ?? ''}\u0000${hostSession.serverName ?? ''}\u0000${hostSession.sessionName}`
-      : `${terminalSessionId ?? ''}\u0000${hostSession?.kind ?? 'none'}`;
-
-  useEffect(() => {
-    if (!tmuxHostScrollbackResetKey) {
-      return;
-    }
-    setIsTmuxHostScrollbackActive(false);
-  }, [tmuxHostScrollbackResetKey]);
   const startMouseSelectionAutoScroll = useCallback(
     (event: MouseEvent) => {
       stopMouseSelectionAutoScrollRef.current?.();
@@ -2209,23 +2205,7 @@ export function AgentTerminal({
         const target = resolveMouseSelectionTarget(container);
         const lines = resolveMouseSelectionAutoScrollLines(target, position.clientY);
         if (lines !== 0) {
-          if (cwd && shouldUseMouseSelectionHostScrollback && hostSession?.kind === 'tmux') {
-            void window.electronAPI.tmux
-              .scrollClient(cwd, {
-                sessionName: hostSession.sessionName,
-                serverName: hostSession.serverName,
-                direction: lines < 0 ? 'up' : 'down',
-                amount: Math.abs(lines),
-              })
-              .then((result) => {
-                setIsTmuxHostScrollbackActive(Boolean(result.inMode));
-              })
-              .catch(() => {
-                setIsTmuxHostScrollbackActive(false);
-              });
-          } else {
-            terminal?.scrollLines(lines);
-          }
+          terminal?.scrollLines(lines);
           dispatchMouseSelectionMoveToXterm(target, position);
         }
       }, MOUSE_SELECTION_AUTO_SCROLL_INTERVAL_MS);
@@ -2249,7 +2229,7 @@ export function AgentTerminal({
       stopMouseSelectionAutoScrollRef.current = stopMouseSelection;
       setIsMouseSelectingTerminal(true);
     },
-    [containerRef, cwd, hostSession, shouldUseMouseSelectionHostScrollback, terminal]
+    [containerRef, terminal]
   );
 
   useEffect(() => {
@@ -2274,27 +2254,8 @@ export function AgentTerminal({
     [containerRef, startMouseSelectionAutoScroll]
   );
 
-  const handleScrollToBottom = useCallback(() => {
-    handleLocalScrollToBottom();
-
-    if (!cwd || hostSession?.kind !== 'tmux' || !isTmuxHostScrollbackActive) {
-      return;
-    }
-
-    void window.electronAPI.tmux
-      .scrollClient(cwd, {
-        sessionName: hostSession.sessionName,
-        serverName: hostSession.serverName,
-        direction: 'bottom',
-      })
-      .then((result) => {
-        setIsTmuxHostScrollbackActive(Boolean(result.inMode));
-      })
-      .catch(() => {
-        setIsTmuxHostScrollbackActive(false);
-      });
-  }, [cwd, handleLocalScrollToBottom, hostSession, isTmuxHostScrollbackActive]);
-  const showScrollToBottom = showLocalScrollToBottom || isTmuxHostScrollbackActive;
+  const handleScrollToBottom = handleLocalScrollToBottom;
+  const showScrollToBottom = showLocalScrollToBottom;
 
   // Register write and focus functions to global store for external access
   const { register, unregister } = useTerminalWriteStore();
@@ -2597,7 +2558,6 @@ export function AgentTerminal({
     <div
       ref={terminalWrapperRef}
       className="relative h-full w-full"
-      data-agent-host-scrollback={isTmuxHostScrollbackActive ? 'true' : 'false'}
       data-agent-terminal-mode={isReadOnlyTranscript ? 'transcript' : 'live'}
       {...{ [AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE]: 'true' }}
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}

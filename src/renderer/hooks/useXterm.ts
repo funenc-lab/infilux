@@ -68,6 +68,7 @@ import {
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions, resolveTerminalFontFamily } from './xtermTerminalOptions';
 import { installXtermImeFocusBridge } from './xtermTextInputFocus';
+import { installXtermTmuxOuterAlternateBufferGuard } from './xtermTmuxOuterAlternateBufferGuard';
 import { readLatestXtermTranscript } from './xtermTranscriptReplay';
 import { syncXtermViewportToSession, type XtermViewportSyncSnapshot } from './xtermViewportSync';
 import {
@@ -97,7 +98,6 @@ const FILE_PATH_REGEX =
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences require ESC character
 const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
-const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
 
 interface InternalTerminalSearchDecorations {
@@ -134,16 +134,6 @@ interface XtermCommandOptions {
     shell: string;
     args: string[];
   };
-}
-
-interface PendingHostScrollRequest {
-  cwd?: string;
-  sessionName: string;
-  serverName?: string;
-  direction: 'up' | 'down';
-  amount: number;
-  terminal: Terminal;
-  sessionEpoch: number;
 }
 
 interface InFlightTerminalWrite {
@@ -202,7 +192,6 @@ export interface UseXtermOptions {
   activateOnInitialCommandWhenInactive?: boolean;
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
-  preferHostScrollback?: boolean;
   retryOnDeadSession?: boolean;
   deferSessionCreate?: boolean;
   sessionCreateFallback?: XtermSessionCreateFallbackOptions;
@@ -220,7 +209,6 @@ export interface UseXtermOptions {
   onInit?: (ptyId: string) => void;
   onSessionIdChange?: (sessionId: string) => void;
   onSessionOpen?: (session: SessionDescriptor) => void;
-  onHostScrollbackStateChange?: (active: boolean) => void;
   onSplit?: () => void;
   onMerge?: () => void;
   canMerge?: boolean;
@@ -368,7 +356,6 @@ export function useXterm({
   activateOnInitialCommandWhenInactive = true,
   kind = 'terminal',
   persistOnDisconnect = false,
-  preferHostScrollback = false,
   retryOnDeadSession = true,
   deferSessionCreate = false,
   sessionCreateFallback,
@@ -382,7 +369,6 @@ export function useXterm({
   onInit,
   onSessionIdChange,
   onSessionOpen,
-  onHostScrollbackStateChange,
   onSplit,
   onMerge,
   canMerge = false,
@@ -423,6 +409,7 @@ export function useXterm({
   const sessionEventsCleanupRef = useRef<(() => void) | null>(null);
   const terminalInputCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const outputProtocolGuardRef = useRef<{ dispose: () => void } | null>(null);
+  const tmuxOuterAlternateBufferGuardRef = useRef<{ dispose: () => void } | null>(null);
   const terminalImeFocusCleanupRef = useRef<{ dispose: () => void } | null>(null);
   const linkProviderDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const rendererAddonRef = useRef<XtermRendererAddon | null>(null);
@@ -462,8 +449,6 @@ export function useXterm({
   onSessionIdChangeRef.current = onSessionIdChange;
   const onSessionOpenRef = useRef(onSessionOpen);
   onSessionOpenRef.current = onSessionOpen;
-  const onHostScrollbackStateChangeRef = useRef(onHostScrollbackStateChange);
-  onHostScrollbackStateChangeRef.current = onHostScrollbackStateChange;
   const onSplitRef = useRef(onSplit);
   onSplitRef.current = onSplit;
   const onMergeRef = useRef(onMerge);
@@ -559,8 +544,6 @@ export function useXterm({
   const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
-  const pendingHostScrollRef = useRef<PendingHostScrollRequest | null>(null);
-  const hostScrollFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDecorations = useMemo(
     () => buildTerminalSearchDecorations(settings.theme),
     [settings.theme]
@@ -1149,6 +1132,8 @@ export function useXterm({
     terminalInputCleanupRef.current = null;
     outputProtocolGuardRef.current?.dispose();
     outputProtocolGuardRef.current = null;
+    tmuxOuterAlternateBufferGuardRef.current?.dispose();
+    tmuxOuterAlternateBufferGuardRef.current = null;
     terminalImeFocusCleanupRef.current?.dispose();
     terminalImeFocusCleanupRef.current = null;
     if (copyOnSelectionHandlerRef.current) {
@@ -1177,97 +1162,6 @@ export function useXterm({
     }
   }, [clearTerminalWriteFlushTimers, revealTerminalReplaySurface]);
 
-  const flushPendingHostScroll = useCallback(() => {
-    if (hostScrollFlushTimerRef.current) {
-      clearTimeout(hostScrollFlushTimerRef.current);
-      hostScrollFlushTimerRef.current = null;
-    }
-
-    const request = pendingHostScrollRef.current;
-    pendingHostScrollRef.current = null;
-    if (!request || request.amount <= 0) {
-      return;
-    }
-
-    const fallbackToLocalScrollback = () => {
-      if (
-        terminalRef.current !== request.terminal ||
-        createRequestIdRef.current !== request.sessionEpoch
-      ) {
-        return;
-      }
-
-      request.terminal.scrollLines(request.direction === 'up' ? -request.amount : request.amount);
-    };
-
-    void window.electronAPI.tmux
-      .scrollClient(request.cwd, {
-        sessionName: request.sessionName,
-        serverName: request.serverName,
-        direction: request.direction,
-        amount: request.amount,
-      })
-      .then((result) => {
-        if (!result.applied) {
-          fallbackToLocalScrollback();
-        }
-        const nextHostScrollbackState =
-          typeof result.inMode === 'boolean'
-            ? result.inMode
-            : request.direction === 'up' && result.applied;
-        onHostScrollbackStateChangeRef.current?.(nextHostScrollbackState);
-      })
-      .catch(() => {
-        fallbackToLocalScrollback();
-        onHostScrollbackStateChangeRef.current?.(false);
-      });
-  }, []);
-
-  const clearPendingHostScroll = useCallback(() => {
-    if (hostScrollFlushTimerRef.current) {
-      clearTimeout(hostScrollFlushTimerRef.current);
-      hostScrollFlushTimerRef.current = null;
-    }
-    pendingHostScrollRef.current = null;
-  }, []);
-
-  const scheduleHostScroll = useCallback(
-    (request: PendingHostScrollRequest) => {
-      if (request.amount <= 0) {
-        return;
-      }
-
-      const pending = pendingHostScrollRef.current;
-      if (
-        pending &&
-        pending.cwd === request.cwd &&
-        pending.sessionName === request.sessionName &&
-        pending.serverName === request.serverName &&
-        pending.direction === request.direction &&
-        pending.terminal === request.terminal &&
-        pending.sessionEpoch === request.sessionEpoch
-      ) {
-        pendingHostScrollRef.current = {
-          ...pending,
-          amount: pending.amount + request.amount,
-        };
-      } else {
-        if (pending) {
-          flushPendingHostScroll();
-        }
-        pendingHostScrollRef.current = request;
-      }
-
-      if (!hostScrollFlushTimerRef.current) {
-        hostScrollFlushTimerRef.current = setTimeout(
-          flushPendingHostScroll,
-          HOST_SCROLL_FLUSH_DELAY_MS
-        );
-      }
-    },
-    [flushPendingHostScroll]
-  );
-
   const resetSessionBinding = useCallback(async () => {
     createRequestIdRef.current += 1;
     activeSessionBindingRef.current = null;
@@ -1276,8 +1170,6 @@ export function useXterm({
     hasRenderableRenderedDataRef.current = false;
     firstOutputWaitersRef.current.clear();
     wheelCarryRef.current = 0;
-    clearPendingHostScroll();
-    onHostScrollbackStateChangeRef.current?.(false);
     setSearchState(createEmptyTerminalSearchState());
     sessionEventsCleanupRef.current?.();
     sessionEventsCleanupRef.current = null;
@@ -1290,7 +1182,7 @@ export function useXterm({
     if (currentSessionId) {
       await window.electronAPI.session.detach(currentSessionId).catch(() => {});
     }
-  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers]);
+  }, [clearTerminalWriteFlushTimers]);
 
   const handleTerminalWheelEvent = useCallback(
     (event: WheelEvent) => {
@@ -1303,8 +1195,6 @@ export function useXterm({
         kind,
         activeBufferType: terminal.buffer.active.type,
         mouseTrackingMode: terminal.modes.mouseTrackingMode,
-        hostScrollMode:
-          preferHostScrollback && hostSession?.kind === 'tmux' ? hostSession.kind : undefined,
         deltaMode: event.deltaMode,
         deltaY: event.deltaY,
         carryY: wheelCarryRef.current,
@@ -1315,23 +1205,6 @@ export function useXterm({
       wheelCarryRef.current = decision.carryY;
       if (decision.action === 'delegate') {
         return true;
-      }
-
-      if (decision.action === 'host-scroll') {
-        if (hostSession?.kind === 'tmux' && decision.scrollLines !== 0) {
-          scheduleHostScroll({
-            cwd,
-            sessionName: hostSession.sessionName,
-            serverName: hostSession.serverName,
-            direction: decision.scrollLines < 0 ? 'up' : 'down',
-            amount: Math.abs(decision.scrollLines),
-            terminal,
-            sessionEpoch: createRequestIdRef.current,
-          });
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        return false;
       }
 
       if (decision.action === 'program-scroll') {
@@ -1354,7 +1227,7 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [cwd, hostSession, kind, preferHostScrollback, scheduleHostScroll, write]
+    [kind, write]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
@@ -1596,6 +1469,12 @@ export function useXterm({
           terminal.parser,
           () => initialTerminalWriteInProgressRef.current || terminalWriteInFlightRef.current
         );
+        if (kind === 'agent' && hostSession?.kind === 'tmux') {
+          // tmux uses the outer terminal alternate buffer while its pane keeps its own screen.
+          tmuxOuterAlternateBufferGuardRef.current = installXtermTmuxOuterAlternateBufferGuard(
+            terminal.parser
+          );
+        }
         terminalInputCleanupRef.current = terminal.onData((data) => {
           if (ptyIdRef.current && runtimeStateRef.current === 'live') {
             window.electronAPI.session.write(ptyIdRef.current, data);
@@ -2316,7 +2195,6 @@ export function useXterm({
     };
     isHibernatedRef.current = true;
     flushReplaySnapshotWithPendingOutput(true);
-    clearPendingHostScroll();
 
     await window.electronAPI.session.setOutputDelivery(sessionId, false).catch((error) => {
       console.warn('[xterm] Failed to suspend session output delivery:', error);
@@ -2337,7 +2215,7 @@ export function useXterm({
     }
 
     disposeTerminal();
-  }, [clearPendingHostScroll, disposeTerminal, flushReplaySnapshotWithPendingOutput]);
+  }, [disposeTerminal, flushReplaySnapshotWithPendingOutput]);
 
   useEffect(() => {
     const evaluate = () =>
@@ -2628,7 +2506,6 @@ export function useXterm({
       activeSessionBindingRef.current = null;
       deadRecoveryAttemptKeyRef.current = null;
       wheelCarryRef.current = 0;
-      clearPendingHostScroll();
       sessionEventsCleanupRef.current?.();
       sessionEventsCleanupRef.current = null;
       if (ptyIdRef.current) {
@@ -2643,13 +2520,7 @@ export function useXterm({
       flushBufferedTerminalOutput(terminalRef.current);
       disposeTerminal();
     };
-  }, [
-    clearHibernationTimer,
-    clearPendingHostScroll,
-    disposeTerminal,
-    flushBufferedTerminalOutput,
-    kind,
-  ]);
+  }, [clearHibernationTimer, disposeTerminal, flushBufferedTerminalOutput, kind]);
 
   // Update settings dynamically
   useEffect(() => {
