@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils';
 import { useResolvedPortalScope } from './portal-scope';
 
 /**
- * 扩展 CSSProperties 以支持 Electron 特有的 WebkitAppRegion 属性
- * 用于无边框窗口中控制拖拽区域
+ * Extends CSSProperties with Electron's WebkitAppRegion support.
+ * This keeps controls interactive inside frameless window drag regions.
  */
 interface ElectronCSSProperties extends React.CSSProperties {
   WebkitAppRegion?: 'drag' | 'no-drag';
@@ -62,8 +62,7 @@ function MenuPopup({
       >
         <MenuPrimitive.Popup
           className={cn(
-            // 优化动画：150ms，使用模拟 Spring 的 cubic-bezier 曲线
-            "control-menu relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-lg outline-none transition-[scale,opacity] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] focus:outline-none has-data-starting-style:scale-95 has-data-starting-style:opacity-0 has-data-ending-style:scale-95 has-data-ending-style:opacity-0",
+            'control-menu relative flex not-[class*="w-"]:min-w-32 origin-(--transform-origin) rounded-lg outline-none transition-[scale,opacity] duration-150 ease-out focus:outline-none has-data-starting-style:scale-95 has-data-starting-style:opacity-0 has-data-ending-style:scale-95 has-data-ending-style:opacity-0',
             className
           )}
           data-slot="menu-popup"
@@ -311,11 +310,11 @@ function TitleBarMenuPopup({
         <MenuPrimitive.Popup
           className={cn(
             "control-menu relative flex not-[class*='w-']:min-w-32 rounded-lg outline-none",
-            // 优化动画：150ms，使用模拟 Spring 的 cubic-bezier 曲线
-            'origin-(--transform-origin) transition-[scale,opacity] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]',
+            // Keep menu motion short and non-overshooting.
+            'origin-(--transform-origin) transition-[scale,opacity] duration-150 ease-out',
             'has-data-starting-style:scale-95 has-data-starting-style:opacity-0',
             'has-data-ending-style:scale-95 has-data-ending-style:opacity-0',
-            // 标题栏菜单使用更小的字体
+            // Keep title bar menu typography compact.
             '[&_[data-slot=menu-item]]:text-xs [&_[data-slot=menu-item]]:min-h-7 [&_[data-slot=menu-item]]:py-1.5',
             '[&_[data-slot=menu-shortcut]]:text-[10px]',
             className

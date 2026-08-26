@@ -85,6 +85,48 @@ describe('xterm text input focus', () => {
     bridge.dispose();
   });
 
+  it('restores terminal input after composition loses focus without an end event', () => {
+    const { terminal, textarea } = createTerminalHarness();
+    const nextFocusTarget = document.createElement('button');
+    document.body.appendChild(nextFocusTarget);
+    const bridge = installXtermImeFocusBridge(terminal);
+
+    textarea.focus();
+    textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    nextFocusTarget.focus();
+
+    focusXtermTextInput(terminal);
+
+    expect(document.activeElement).toBe(textarea);
+    expect(terminal.focus).toHaveBeenCalledTimes(1);
+
+    bridge.dispose();
+  });
+
+  it('clears pending composition when the owning window loses focus', () => {
+    const { terminal, textarea } = createTerminalHarness();
+    const bridge = installXtermImeFocusBridge(terminal);
+
+    textarea.focus();
+    textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    window.dispatchEvent(new Event('blur'));
+
+    expect(textarea.getAttribute('data-infilux-xterm-ime-composing')).toBeNull();
+
+    bridge.dispose();
+  });
+
+  it('removes the window focus listener when the bridge is disposed', () => {
+    const { terminal, textarea } = createTerminalHarness();
+    const bridge = installXtermImeFocusBridge(terminal);
+
+    bridge.dispose();
+    textarea.setAttribute('data-infilux-xterm-ime-composing', 'true');
+    window.dispatchEvent(new Event('blur'));
+
+    expect(textarea.getAttribute('data-infilux-xterm-ime-composing')).toBe('true');
+  });
+
   it('restores explicit terminal focus after native composition ends', () => {
     const { terminal, textarea } = createTerminalHarness();
     const bridge = installXtermImeFocusBridge(terminal);

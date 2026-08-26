@@ -41,6 +41,7 @@ import {
 } from '@/lib/agentProviderProfiles';
 import { buildSettingsWorkflowToastCopy } from '@/lib/feedbackCopy';
 import { isReactImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
+import { handleKeyboardActivation } from '@/lib/keyboardActivation';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
@@ -330,7 +331,7 @@ function buildSessionPanelId(sessionId: string): string {
 
 const MAX_TAB_TEXT_WIDTH = 120;
 const SESSION_BAR_TAB_CLASS_NAME =
-  'control-session-tab group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-all cursor-pointer';
+  'control-session-tab group flex h-8 items-center gap-2 rounded-xl px-2.5 text-sm transition-[color,background-color,border-color,box-shadow,opacity] cursor-pointer';
 const SESSION_TAB_STATUS_INDICATOR_CLASS_NAME = 'relative z-10 rounded-[0.25rem]';
 const SESSION_BAR_TOOLBAR_BUTTON_CLASS_NAME = `${CHAT_TOOLBAR_ICON_BUTTON_CLASS_NAME} h-8 w-8 rounded-lg`;
 const SESSION_BAR_MENU_BUTTON_CLASS_NAME = `${CHAT_MENU_ICON_BUTTON_CLASS_NAME} rounded-lg`;
@@ -436,11 +437,7 @@ function SessionTab({
     },
     onKeyDown: (e: React.KeyboardEvent) => {
       onTabKeyDown(e);
-      if (e.defaultPrevented) return;
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleSelect();
-      }
+      handleKeyboardActivation(e, handleSelect);
     },
     onContextMenu: (e: React.MouseEvent) => {
       e.preventDefault();
@@ -1120,12 +1117,14 @@ export function SessionBar({
       <div
         ref={barRef}
         onClick={state.collapsed ? handleExpand : undefined}
-        onKeyDown={state.collapsed ? (e) => e.key === 'Enter' && handleExpand() : undefined}
+        onKeyDown={
+          state.collapsed ? (event) => handleKeyboardActivation(event, handleExpand) : undefined
+        }
         role={state.collapsed ? 'button' : undefined}
         tabIndex={state.collapsed ? 0 : undefined}
         className={cn(
           'absolute max-w-[calc(100%-1rem)] pointer-events-auto',
-          !dragging && 'transition-all duration-300',
+          !dragging && 'transition-[left,right,top,transform] duration-300',
           state.collapsed ? 'cursor-pointer' : dragging ? 'cursor-grabbing' : ''
         )}
         style={{

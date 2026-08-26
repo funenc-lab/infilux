@@ -7,6 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
+import { handleKeyboardActivation } from '@/lib/keyboardActivation';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import type { EditorTab } from '@/stores/editor';
@@ -149,7 +150,7 @@ export function EditorTabs({
                   setMenuPosition({ x: e.clientX, y: e.clientY });
                   setMenuOpen(true);
                 }}
-                onKeyDown={(e) => e.key === 'Enter' && onTabClick(tab.path)}
+                onKeyDown={(event) => handleKeyboardActivation(event, () => onTabClick(tab.path))}
                 role="button"
                 tabIndex={0}
                 className={cn(
@@ -182,7 +183,7 @@ export function EditorTabs({
                   onClick={(e) => onTabClose(tab.path, e)}
                   aria-label={t('Close Tab')}
                   className={cn(
-                    'relative z-10 shrink-0 rounded-[0.34375rem] p-0.5 text-muted-foreground opacity-0 transition-all hover:bg-theme/10 hover:text-foreground',
+                    'relative z-10 shrink-0 rounded-[0.34375rem] p-0.5 text-muted-foreground opacity-0 transition-[opacity,background-color,color] hover:bg-theme/10 hover:text-foreground',
                     'group-hover:opacity-100',
                     isActive && 'opacity-70'
                   )}

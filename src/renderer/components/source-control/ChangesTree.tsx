@@ -19,6 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { SmoothCollapse } from '@/components/ui/smooth-collapse';
 import { useI18n } from '@/i18n';
 import { getFileStatusTextClass } from '@/lib/fileStatusTone';
+import { handleKeyboardActivation } from '@/lib/keyboardActivation';
 import { cn } from '@/lib/utils';
 import { useSourceControlStore } from '@/stores/sourceControl';
 import {
@@ -112,9 +113,10 @@ function FileTreeNode({
           className="group flex h-7 items-center gap-2 rounded-sm px-2 text-sm cursor-pointer transition-colors hover:bg-accent/50"
           style={{ paddingLeft: `${level * 12 + 8}px` }}
           onClick={() => toggleFolder(node.path)}
-          onKeyDown={(e) => e.key === 'Enter' && toggleFolder(node.path)}
+          onKeyDown={(event) => handleKeyboardActivation(event, () => toggleFolder(node.path))}
           role="button"
           tabIndex={0}
+          aria-expanded={isExpanded}
         >
           <ChevronRight
             className={cn(
@@ -191,7 +193,9 @@ function FileTreeNode({
       )}
       style={{ paddingLeft: `${level * 12 + 8}px` }}
       onClick={() => onFileClick({ path: file.path, staged })}
-      onKeyDown={(e) => e.key === 'Enter' && onFileClick({ path: file.path, staged })}
+      onKeyDown={(event) =>
+        handleKeyboardActivation(event, () => onFileClick({ path: file.path, staged }))
+      }
       role="button"
       tabIndex={0}
     >

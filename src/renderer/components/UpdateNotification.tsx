@@ -130,7 +130,7 @@ export function UpdateNotification({ autoUpdateEnabled }: UpdateNotificationProp
           <div className="flex items-center gap-2">
             <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full bg-primary transition-all"
+                className="h-full bg-primary transition-[width]"
                 style={{ width: `${status.progress.percent}%` }}
               />
             </div>

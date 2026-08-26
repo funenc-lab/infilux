@@ -3,6 +3,7 @@ import { List, Plus, Terminal, X } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { ControlStateActionButton } from '@/components/layout/ControlStateActionButton';
 import { useI18n } from '@/i18n';
+import { handleKeyboardActivation } from '@/lib/keyboardActivation';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -300,7 +301,9 @@ export function TerminalGroup({
                     e.stopPropagation();
                     handleStartEdit(tab);
                   }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSelectTab(tab.id)}
+                  onKeyDown={(event) =>
+                    handleKeyboardActivation(event, () => handleSelectTab(tab.id))
+                  }
                   role="button"
                   tabIndex={0}
                   className={cn(

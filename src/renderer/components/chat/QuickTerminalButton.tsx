@@ -91,7 +91,8 @@ export function QuickTerminalButton({
         'pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11',
         // Dragging state.
         isDragging && 'cursor-grabbing opacity-70 scale-95',
-        !isDragging && 'cursor-grab transition-all duration-200', // Only animate when not dragging.
+        !isDragging &&
+          'cursor-grab transition-[transform,opacity,background-color,border-color,color] duration-200', // Only animate when not dragging.
         // Adjust background and foreground colors by state.
         isOpen
           ? 'border-primary/34 bg-primary/16 text-primary'

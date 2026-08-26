@@ -423,8 +423,8 @@ export function SessionSubagentInspector({
   const strongMetaTextClassName = prefersDarkEditorSurface ? 'text-white/74' : 'text-foreground/76';
   const primaryTextClassName = prefersDarkEditorSurface ? 'text-white/92' : 'text-foreground';
   const terminalCountClassName = prefersDarkEditorSurface
-    ? 'font-mono text-[10px] uppercase tracking-[0.08em] text-white/46'
-    : 'font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground';
+    ? 'font-mono text-[0.6875rem] tracking-[0.05em] text-white/62'
+    : 'font-mono text-[0.6875rem] tracking-[0.05em] text-muted-foreground';
   const closeButtonClassName = prefersDarkEditorSurface
     ? 'h-8 w-8 rounded-md border border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/[0.08]'
     : 'control-panel h-8 w-8 rounded-md text-foreground hover:bg-accent/20';

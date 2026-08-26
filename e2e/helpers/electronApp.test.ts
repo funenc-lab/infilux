@@ -4,11 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { quitElectronApplication } from './electronApp';
 
 describe('quitElectronApplication', () => {
-  it('requests app.exit(0) from the main process and waits for the close event', async () => {
-    const exit = vi.fn();
+  it('installs renderer confirmations, requests app.quit(), and waits for the close event', async () => {
+    const quit = vi.fn();
+    const pageEvaluate = vi.fn(async () => undefined);
+    const windows = vi.fn(() => [{ evaluate: pageEvaluate }]);
     const evaluate = vi.fn(
-      async (pageFunction: ({ app }: { app: { exit: (code?: number) => void } }) => void) => {
-        pageFunction({ app: { exit } });
+      async (pageFunction: ({ app }: { app: { quit: () => void } }) => void) => {
+        pageFunction({ app: { quit } });
       }
     );
     const waitForEvent = vi.fn(async () => undefined);
@@ -17,6 +19,7 @@ describe('quitElectronApplication', () => {
     await quitElectronApplication(
       {
         evaluate,
+        windows,
         waitForEvent,
         process,
       } as never,
@@ -27,13 +30,15 @@ describe('quitElectronApplication', () => {
     );
 
     expect(waitForEvent).toHaveBeenNthCalledWith(1, 'close', { timeout: 1234 });
+    expect(windows).toHaveBeenCalledTimes(1);
+    expect(pageEvaluate).toHaveBeenCalledTimes(1);
     expect(evaluate).toHaveBeenCalledTimes(1);
-    expect(exit).toHaveBeenCalledWith(0);
+    expect(quit).toHaveBeenCalledTimes(1);
     expect(process).not.toHaveBeenCalled();
   });
 
   it('force kills the Electron process tree when the close event does not arrive in time', async () => {
-    const exit = vi.fn();
+    const quit = vi.fn();
     const childProcess = new EventEmitter() as ChildProcess &
       EventEmitter & {
         pid: number;
@@ -45,10 +50,11 @@ describe('quitElectronApplication', () => {
     childProcess.killed = false;
 
     const evaluate = vi.fn(
-      async (pageFunction: ({ app }: { app: { exit: (code?: number) => void } }) => void) => {
-        pageFunction({ app: { exit } });
+      async (pageFunction: ({ app }: { app: { quit: () => void } }) => void) => {
+        pageFunction({ app: { quit } });
       }
     );
+    const windows = vi.fn(() => []);
     const killProcess = vi.fn((pid: number) => {
       if (pid === 42) {
         childProcess.exitCode = 0;
@@ -68,6 +74,7 @@ describe('quitElectronApplication', () => {
     await quitElectronApplication(
       {
         evaluate,
+        windows,
         waitForEvent,
         process,
       } as never,
@@ -81,7 +88,8 @@ describe('quitElectronApplication', () => {
 
     expect(waitForEvent).toHaveBeenNthCalledWith(1, 'close', { timeout: 1500 });
     expect(waitForEvent).toHaveBeenNthCalledWith(2, 'close', { timeout: 2500 });
-    expect(exit).toHaveBeenCalledWith(0);
+    expect(windows).toHaveBeenCalledTimes(1);
+    expect(quit).toHaveBeenCalledTimes(1);
     expect(process).toHaveBeenCalledTimes(1);
     expect(resolveProcessTreePids).toHaveBeenCalledWith(42);
     expect(killProcess.mock.calls).toEqual([

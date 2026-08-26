@@ -1762,10 +1762,6 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   mainWindow = null;
   webInspectorServer.setMainWindow(null);
-
-  if (appTrayService.isInitialized()) {
-    return;
-  }
   app.quit();
 });
 

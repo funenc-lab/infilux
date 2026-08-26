@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useI18n } from '@/i18n';
 import { getFileStatusTextClass } from '@/lib/fileStatusTone';
+import { handleKeyboardActivation } from '@/lib/keyboardActivation';
 import { cn } from '@/lib/utils';
 import { useCodeReviewContinueStore } from '@/stores/codeReviewContinue';
 import { useSettingsStore } from '@/stores/settings';
@@ -79,7 +80,7 @@ function FileItem({
         isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
       )}
       onClick={onFileClick}
-      onKeyDown={(e) => e.key === 'Enter' && onFileClick()}
+      onKeyDown={(event) => handleKeyboardActivation(event, onFileClick)}
       role="button"
       tabIndex={0}
       title={file.path}

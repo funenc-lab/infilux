@@ -186,7 +186,7 @@ export function QuickTerminalModal({
       onClick={handleBackdropClick}
       data-quick-terminal={open ? 'true' : 'false'}
       className={cn(
-        'fixed inset-0 z-50 transition-all',
+        'fixed inset-0 z-50 transition-opacity duration-150',
         open
           ? 'bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px]'
           : 'pointer-events-none opacity-0'

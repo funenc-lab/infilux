@@ -1024,7 +1024,7 @@ export function SourceControlPanel({
               >
                 <ChevronDown
                   className={cn(
-                    'h-4 w-4 text-muted-foreground/60 group-hover:text-foreground transition-all duration-200',
+                    'h-4 w-4 text-muted-foreground/60 group-hover:text-foreground transition-[color,transform] duration-200',
                     !changesExpanded && '-rotate-90'
                   )}
                 />
@@ -1146,7 +1146,7 @@ export function SourceControlPanel({
               >
                 <ChevronDown
                   className={cn(
-                    'h-4 w-4 text-muted-foreground/60 group-hover:text-foreground transition-all duration-200',
+                    'h-4 w-4 text-muted-foreground/60 group-hover:text-foreground transition-[color,transform] duration-200',
                     !historyExpanded && '-rotate-90'
                   )}
                 />

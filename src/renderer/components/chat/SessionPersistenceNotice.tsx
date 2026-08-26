@@ -43,13 +43,13 @@ export function SessionPersistenceNotice({
       role="status"
       aria-live="polite"
     >
-      <div className="control-panel-muted rounded-2xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--control-surface-muted)_78%,var(--background)_22%)_0%,color-mix(in_oklch,var(--control-surface)_48%,transparent)_100%)] px-4 py-3 shadow-[0_18px_44px_color-mix(in_oklch,var(--foreground)_16%,transparent)]">
+      <div className="control-panel-muted rounded-lg px-4 py-3">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-500">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-warning/28 bg-warning/10 text-warning">
             <AlertCircle className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground/72">
+            <div className="mb-1 text-xs font-semibold tracking-[0.06em] text-muted-foreground">
               {eyebrowLabel}
             </div>
             <p className="text-sm font-medium text-foreground">{title}</p>

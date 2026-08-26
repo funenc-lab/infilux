@@ -23,7 +23,7 @@ function AlertDialogBackdrop({ className, style, ...props }: AlertDialogPrimitiv
   return (
     <AlertDialogPrimitive.Backdrop
       className={cn(
-        'fixed inset-0 bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px] transition-all duration-200 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
+        'fixed inset-0 bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px] transition-opacity duration-200 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
         className
       )}
       style={style}

@@ -36,6 +36,7 @@ import { toastManager } from '@/components/ui/toast';
 import type { FileTreeNode } from '@/hooks/useFileTree';
 import { useI18n } from '@/i18n';
 import { buildClipboardToastCopy } from '@/lib/feedbackCopy';
+import { handleKeyboardActivation } from '@/lib/keyboardActivation';
 import { cn } from '@/lib/utils';
 import { getFileIcon, getFileIconColor } from './fileIcons';
 import {
@@ -1714,6 +1715,7 @@ function FileTreeNodeComponent({
       <div
         role="button"
         tabIndex={0}
+        aria-expanded={actualNode.isDirectory ? isExpanded : undefined}
         draggable={!isEditing}
         data-node-path={actualNode.path}
         className={cn(
@@ -1725,7 +1727,7 @@ function FileTreeNodeComponent({
         style={{ ...getFileTreeRowViewportStyle(), paddingLeft: `${depth * 12 + 8}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        onKeyDown={(e) => e.key === 'Enter' && handleClick()}
+        onKeyDown={(event) => handleKeyboardActivation(event, handleClick)}
         onDragStart={handleInternalDragStart}
         onDragEnd={handleInternalDragEnd}
         onDragEnter={handleNodeDragEnter}

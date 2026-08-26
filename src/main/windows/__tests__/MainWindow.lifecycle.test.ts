@@ -1038,6 +1038,49 @@ describe('MainWindow lifecycle', () => {
     expect(win.close).toHaveBeenCalledTimes(1);
   });
 
+  it('forces a quit-app close when the renderer does not answer before the timeout', async () => {
+    vi.useFakeTimers();
+    setPlatform('win32');
+
+    const { createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const closeEvent = { preventDefault: vi.fn() };
+    win.emit('close', closeEvent);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
+
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(mainWindowLifecycleDoubles.logWarn).toHaveBeenCalledWith(
+      '[window] Renderer did not respond to quit confirmation; forcing close',
+      expect.objectContaining({
+        windowId: win.id,
+      })
+    );
+    expect(win.hide).toHaveBeenCalledTimes(1);
+    expect(win.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a replacement window open when the renderer does not answer before the timeout', async () => {
+    vi.useFakeTimers();
+    setPlatform('win32');
+
+    const { confirmWindowReplace, createMainWindow } = await import('../MainWindow');
+    const win = createMainWindow() as unknown as InstanceType<
+      typeof mainWindowLifecycleDoubles.MockBrowserWindow
+    >;
+
+    const confirmation = confirmWindowReplace(win as never);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(confirmation).resolves.toBe(false);
+    expect(win.hide).not.toHaveBeenCalled();
+    expect(win.close).not.toHaveBeenCalled();
+  });
+
   it('skips renderer confirmation when the webContents is already destroyed during close', async () => {
     setPlatform('win32');
 

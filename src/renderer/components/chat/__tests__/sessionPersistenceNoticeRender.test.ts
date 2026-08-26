@@ -90,6 +90,21 @@ describe('SessionPersistenceNotice', () => {
     expect(markup).toContain('mt-3 flex justify-end pointer-events-auto');
   });
 
+  it('uses semantic warning tokens without a decorative gradient or wide shadow', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(SessionPersistenceNotice, {
+        kind: 'tmux-disabled',
+      })
+    );
+
+    expect(markup).toContain('border-warning/28');
+    expect(markup).toContain('bg-warning/10');
+    expect(markup).toContain('text-warning');
+    expect(markup).not.toContain('amber-500');
+    expect(markup).not.toContain('linear-gradient');
+    expect(markup).not.toContain('shadow-[0_18px_44px');
+  });
+
   it('renders an accessible dismiss control when dismissal is available', () => {
     const markup = renderToStaticMarkup(
       React.createElement(SessionPersistenceNotice, {

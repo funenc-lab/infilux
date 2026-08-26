@@ -702,7 +702,7 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
   // Confirm before close (skip in dev mode)
   let forceClose = false;
   let closeFlowInProgress = false;
-  const CLOSE_RESPONSE_IPC_TIMEOUT_MS = 30000;
+  const CLOSE_RESPONSE_IPC_TIMEOUT_MS = 5000;
   const CLOSE_SAVE_IPC_TIMEOUT_MS = 30000;
 
   const waitForWindowIpc = <T>(
@@ -794,6 +794,13 @@ export function createMainWindow(options: CreateMainWindowOptions = {}): Browser
       );
 
       if (!response?.confirmed) {
+        if (!response && reason === 'quit-app') {
+          log.warn('[window] Renderer did not respond to quit confirmation; forcing close', {
+            windowId: win.id,
+            timeoutMs: CLOSE_RESPONSE_IPC_TIMEOUT_MS,
+          });
+          return true;
+        }
         return false;
       }
 

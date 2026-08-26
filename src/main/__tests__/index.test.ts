@@ -1963,7 +1963,7 @@ describe('main entry', () => {
     await flushMicrotasks();
   });
 
-  it('initializes the tray on macOS and keeps the app alive when windows close', async () => {
+  it('quits the app after the last macOS window closes even when the tray is initialized', async () => {
     const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
     mainIndexTestDoubles.setNextOpenWindow(mainWindow);
     mainIndexTestDoubles.existsSync.mockImplementation(
@@ -1985,13 +1985,6 @@ describe('main entry', () => {
     expect(trayOptions).toBeDefined();
 
     await mainIndexTestDoubles.emitApp('window-all-closed');
-    expect(mainIndexTestDoubles.quit).not.toHaveBeenCalled();
-
-    mainIndexTestDoubles.setWindows([], null);
-    trayOptions?.onOpen();
-    expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledTimes(2);
-
-    trayOptions?.onQuit();
     expect(mainIndexTestDoubles.quit).toHaveBeenCalledTimes(1);
   });
 
@@ -2039,7 +2032,7 @@ describe('main entry', () => {
     );
   });
 
-  it('initializes the tray on Windows and keeps the app alive when windows close', async () => {
+  it('quits the app after the last Windows window closes even when the tray is initialized', async () => {
     const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
     mainIndexTestDoubles.setNextOpenWindow(mainWindow);
 
@@ -2055,11 +2048,7 @@ describe('main entry', () => {
     expect(trayOptions).toBeDefined();
 
     await mainIndexTestDoubles.emitApp('window-all-closed');
-    expect(mainIndexTestDoubles.quit).not.toHaveBeenCalled();
-
-    mainIndexTestDoubles.setWindows([], null);
-    trayOptions?.onOpen();
-    expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledTimes(2);
+    expect(mainIndexTestDoubles.quit).toHaveBeenCalledTimes(1);
   });
 
   it('quits when all windows close and the tray is not initialized', async () => {

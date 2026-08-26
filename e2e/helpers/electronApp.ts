@@ -12,7 +12,10 @@ const DEFAULT_CLOSE_TIMEOUT_MS = 15000;
 const DEFAULT_FORCE_KILL_TIMEOUT_MS = 5000;
 const FORCE_KILL_SIGNAL = 'SIGKILL';
 
-type ElectronAppLike = Pick<ElectronApplication, 'evaluate' | 'waitForEvent' | 'process'>;
+type ElectronAppLike = Pick<
+  ElectronApplication,
+  'evaluate' | 'waitForEvent' | 'process' | 'windows'
+>;
 type KillProcess = (pid: number, signal?: NodeJS.Signals | number) => void;
 type ResolveProcessTreePids = (pid: number) => Promise<number[]>;
 
@@ -111,10 +114,27 @@ function isExpectedCloseError(error: unknown): boolean {
   return /Target page, context or browser has been closed/i.test(error.message);
 }
 
+async function registerAutomaticCloseConfirmations(app: ElectronAppLike): Promise<void> {
+  await Promise.all(
+    app.windows().map((page) =>
+      page.evaluate(() => {
+        const unsubscribe = window.electronAPI.app.onCloseRequest((payload) => {
+          unsubscribe();
+          window.electronAPI.app.respondCloseRequest(payload.requestId, {
+            confirmed: true,
+            dirtyPaths: [],
+          });
+        });
+      })
+    )
+  );
+}
+
 async function requestMainProcessQuit(app: ElectronAppLike): Promise<void> {
   try {
+    await registerAutomaticCloseConfirmations(app);
     await app.evaluate(({ app }) => {
-      app.exit(0);
+      app.quit();
     });
   } catch (error) {
     if (isExpectedCloseError(error)) {

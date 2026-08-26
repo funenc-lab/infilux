@@ -22,7 +22,7 @@ function SheetBackdrop({ className, ...props }: SheetPrimitive.Backdrop.Props) {
   return (
     <SheetPrimitive.Backdrop
       className={cn(
-        // 优化动画：150ms 快速响应
+        // Keep backdrop response quick.
         'fixed inset-0 z-50 bg-[color:color-mix(in_oklch,var(--background)_56%,transparent)] backdrop-blur-[1px] transition-opacity duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0',
         className
       )}
@@ -75,8 +75,8 @@ function SheetPopup({
       <SheetViewport inset={inset} side={side}>
         <SheetPrimitive.Popup
           className={cn(
-            // 优化动画：150ms，使用模拟 Spring 的 cubic-bezier 曲线实现弹性滑入
-            'control-floating relative flex max-h-full min-h-0 w-full min-w-0 flex-col text-popover-foreground transition-[opacity,translate] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0',
+            // Keep drawer motion short and non-overshooting.
+            'control-floating relative flex max-h-full min-h-0 w-full min-w-0 flex-col text-popover-foreground transition-[opacity,translate] duration-150 ease-out will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0',
             side === 'bottom' &&
               'row-start-2 border-t data-ending-style:translate-y-8 data-starting-style:translate-y-8',
             side === 'top' &&

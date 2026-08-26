@@ -53,7 +53,10 @@ export function focusXtermTextInput(terminal: Terminal | null | undefined): void
   }
 
   if (isNativeCompositionActive(textarea)) {
-    return;
+    if (textarea.ownerDocument.activeElement === textarea) {
+      return;
+    }
+    textarea.removeAttribute(XTERM_IME_COMPOSING_ATTRIBUTE);
   }
 
   prepareTextareaForIme(textarea);
@@ -84,17 +87,25 @@ export function installXtermImeFocusBridge(terminal: Terminal | null | undefined
   const handleCompositionEnd = () => {
     textarea.removeAttribute(XTERM_IME_COMPOSING_ATTRIBUTE);
   };
+  const handleFocusOut = () => {
+    textarea.removeAttribute(XTERM_IME_COMPOSING_ATTRIBUTE);
+  };
+  const ownerWindow = textarea.ownerDocument.defaultView;
 
   prepareTextareaForIme(textarea);
   textarea.addEventListener('focusin', handleFocusIn);
   textarea.addEventListener('compositionstart', handleCompositionStart);
   textarea.addEventListener('compositionend', handleCompositionEnd);
+  textarea.addEventListener('focusout', handleFocusOut);
+  ownerWindow?.addEventListener('blur', handleFocusOut);
 
   return {
     dispose: () => {
       textarea.removeEventListener('focusin', handleFocusIn);
       textarea.removeEventListener('compositionstart', handleCompositionStart);
       textarea.removeEventListener('compositionend', handleCompositionEnd);
+      textarea.removeEventListener('focusout', handleFocusOut);
+      ownerWindow?.removeEventListener('blur', handleFocusOut);
       textarea.removeAttribute(XTERM_IME_COMPOSING_ATTRIBUTE);
     },
   };

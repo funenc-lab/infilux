@@ -44,7 +44,7 @@ export function MoveToGroupSubmenu({
       <div
         ref={submenuRef}
         className={cn(
-          'control-menu absolute left-full z-50 min-w-36 rounded-lg p-1 opacity-0 invisible group-hover/submenu:opacity-100 group-hover/submenu:visible transition-all',
+          'control-menu absolute left-full z-50 min-w-36 rounded-lg p-1 opacity-0 invisible group-hover/submenu:opacity-100 group-hover/submenu:visible transition-opacity duration-150',
           alignBottom ? 'bottom-0' : 'top-0'
         )}
       >
