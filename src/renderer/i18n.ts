@@ -85,6 +85,9 @@ const rendererZhTranslations: Record<string, string> = {
   '{{count}} older retained lines are omitted from this view.': decodeEscapedUnicode(
     '\\u6b64\\u89c6\\u56fe\\u5df2\\u7701\\u7565 {{count}} \\u884c\\u8f83\\u65e9\\u4fdd\\u7559\\u5185\\u5bb9\\u3002'
   ),
+  '{{count}} newer retained lines are omitted from this view.': decodeEscapedUnicode(
+    '\\u6b64\\u89c6\\u56fe\\u5df2\\u7701\\u7565 {{count}} \\u884c\\u8f83\\u65b0\\u4fdd\\u7559\\u5185\\u5bb9\\u3002'
+  ),
   'No matching retained output': decodeEscapedUnicode(
     '\\u6ca1\\u6709\\u5339\\u914d\\u7684\\u4fdd\\u7559\\u8f93\\u51fa'
   ),
@@ -109,6 +112,10 @@ const rendererZhTranslations: Record<string, string> = {
   'Unable to export transcript output.': decodeEscapedUnicode(
     '\\u65e0\\u6cd5\\u5bfc\\u51fa\\u4f1a\\u8bdd\\u8bb0\\u5f55\\u8f93\\u51fa\\u3002'
   ),
+  'Persistent host recovery is unavailable and no matching Codex session was found. Start a fresh session to continue.':
+    decodeEscapedUnicode(
+      '\\u6301\\u4e45\\u5316\\u4e3b\\u673a\\u6062\\u590d\\u4e0d\\u53ef\\u7528\\uff0c\\u672a\\u627e\\u5230\\u5339\\u914d\\u7684 Codex \\u4f1a\\u8bdd\\u3002\\u8bf7\\u5f00\\u542f\\u65b0\\u4f1a\\u8bdd\\u7ee7\\u7eed\\u3002'
+    ),
   'Needs Attention': decodeEscapedUnicode('\\u9700\\u8981\\u5904\\u7406'),
   'Running Sessions': decodeEscapedUnicode('\\u8fd0\\u884c\\u4e2d\\u4f1a\\u8bdd'),
   'Idle Sessions': decodeEscapedUnicode('\\u7a7a\\u95f2\\u4f1a\\u8bdd'),
