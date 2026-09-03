@@ -3379,6 +3379,118 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
+  it('restores terminal focus after moving a canvas session into the floating frame', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-floating-focus',
+      sessionId: 'provider-floating-focus',
+      backendSessionId: 'backend-floating-focus',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Floating Focus Session',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-floating-focus',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-floating-focus',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const terminalInput = document.createElement('textarea');
+    document.body.appendChild(terminalInput);
+    terminalInput.focus();
+    useTerminalWriteStore.getState().register(session.id, vi.fn(), () => terminalInput.focus());
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+
+    const bringToFrontButton = mounted.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Bring to Front"]'
+    );
+    bringToFrontButton?.focus();
+    expect(document.activeElement).toBe(bringToFrontButton);
+
+    await clickElement(bringToFrontButton);
+
+    expect(document.body.querySelector('.agent-canvas-floating-frame')).not.toBeNull();
+    const activeElementAfterFloating = document.activeElement;
+
+    await mounted.unmount();
+    terminalInput.remove();
+
+    expect(activeElementAfterFloating).toBe(terminalInput);
+  });
+
+  it('keeps the floating canvas session open for IME composition events', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-floating-ime',
+      sessionId: 'provider-floating-ime',
+      backendSessionId: 'backend-floating-ime',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Floating IME Session',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-floating-ime',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-floating-ime',
+          flexPercents: [100],
+        },
+      },
+    });
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+
+    await clickElement(mounted.container.querySelector('button[aria-label="Bring to Front"]'));
+
+    const floatingFrame = document.body.querySelector<HTMLElement>('.agent-canvas-floating-frame');
+    expect(floatingFrame).not.toBeNull();
+
+    await act(async () => {
+      if (floatingFrame) {
+        dispatchComposingKeyDown(floatingFrame, 'Escape');
+      }
+      await flushRenderTasks();
+    });
+
+    const isFloatingFrameOpen =
+      document.body.querySelector('.agent-canvas-floating-frame') !== null;
+
+    await mounted.unmount();
+
+    expect(isFloatingFrameOpen).toBe(true);
+  });
+
   it('keeps the floating canvas terminal refresh key stable across viewport resizes', async () => {
     testState.settings.agentSessionDisplayMode = 'canvas';
 

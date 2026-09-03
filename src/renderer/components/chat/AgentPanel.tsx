@@ -63,7 +63,10 @@ import { isSessionPersistenceEnabledForHost } from '@/lib/agentSessionPersistenc
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { pauseFocusLock, restoreFocusIfLocked } from '@/lib/focusLock';
 import { defaultDarkTheme, getXtermTheme } from '@/lib/ghosttyTheme';
-import { isReactImeCompositionKeyEvent } from '@/lib/imeKeyboardEvent';
+import {
+  isNativeImeCompositionKeyEvent,
+  isReactImeCompositionKeyEvent,
+} from '@/lib/imeKeyboardEvent';
 import { matchesKeybinding } from '@/lib/keybinding';
 import { cn } from '@/lib/utils';
 import { buildAgentSessionInventory } from '@/stores/agentSessionInventory';
@@ -3444,8 +3447,19 @@ export function AgentPanel({
       });
       handleSelectSession(sessionId, groupId);
       setCanvasFloatingSessionIdForCurrentWorktree(sessionId);
+
+      requestAnimationFrame(() => {
+        if (!getEnhancedInputState(sessionId).open) {
+          focusTerminal(sessionId);
+        }
+      });
     },
-    [handleSelectSession, setCanvasFloatingSessionIdForCurrentWorktree]
+    [
+      focusTerminal,
+      getEnhancedInputState,
+      handleSelectSession,
+      setCanvasFloatingSessionIdForCurrentWorktree,
+    ]
   );
   const handleCloseCanvasFloatingSession = useCallback(() => {
     setCanvasFloatingSessionIdForCurrentWorktree(null);
@@ -3575,6 +3589,10 @@ export function AgentPanel({
     }
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (isNativeImeCompositionKeyEvent(event)) {
+        return;
+      }
+
       if (event.code === 'Space') {
         spacePressedRef.current = true;
       }
@@ -3900,6 +3918,10 @@ export function AgentPanel({
     }
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (isNativeImeCompositionKeyEvent(event)) {
+        return;
+      }
+
       if (event.key !== 'Escape') {
         return;
       }
@@ -4341,6 +4363,7 @@ export function AgentPanel({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return;
       if (pendingCloseSession) return;
+      if (isNativeImeCompositionKeyEvent(e)) return;
       const isCanvasKeyboardMode =
         agentSessionDisplayMode === 'canvas' || agentSessionDisplayMode === 'global-canvas';
 
@@ -4437,6 +4460,8 @@ export function AgentPanel({
     if (!isActive) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isNativeImeCompositionKeyEvent(e)) return;
+
       // Ctrl+` or Cmd+` on macOS.
       if ((e.ctrlKey || e.metaKey) && e.key === '`') {
         e.preventDefault();
