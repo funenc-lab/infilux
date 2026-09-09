@@ -58,12 +58,13 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('keeps normal-buffer wheel input in xterm when the agent process is hosted by tmux', () => {
+  it('routes normal-buffer wheel input to tmux host scrolling for agent sessions', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
         activeBufferType: 'normal',
         mouseTrackingMode: 'none',
+        hostScrollMode: 'tmux',
         deltaMode: DOM_DELTA_PIXEL,
         deltaY: -120,
         carryY: 0,
@@ -71,7 +72,7 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'consume',
+      action: 'host-scroll',
       carryY: 0,
       scrollLines: -12,
     });
@@ -97,12 +98,13 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('keeps alternate-buffer wheel input in the agent program when the process is hosted by tmux', () => {
+  it('routes alternate-buffer wheel input to tmux host scrolling for agent sessions', () => {
     expect(
       resolveAgentWheelPolicy({
         kind: 'agent',
         activeBufferType: 'alternate',
-        mouseTrackingMode: 'none',
+        mouseTrackingMode: 'any',
+        hostScrollMode: 'tmux',
         deltaMode: DOM_DELTA_PIXEL,
         deltaY: -120,
         carryY: 0,
@@ -110,10 +112,9 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'program-scroll',
+      action: 'host-scroll',
       carryY: 0,
-      sequence: '\x1b[5~',
-      repeat: 2,
+      scrollLines: -12,
     });
   });
 
@@ -208,6 +209,25 @@ describe('xtermWheelPolicy', () => {
     ).toEqual({
       action: 'delegate',
       carryY: 0,
+    });
+  });
+
+  it('keeps normal-buffer agent history scrollable when tmux enables mouse tracking', () => {
+    expect(
+      resolveAgentWheelPolicy({
+        kind: 'agent',
+        activeBufferType: 'normal',
+        mouseTrackingMode: 'any',
+        deltaMode: DOM_DELTA_LINE,
+        deltaY: -3,
+        carryY: 0,
+        cellHeightPx: 20,
+        devicePixelRatio: 2,
+      })
+    ).toEqual({
+      action: 'consume',
+      carryY: 0,
+      scrollLines: -3,
     });
   });
 

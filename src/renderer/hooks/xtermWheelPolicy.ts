@@ -12,10 +12,12 @@ const MAX_PROGRAM_SCROLL_PAGES_PER_EVENT = 3;
 
 export type XtermBufferType = 'normal' | 'alternate';
 export type XtermMouseTrackingMode = 'none' | 'x10' | 'vt200' | 'drag' | 'any';
+export type XtermHostScrollMode = 'tmux';
 interface AgentWheelPolicyInput {
   kind: SessionKind;
   activeBufferType: XtermBufferType;
   mouseTrackingMode: XtermMouseTrackingMode;
+  hostScrollMode?: XtermHostScrollMode;
   deltaMode: number;
   deltaY: number;
   carryY: number;
@@ -27,6 +29,11 @@ type AgentWheelPolicyDecision =
   | {
       action: 'delegate';
       carryY: number;
+    }
+  | {
+      action: 'host-scroll';
+      carryY: number;
+      scrollLines: number;
     }
   | {
       action: 'program-scroll';
@@ -106,9 +113,11 @@ function normalizeWheelDelta(
 }
 
 export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWheelPolicyDecision {
-  const { kind, mouseTrackingMode, deltaY } = input;
+  const { activeBufferType, hostScrollMode, kind, mouseTrackingMode, deltaY } = input;
 
-  const shouldRemapWheel = kind === 'agent' && mouseTrackingMode === 'none';
+  const shouldRemapWheel =
+    kind === 'agent' &&
+    (hostScrollMode === 'tmux' || activeBufferType === 'normal' || mouseTrackingMode === 'none');
 
   if (!shouldRemapWheel) {
     return {
@@ -140,6 +149,14 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
       action: 'consume',
       carryY,
       scrollLines: 0,
+    };
+  }
+
+  if (hostScrollMode === 'tmux') {
+    return {
+      action: 'host-scroll',
+      carryY,
+      scrollLines: steps,
     };
   }
 

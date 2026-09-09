@@ -716,6 +716,31 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('does not suppress tmux alternate-screen transitions required by full-screen agents', async () => {
+    const mounted = mountHookHarness({
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalledWith(
+      { prefix: '?', final: 'h' },
+      expect.any(Function)
+    );
+    expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalledWith(
+      { prefix: '?', final: 'l' },
+      expect.any(Function)
+    );
+
+    await mounted.unmount();
+  });
+
   it('activates a remote stream only after xterm writes its attach replay', async () => {
     testState.sessionCreate.mockResolvedValueOnce({
       session: {
@@ -2361,9 +2386,9 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('scrolls tmux-backed agent output in the local xterm viewport', async () => {
+  it('scrolls tmux-backed agent output through the host scrollback', async () => {
     testState.resolveAgentWheelPolicy.mockReturnValue({
-      action: 'consume',
+      action: 'host-scroll',
       carryY: 0,
       scrollLines: -4,
     } as never);
@@ -2382,6 +2407,7 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.attachedWheelHandler).toBeTypeOf('function');
+    vi.useFakeTimers();
 
     const preventDefault = vi.fn();
     const stopPropagation = vi.fn();
@@ -2393,11 +2419,17 @@ describe('useXterm startup loading state', () => {
         preventDefault,
         stopPropagation,
       } as unknown as WheelEvent);
+      await vi.advanceTimersByTimeAsync(16);
       await flushMicrotasks();
     });
 
-    expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
-    expect(testState.terminalScrollLines).toHaveBeenCalledWith(-4);
+    expect(testState.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
+      sessionName: 'tmux-session-1',
+      serverName: 'infilux',
+      direction: 'up',
+      amount: 4,
+    });
+    expect(testState.terminalScrollLines).not.toHaveBeenCalled();
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(stopPropagation).toHaveBeenCalledTimes(1);
 
