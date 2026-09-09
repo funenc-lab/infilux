@@ -7,7 +7,6 @@ import type {
   LiveAgentSubagent,
 } from '@shared/types';
 import {
-  CODEX_SESSIONS_DIR,
   type CodexSessionMetaRecord,
   findCodexSessionFileByThreadId,
   formatCodexAgentType,
@@ -187,7 +186,7 @@ export class CodexSessionSubagentService {
 
   constructor(
     private readonly liveLookup: LiveSubagentLookup,
-    private readonly sessionsDir = CODEX_SESSIONS_DIR,
+    private readonly sessionsDir: string,
     options: CodexSessionSubagentServiceOptions = {}
   ) {
     const compatibilityCacheTtlMs = options.cacheTtlMs;

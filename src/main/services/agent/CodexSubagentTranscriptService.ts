@@ -3,11 +3,7 @@ import type {
   GetAgentSubagentTranscriptRequest,
   GetAgentSubagentTranscriptResult,
 } from '@shared/types';
-import {
-  CODEX_SESSIONS_DIR,
-  findCodexSessionFileByThreadId,
-  formatCodexAgentType,
-} from './codexSessionMetadata';
+import { findCodexSessionFileByThreadId, formatCodexAgentType } from './codexSessionMetadata';
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
 const DEFAULT_MAX_TRANSCRIPT_ENTRIES = 200;
@@ -300,7 +296,7 @@ async function parseCodexSubagentTranscriptFile(
 
 export class CodexSubagentTranscriptService {
   constructor(
-    private readonly sessionsDir = CODEX_SESSIONS_DIR,
+    private readonly sessionsDir: string,
     private readonly maxTranscriptEntries = DEFAULT_MAX_TRANSCRIPT_ENTRIES
   ) {}
 
@@ -331,5 +327,3 @@ export class CodexSubagentTranscriptService {
     };
   }
 }
-
-export const codexSubagentTranscriptService = new CodexSubagentTranscriptService();

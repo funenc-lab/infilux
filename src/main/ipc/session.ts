@@ -1,4 +1,3 @@
-import path from 'node:path';
 import {
   IPC_CHANNELS,
   type SessionAttachOptions,
@@ -14,7 +13,6 @@ import {
   resolveAgentCapabilityLaunchRequest,
 } from '../services/agent/AgentCapabilityLaunchService';
 import type { PreparedAgentCapabilityLaunch } from '../services/agent/AgentCapabilityProviderAdapter';
-import { resolveUserCodexHome } from '../services/agent/CodexHomePaths';
 import { codexRuntimeHomeService } from '../services/agent/CodexRuntimeHomeService';
 import { resolveCodexWorkspaceSessionHistoryPath } from '../services/agent/CodexWorkspaceSessionHistory';
 import { sessionManager } from '../services/session/SessionManager';
@@ -148,7 +146,6 @@ async function ensureCodexRuntimeHome(
         repoPath: typeof metadata.repoPath === 'string' ? metadata.repoPath : undefined,
         worktreePath,
       },
-      legacySessionPaths: [path.join(resolveUserCodexHome(), 'sessions')],
     }
   );
 

@@ -51,21 +51,17 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('../../services/agent/CodexSubagentTracker', () => ({
-  codexSubagentTracker: {
-    listLive: agentSubagentTestDoubles.listLive,
-  },
-}));
-
-vi.mock('../../services/agent/CodexSessionSubagentService', () => ({
-  CodexSessionSubagentService: class {
+vi.mock('../../services/agent/CodexRuntimeSubagentService', () => ({
+  CodexRuntimeSubagentService: class {
+    listLive = agentSubagentTestDoubles.listLive;
     listSession = agentSubagentTestDoubles.listSession;
+    getTranscript = agentSubagentTestDoubles.getTranscript;
   },
 }));
 
-vi.mock('../../services/agent/CodexSubagentTranscriptService', () => ({
-  codexSubagentTranscriptService: {
-    getTranscript: agentSubagentTestDoubles.getTranscript,
+vi.mock('../../services/session/SessionManager', () => ({
+  sessionManager: {
+    listActiveCodexRuntimeHomePaths: vi.fn(() => []),
   },
 }));
 

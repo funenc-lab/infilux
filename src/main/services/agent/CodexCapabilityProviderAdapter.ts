@@ -22,7 +22,6 @@ import type {
   PreparedAgentCapabilityLaunch,
 } from './AgentCapabilityProviderAdapter';
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
-import { resolveUserCodexHome } from './CodexHomePaths';
 import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
 import { resolveCodexWorkspaceSessionHistoryPath } from './CodexWorkspaceSessionHistory';
 
@@ -521,7 +520,6 @@ export function createCodexCapabilityProviderAdapter(
             repoPath: request.repoPath,
             worktreePath: request.worktreePath,
           },
-          legacySessionPaths: [path.join(resolveUserCodexHome(), 'sessions')],
         }
       );
       const sessionOverrides: AgentCapabilitySessionOverrides = {

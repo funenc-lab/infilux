@@ -373,7 +373,6 @@ describe('session IPC handlers', () => {
         repoPath: undefined,
         worktreePath: '/repo',
       },
-      legacySessionPaths: [expect.stringMatching(/\.codex\/sessions$/)],
     });
     expect(sessionTestDoubles.create).toHaveBeenCalledWith(
       event.sender,
@@ -426,7 +425,6 @@ describe('session IPC handlers', () => {
         repoPath: undefined,
         worktreePath: '/repo',
       },
-      legacySessionPaths: [expect.stringMatching(/\.codex\/sessions$/)],
     });
   });
 

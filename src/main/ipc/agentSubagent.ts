@@ -7,14 +7,15 @@ import type {
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain, type WebContents } from 'electron';
-import { CodexSessionSubagentService } from '../services/agent/CodexSessionSubagentService';
-import { codexSubagentTracker } from '../services/agent/CodexSubagentTracker';
-import { codexSubagentTranscriptService } from '../services/agent/CodexSubagentTranscriptService';
+import { CodexRuntimeSubagentService } from '../services/agent/CodexRuntimeSubagentService';
 import { SessionSubagentPollingCoordinator } from '../services/agent/SessionSubagentPollingCoordinator';
+import { sessionManager } from '../services/session/SessionManager';
 
-const codexSessionSubagentService = new CodexSessionSubagentService(codexSubagentTracker);
+const codexRuntimeSubagentService = new CodexRuntimeSubagentService({
+  listActiveRuntimeHomePaths: () => sessionManager.listActiveCodexRuntimeHomePaths(),
+});
 const sessionSubagentPollingCoordinator = new SessionSubagentPollingCoordinator(
-  codexSessionSubagentService
+  codexRuntimeSubagentService
 );
 
 export function registerAgentSubagentHandlers(): void {
@@ -35,14 +36,14 @@ export function registerAgentSubagentHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.AGENT_SUBAGENT_LIST_LIVE,
     async (_, request: ListLiveAgentSubagentsRequest = {}) => {
-      return await codexSubagentTracker.listLive(request);
+      return await codexRuntimeSubagentService.listLive(request);
     }
   );
 
   ipcMain.handle(
     IPC_CHANNELS.AGENT_SUBAGENT_LIST_SESSION,
     async (_, request: ListSessionAgentSubagentsRequest) => {
-      return await codexSessionSubagentService.listSession(request);
+      return await codexRuntimeSubagentService.listSession(request);
     }
   );
 
@@ -92,7 +93,7 @@ export function registerAgentSubagentHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.AGENT_SUBAGENT_GET_TRANSCRIPT,
     async (_, request: GetAgentSubagentTranscriptRequest) => {
-      return await codexSubagentTranscriptService.getTranscript(request);
+      return await codexRuntimeSubagentService.getTranscript(request);
     }
   );
 }

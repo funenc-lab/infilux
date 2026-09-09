@@ -1,7 +1,5 @@
 import { createReadStream, type Stats } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import type {
   ListLiveAgentSubagentsRequest,
   ListLiveAgentSubagentsResult,
@@ -10,14 +8,12 @@ import type {
 } from '@shared/types';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import {
-  CODEX_SESSIONS_DIR,
   findCodexSessionFileByThreadId,
   formatCodexAgentType,
   readCodexSessionMeta,
   readCodexSessionMetaRecords,
 } from './codexSessionMetadata';
 
-const CODEX_TUI_LOG_PATH = path.join(os.homedir(), '.codex', 'log', 'codex-tui.log');
 const DEFAULT_MAX_IDLE_MS = 45_000;
 const MAX_LOG_READ_WINDOW_BYTES = 8 * 1024 * 1024;
 const MAX_TRACKED_STATE_RETENTION_MS = 15 * 60 * 1_000;
@@ -623,11 +619,7 @@ export class CodexSubagentTracker {
   private readonly sessionsDir: string;
   private readonly sessionFileByThreadId = new Map<string, string>();
 
-  constructor(
-    logPath = CODEX_TUI_LOG_PATH,
-    sessionsDir = CODEX_SESSIONS_DIR,
-    options: CodexSubagentTrackerOptions = {}
-  ) {
+  constructor(logPath: string, sessionsDir: string, options: CodexSubagentTrackerOptions = {}) {
     this.logPath = logPath;
     this.sessionsDir = sessionsDir;
     this.metadata = {
@@ -766,5 +758,3 @@ export class CodexSubagentTracker {
     return resolved;
   }
 }
-
-export const codexSubagentTracker = new CodexSubagentTracker();

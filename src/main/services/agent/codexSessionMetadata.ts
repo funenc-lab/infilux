@@ -1,10 +1,7 @@
 import type { Dirent, Stats } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
-
-export const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
 
 export interface CodexSessionMeta {
   threadId: string;

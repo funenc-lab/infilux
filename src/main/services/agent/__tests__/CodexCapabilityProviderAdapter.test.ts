@@ -505,7 +505,6 @@ describe('CodexCapabilityProviderAdapter', () => {
         repoPath: '/repo',
         worktreePath: '/repo/worktrees/feat-a',
       },
-      legacySessionPaths: [expect.stringMatching(/\.codex\/sessions$/)],
     });
     expect(result.launchResult).toMatchObject({
       provider: 'codex',
