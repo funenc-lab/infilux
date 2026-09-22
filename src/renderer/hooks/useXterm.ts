@@ -99,6 +99,7 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
+const PENDING_TERMINAL_INPUT_CHAR_LIMIT = 1024 * 1024;
 
 interface InternalTerminalSearchDecorations {
   matchBackground?: string;
@@ -470,6 +471,8 @@ export function useXterm({
   const hasReceivedDataRef = useRef(false);
   const hasRenderableRenderedDataRef = useRef(false);
   const firstOutputWaitersRef = useRef(new Set<() => void>());
+  const pendingTerminalInputRef = useRef('');
+  const isSessionCreationPendingRef = useRef(false);
   const staticContentRef = useRef(staticContent);
   staticContentRef.current = staticContent;
   const isStaticContentModeRef = useRef(Boolean(staticContent));
@@ -587,8 +590,28 @@ export function useXterm({
   }, [recoveredReplaySnapshot]);
 
   const write = useCallback((data: string) => {
-    if (ptyIdRef.current && runtimeStateRef.current === 'live') {
+    if (
+      ptyIdRef.current &&
+      runtimeStateRef.current === 'live' &&
+      !isSessionCreationPendingRef.current
+    ) {
       window.electronAPI.session.write(ptyIdRef.current, data);
+      return;
+    }
+
+    if (isSessionCreationPendingRef.current) {
+      if (
+        pendingTerminalInputRef.current.length + data.length >
+        PENDING_TERMINAL_INPUT_CHAR_LIMIT
+      ) {
+        console.warn('[xterm] Discarding oversized pending terminal input', {
+          bufferedChars: pendingTerminalInputRef.current.length,
+          inputChars: data.length,
+          limit: PENDING_TERMINAL_INPUT_CHAR_LIMIT,
+        });
+        return;
+      }
+      pendingTerminalInputRef.current += data;
     }
   }, []);
 
@@ -1262,6 +1285,8 @@ export function useXterm({
     hasReceivedDataRef.current = false;
     hasRenderableRenderedDataRef.current = false;
     firstOutputWaitersRef.current.clear();
+    pendingTerminalInputRef.current = '';
+    isSessionCreationPendingRef.current = false;
     wheelCarryRef.current = 0;
     clearPendingHostScroll();
     setSearchState(createEmptyTerminalSearchState());
@@ -1581,10 +1606,10 @@ export function useXterm({
           terminal.parser,
           () => initialTerminalWriteInProgressRef.current || terminalWriteInFlightRef.current
         );
+        isSessionCreationPendingRef.current =
+          !staticContentRef.current && !deferSessionCreateRef.current;
         terminalInputCleanupRef.current = terminal.onData((data) => {
-          if (ptyIdRef.current && runtimeStateRef.current === 'live') {
-            window.electronAPI.session.write(ptyIdRef.current, data);
-          }
+          write(data);
         });
         terminalImeFocusCleanupRef.current = installXtermImeFocusBridge(terminal);
 
@@ -1796,6 +1821,7 @@ export function useXterm({
       }
 
       if (staticContent) {
+        isSessionCreationPendingRef.current = false;
         const staticContentKeyForAttempt = staticContentKey;
         initializingStaticContentKeyRef.current = staticContentKeyForAttempt;
         hasReceivedDataRef.current = staticContent.text.length > 0;
@@ -1831,11 +1857,13 @@ export function useXterm({
       }
 
       if (deferSessionCreateRef.current) {
+        isSessionCreationPendingRef.current = false;
         finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
         return;
       }
 
       try {
+        isSessionCreationPendingRef.current = true;
         const createRequestId = ++createRequestIdRef.current;
         const baseCwd = cwd || getRendererEnvironment().HOME;
         const hasOwnOverride = <K extends keyof XtermSessionCreateFallbackOptions>(
@@ -1886,6 +1914,15 @@ export function useXterm({
           setRuntimeState('live');
           onInitRef.current?.(sessionId);
           onSessionIdChangeRef.current?.(sessionId);
+        };
+
+        const flushPendingTerminalInput = (sessionId: string) => {
+          isSessionCreationPendingRef.current = false;
+          const pendingTerminalInput = pendingTerminalInputRef.current;
+          pendingTerminalInputRef.current = '';
+          if (pendingTerminalInput) {
+            window.electronAPI.session.write(sessionId, pendingTerminalInput);
+          }
         };
 
         const subscribeToSession = (sessionId: string) => {
@@ -2124,6 +2161,8 @@ export function useXterm({
           sessionEventsCleanupRef.current?.();
           sessionEventsCleanupRef.current = null;
           ptyIdRef.current = null;
+          pendingTerminalInputRef.current = '';
+          isSessionCreationPendingRef.current = false;
           await window.electronAPI.session.kill(session.sessionId).catch(() => {});
           finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
@@ -2135,6 +2174,7 @@ export function useXterm({
           setCurrentSessionId(session.sessionId);
           subscribeToSession(session.sessionId);
         }
+        flushPendingTerminalInput(session.sessionId);
         activeSessionBindingRef.current = createXtermSessionBindingSnapshot({
           cwd: baseCwd,
           kind,
@@ -2211,6 +2251,8 @@ export function useXterm({
         sessionEventsCleanupRef.current?.();
         sessionEventsCleanupRef.current = null;
         ptyIdRef.current = null;
+        pendingTerminalInputRef.current = '';
+        isSessionCreationPendingRef.current = false;
         if (isUnmountedRef.current) {
           return;
         }
@@ -2606,6 +2648,8 @@ export function useXterm({
       hasReceivedDataRef.current = false;
       hasRenderableRenderedDataRef.current = false;
       firstOutputWaitersRef.current.clear();
+      pendingTerminalInputRef.current = '';
+      isSessionCreationPendingRef.current = false;
       createRequestIdRef.current += 1;
       appliedStaticContentKeyRef.current = null;
       initializingStaticContentKeyRef.current = null;

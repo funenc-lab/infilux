@@ -10,6 +10,7 @@ import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_WRITE_CHAR_LIMIT,
 } from '../xtermOutputBuffer';
+import { resolveReusableBackendSessionId } from '../xtermSessionRecovery';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -1171,6 +1172,17 @@ describe('useXterm startup loading state', () => {
   });
 
   it('writes composed xterm input data to the live pty session', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
     const mounted = mountHookHarness();
     await act(async () => {
       await flushMicrotasks();
@@ -1183,6 +1195,216 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', '\u4f60\u597d');
+
+    await mounted.unmount();
+  });
+
+  it('queues terminal input until a new session is attached', async () => {
+    let resolveSessionCreate:
+      | ((value: {
+          session: {
+            sessionId: string;
+            backend: 'local';
+            kind: 'agent';
+            cwd: string;
+            persistOnDisconnect: boolean;
+            createdAt: number;
+            runtimeState: 'live';
+            metadata: undefined;
+          };
+        }) => void)
+      | null = null;
+    let resolveSessionAttach: ((value: unknown) => void) | null = null;
+    testState.sessionCreate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSessionCreate = resolve;
+        })
+    );
+    testState.sessionAttach.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSessionAttach = resolve;
+        })
+    );
+
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalDataHandler).toBeTypeOf('function');
+    act(() => {
+      testState.terminalDataHandler?.('describe the issue\r');
+    });
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSessionCreate?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSessionAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+        },
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith(
+      'backend-session-1',
+      'describe the issue\r'
+    );
+
+    await mounted.unmount();
+  });
+
+  it('replays queued terminal input only to the replacement after an existing attach fails', async () => {
+    let rejectExistingAttach: ((reason?: unknown) => void) | null = null;
+    vi.mocked(resolveReusableBackendSessionId).mockResolvedValueOnce('stale-session-1');
+    testState.sessionAttach.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectExistingAttach = reject;
+        })
+    );
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'replacement-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 2,
+        runtimeState: 'live',
+      },
+    });
+    testState.sessionCreate.mockResolvedValueOnce({
+      session: {
+        sessionId: 'replacement-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 2,
+        runtimeState: 'live',
+        metadata: undefined,
+      },
+    });
+
+    const mounted = mountHookHarness({ backendSessionId: 'stale-session-1' });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionAttach).toHaveBeenCalledWith({
+      sessionId: 'stale-session-1',
+      cwd: '/repo/worktree',
+    });
+    act(() => {
+      testState.terminalDataHandler?.('continue from here\r');
+    });
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rejectExistingAttach?.(new Error('Session not found'));
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith(
+      'replacement-session-1',
+      'continue from here\r'
+    );
+    expect(testState.sessionWrite).not.toHaveBeenCalledWith(
+      'stale-session-1',
+      'continue from here\r'
+    );
+
+    await mounted.unmount();
+  });
+
+  it('does not retain oversized terminal input while session creation is pending', async () => {
+    let resolveSessionCreate:
+      | ((value: {
+          session: {
+            sessionId: string;
+            backend: 'local';
+            kind: 'agent';
+            cwd: string;
+            persistOnDisconnect: boolean;
+            createdAt: number;
+            runtimeState: 'live';
+            metadata: undefined;
+          };
+        }) => void)
+      | null = null;
+    testState.sessionCreate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSessionCreate = resolve;
+        })
+    );
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const oversizedInput = 'x'.repeat(1024 * 1024 + 1);
+    act(() => {
+      testState.terminalDataHandler?.(oversizedInput);
+    });
+
+    await act(async () => {
+      resolveSessionCreate?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });
