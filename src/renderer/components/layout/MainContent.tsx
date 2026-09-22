@@ -56,6 +56,7 @@ export interface MainContentProps {
   worktreeCollapsed?: boolean;
   fileSidebarCollapsed?: boolean;
   onExpandWorktree?: () => void;
+  onCreateTempWorkspace?: () => void | Promise<void>;
   onExpandFileSidebar?: () => void;
   onSwitchRepository?: (repoPath: string) => void;
   onSwitchWorktree?: (worktreePath: string) => void;
@@ -141,6 +142,7 @@ export function MainContent({
   worktreeCollapsed = false,
   fileSidebarCollapsed = false,
   onExpandWorktree,
+  onCreateTempWorkspace,
   onExpandFileSidebar,
   onSwitchRepository,
   isSettingsActive = false,
@@ -771,6 +773,7 @@ export function MainContent({
         hasActiveWorktree={hasActiveWorktree}
         worktreeCollapsed={worktreeCollapsed}
         onExpandWorktree={onExpandWorktree}
+        onCreateTempWorkspace={onCreateTempWorkspace}
         getRepoPathForWorktree={getRepoPathForWorktree}
         shouldRenderCurrentChatPanel={shouldRenderCurrentChatPanel}
         shouldRenderCurrentTerminalPanel={shouldRenderCurrentTerminalPanel}

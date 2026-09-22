@@ -7,6 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TabId } from '@/App/constants';
+import { TEMP_REPO_ID } from '@/App/constants';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -192,6 +193,7 @@ vi.mock('lucide-react', () => {
     KanbanSquare: icon('KanbanSquare'),
     MessageSquare: icon('MessageSquare'),
     PanelLeft: icon('PanelLeft'),
+    Plus: icon('Plus'),
     RectangleEllipsis: icon('RectangleEllipsis'),
     RefreshCw: icon('RefreshCw'),
     Settings: icon('Settings'),
@@ -1287,6 +1289,46 @@ describe('MainContent component render', () => {
 
     expect(markup).toContain('Choose Worktree');
     expect(markup).toContain('AI Agent needs a worktree');
+  });
+
+  it('shows the temp-session creation action when the temp workspace has no active worktree', async () => {
+    const markup = await renderMainContent('chat', {
+      repoPath: TEMP_REPO_ID,
+      worktreePath: undefined,
+      sourceControlRootPath: undefined,
+      reviewRootPath: undefined,
+      openInPath: undefined,
+      onCreateTempWorkspace: vi.fn(),
+    });
+
+    expect(markup).toContain('New Temp Session');
+    expect(markup).toContain('Create a temp session to get started');
+    expect(markup).toContain('AI Agent needs a worktree');
+  });
+
+  it('invokes the temp-session creation action from the chat idle state', async () => {
+    const onCreateTempWorkspace = vi.fn();
+    const { container, unmount } = await mountMainContent('chat', {
+      repoPath: TEMP_REPO_ID,
+      worktreePath: undefined,
+      sourceControlRootPath: undefined,
+      reviewRootPath: undefined,
+      openInPath: undefined,
+      onCreateTempWorkspace,
+    });
+
+    const createButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'New Temp Session'
+    );
+    expect(createButton).toBeDefined();
+
+    await act(async () => {
+      createButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onCreateTempWorkspace).toHaveBeenCalledOnce();
+    await unmount();
   });
 
   it('does not pass the previous worktree path into the current file panel when the current selection has no worktree yet', async () => {

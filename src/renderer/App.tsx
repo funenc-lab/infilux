@@ -1806,6 +1806,7 @@ export default function App() {
             onTabReorder={handleReorderTabs}
             repoPath={mainContentRepoPath || undefined}
             worktreePath={activeWorktree?.path}
+            onCreateTempWorkspace={isTempRepo ? handleCreateTempWorkspace : undefined}
             repositoryCollapsed={repositoryCollapsed}
             worktreeCollapsed={layoutMode === 'tree' ? repositoryCollapsed : worktreeCollapsed}
             fileSidebarCollapsed={shouldRenderFileSidebar ? fileSidebarCollapsed : false}

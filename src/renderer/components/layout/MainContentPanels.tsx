@@ -1,6 +1,6 @@
 import type { LiveAgentSubagent } from '@shared/types';
 import { getDisplayPathBasename } from '@shared/utils/path';
-import { GitBranch, RectangleEllipsis, Sparkles } from 'lucide-react';
+import { GitBranch, Plus, RectangleEllipsis, Sparkles } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import type { TabId } from '@/App/constants';
 import type { StartupBlockingKey } from '@/App/startupOverlayPolicy';
@@ -42,6 +42,7 @@ export interface MainContentPanelsProps {
   hasActiveWorktree: boolean;
   worktreeCollapsed: boolean;
   onExpandWorktree?: () => void;
+  onCreateTempWorkspace?: () => void | Promise<void>;
   getRepoPathForWorktree: (worktreePath: string) => string | null;
   shouldRenderCurrentChatPanel: boolean;
   shouldRenderCurrentTerminalPanel: boolean;
@@ -91,21 +92,41 @@ function ConsoleIdleState({
   repoLabel,
   worktreeCollapsed = false,
   onExpandWorktree,
+  onCreateTempWorkspace,
 }: {
   title: string;
   description: string;
   repoLabel?: string | null;
   worktreeCollapsed?: boolean;
   onExpandWorktree?: (() => void) | undefined;
+  onCreateTempWorkspace?: (() => void | Promise<void>) | undefined;
 }) {
   const { t } = useI18n();
   const hasRepoContext = Boolean(repoLabel);
-  const nextStep =
-    onExpandWorktree && worktreeCollapsed
+  const nextStep = onCreateTempWorkspace
+    ? t('Create a temp session to get started')
+    : onExpandWorktree && worktreeCollapsed
       ? t('Expand the worktree sidebar and choose a worktree')
       : hasRepoContext
         ? t('Choose a worktree in this repository')
         : t('Add or select a repository, then choose a worktree');
+  const actions =
+    onCreateTempWorkspace || (onExpandWorktree && worktreeCollapsed) ? (
+      <>
+        {onCreateTempWorkspace ? (
+          <ControlStateActionButton onClick={() => void onCreateTempWorkspace()}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('New Temp Session')}
+          </ControlStateActionButton>
+        ) : null}
+        {onExpandWorktree && worktreeCollapsed ? (
+          <ControlStateActionButton onClick={onExpandWorktree}>
+            <GitBranch className="mr-2 h-4 w-4" />
+            {t('Choose Worktree')}
+          </ControlStateActionButton>
+        ) : null}
+      </>
+    ) : null;
 
   return (
     <ControlStateCard
@@ -115,14 +136,7 @@ function ConsoleIdleState({
       description={description}
       metaLabel={t('Next Step')}
       metaValue={nextStep}
-      actions={
-        onExpandWorktree && worktreeCollapsed ? (
-          <ControlStateActionButton onClick={onExpandWorktree}>
-            <GitBranch className="mr-2 h-4 w-4" />
-            {t('Choose Worktree')}
-          </ControlStateActionButton>
-        ) : null
-      }
+      actions={actions}
     />
   );
 }
@@ -138,6 +152,7 @@ export function MainContentPanels({
   hasActiveWorktree,
   worktreeCollapsed,
   onExpandWorktree,
+  onCreateTempWorkspace,
   getRepoPathForWorktree,
   shouldRenderCurrentChatPanel,
   shouldRenderCurrentTerminalPanel,
@@ -277,6 +292,7 @@ export function MainContentPanels({
             repoLabel={repoLabel}
             worktreeCollapsed={worktreeCollapsed}
             onExpandWorktree={onExpandWorktree}
+            onCreateTempWorkspace={onCreateTempWorkspace}
           />
         </div>
       ) : null}
@@ -294,6 +310,7 @@ export function MainContentPanels({
             repoLabel={repoLabel}
             worktreeCollapsed={worktreeCollapsed}
             onExpandWorktree={onExpandWorktree}
+            onCreateTempWorkspace={onCreateTempWorkspace}
           />
         </div>
       ) : null}
