@@ -92,7 +92,7 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
   const enabledCount = plugins.filter((p) => p.enabled).length;
 
   return (
-    <div className="border-t pt-4 mt-4">
+    <div className="space-y-3 py-4">
       <div className="flex w-full items-center justify-between gap-2">
         <button
           type="button"
@@ -115,6 +115,7 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
           <Button
             variant="ghost"
             size="icon-xs"
+            aria-label={t('Browse Plugins')}
             onClick={(e) => {
               e.stopPropagation();
               setBrowserOpen(true);
@@ -125,6 +126,7 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
           <Button
             variant="ghost"
             size="icon-xs"
+            aria-label={t('Configure')}
             onClick={(e) => {
               e.stopPropagation();
               setMarketplacesOpen(true);
@@ -152,14 +154,20 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
           {loading ? (
             <p className="text-center text-muted-foreground text-sm py-4">{t('Loading...')}</p>
           ) : plugins.length === 0 ? (
-            <p className="text-center text-muted-foreground text-sm py-4">
-              {t('No plugins installed')}
-            </p>
+            <div className="flex flex-col items-center gap-2 py-4 text-center">
+              <p className="text-center text-muted-foreground text-sm">
+                {t('No plugins installed')}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => setBrowserOpen(true)}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t('Browse Plugins')}
+              </Button>
+            </div>
           ) : (
             plugins.map((plugin) => (
               <div
                 key={plugin.id}
-                className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/50 hover:bg-muted"
+                className="control-panel-muted flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-accent/20"
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <Switch
@@ -176,6 +184,7 @@ export function PluginsSection({ repoPath }: { repoPath?: string }) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  aria-label={t('Delete')}
                   className="text-destructive hover:text-destructive ml-2"
                   onClick={() => handleUninstall(plugin.id)}
                   disabled={uninstalling === plugin.id}

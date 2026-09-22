@@ -423,6 +423,7 @@ export const zhTranslations: Record<string, string> = {
   Description: '描述',
   'Description (optional)': '描述 (可选)',
   'Developer Tools': '开发者工具',
+  Diagnostics: '\u8bca\u65ad\u4fe1\u606f',
   Diffs: '差异',
   Discard: '撤销更改',
   'Discard all': '全部撤销',
@@ -1294,44 +1295,6 @@ export const zhTranslations: Record<string, string> = {
     '\u542f\u52a8 WebSocket \u6865\u63a5\uff0c\u7528\u4e8e Claude Code \u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c hooks',
   'Start provider-supported editor context and lifecycle hook bridges':
     '\u542f\u52a8 provider \u652f\u6301\u7684\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u548c\u751f\u547d\u5468\u671f hook \u6865\u63a5',
-  'Agent capability coverage': 'Agent \u80fd\u529b\u8986\u76d6',
-  'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.':
-    '\u8fd9\u4e9b\u63a7\u5236\u9879\u57fa\u4e8e provider \u80fd\u529b\uff0c\u800c\u4e0d\u662f\u5047\u8bbe\u6240\u6709 AI \u5de5\u5177\u90fd\u652f\u6301\u76f8\u540c hooks\u3002',
-  Capability: '\u80fd\u529b',
-  Coverage: '\u8986\u76d6',
-  Supported: '\u5df2\u652f\u6301',
-  'Adapter pending': 'Adapter \u5f85\u63a5\u5165',
-  'Full coverage': '\u5b8c\u6574\u8986\u76d6',
-  'Partial coverage': '\u90e8\u5206\u8986\u76d6',
-  'No coverage': '\u672a\u8986\u76d6',
-  '{{count}} capabilities': '{{count}} \u9879\u80fd\u529b',
-  '{{count}} providers': '{{count}} \u4e2a provider',
-  '{{supported}}/{{total}} capabilities': '{{supported}}/{{total}} \u9879\u80fd\u529b',
-  '{{supported}}/{{total}} providers': '{{supported}}/{{total}} \u4e2a provider',
-  '{{count}} gaps': '{{count}} \u4e2a\u7f3a\u53e3',
-  'No gaps': '\u65e0\u7f3a\u53e3',
-  'Provider coverage summary': 'Provider \u8986\u76d6\u6458\u8981',
-  'Capability coverage matrix': '\u80fd\u529b\u8986\u76d6\u77e9\u9635',
-  'Capability coverage legend': '\u80fd\u529b\u8986\u76d6\u56fe\u4f8b',
-  'Currently supported by {{providers}}': '\u5f53\u524d\u652f\u6301\uff1a{{providers}}',
-  'Waiting for provider adapter': '\u7b49\u5f85 provider adapter',
-  'Unsupported providers: {{providers}}':
-    '\u6682\u4e0d\u652f\u6301\u7684 providers\uff1a{{providers}}',
-  'Provider config detection': 'Provider \u914d\u7f6e\u68c0\u6d4b',
-  'Detect and preview supported CLI provider config files from the current environment.':
-    '\u4ece\u5f53\u524d\u73af\u5883\u68c0\u6d4b\u5e76\u9884\u89c8\u53d7\u652f\u6301 CLI \u7684 Provider \u914d\u7f6e\u6587\u4ef6\u3002',
-  'Editor context bridge': '\u7f16\u8f91\u5668\u4e0a\u4e0b\u6587\u6865\u63a5',
-  'Send editor selection and @mention context to supported agent IDE bridges.':
-    '\u5c06\u7f16\u8f91\u5668\u9009\u533a\u548c @mention \u4e0a\u4e0b\u6587\u53d1\u9001\u5230\u53d7\u652f\u6301\u7684 Agent IDE \u6865\u63a5\u3002',
-  'Completion notifications': '\u5b8c\u6210\u901a\u77e5',
-  'Use provider lifecycle hooks when available, then fall back to terminal completion markers.':
-    '\u53ef\u7528\u65f6\u4f7f\u7528 provider \u751f\u547d\u5468\u671f hooks\uff0c\u5426\u5219\u56de\u9000\u5230\u7ec8\u7aef\u5b8c\u6210\u6807\u8bb0\u3002',
-  'Question notifications': '\u63d0\u95ee\u901a\u77e5',
-  'Notify when a supported agent requests user input or permission.':
-    '\u5f53\u53d7\u652f\u6301\u7684 Agent \u8bf7\u6c42\u7528\u6237\u8f93\u5165\u6216\u6743\u9650\u65f6\u901a\u77e5\u3002',
-  'Status telemetry': '\u72b6\u6001\u9065\u6d4b',
-  'Show supported agent telemetry such as model, context, and cost at the bottom of the terminal.':
-    '\u5728\u7ec8\u7aef\u5e95\u90e8\u663e\u793a\u53d7\u652f\u6301 Agent \u7684\u6a21\u578b\u3001\u4e0a\u4e0b\u6587\u3001\u6210\u672c\u7b49\u9065\u6d4b\u4fe1\u606f\u3002',
   'Configure enhanced drafts and attachment routing for agent sessions':
     '配置 Agent 会话的增强草稿输入与附件路由行为',
   'Configure fallback composer controls for providers without native terminal input':
@@ -2301,6 +2264,7 @@ export const zhTranslations: Record<string, string> = {
   'Renderer shared memory': '渲染进程共享内存',
   'Renderer resident set': '渲染进程常驻集',
   'Core processes': '核心进程',
+  'Core telemetry': '\u6838\u5fc3\u6307\u6807',
   'Browser process': 'Browser 进程',
   'GPU process': 'GPU 进程',
   '{{memory}} · PID {{pid}}': '{{memory}} · \u8fdb\u7a0b ID {{pid}}',
@@ -2484,6 +2448,8 @@ export const zhTranslations: Record<string, string> = {
   'Show supported agent telemetry (model, context, cost) at bottom of terminal':
     '\u5728\u7ec8\u7aef\u5e95\u90e8\u663e\u793a\u53d7\u652f\u6301 Agent \u9065\u6d4b\uff08\u6a21\u578b\u3001\u4e0a\u4e0b\u6587\u3001\u6210\u672c\uff09',
   'Display Fields': '显示字段',
+  'Workspace context': '\u5de5\u4f5c\u533a\u4e0a\u4e0b\u6587',
+  '{{count}} fields selected': '\u5df2\u9009\u62e9 {{count}} \u4e2a\u5b57\u6bb5',
   Context: '上下文',
   Cost: '成本',
   Duration: '时长',

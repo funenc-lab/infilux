@@ -149,11 +149,12 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
   };
 
   return (
-    <div className="border-t pt-4 mt-4">
+    <div className="space-y-3 py-4">
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >
           {expanded ? (
@@ -170,6 +171,7 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
         <Button
           variant="ghost"
           size="icon-xs"
+          aria-label={t('Add')}
           onClick={(e) => {
             e.stopPropagation();
             handleAdd();
@@ -182,16 +184,20 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
       {expanded && (
         <div className="mt-3 space-y-2">
           {mcpServers.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              {t('No MCP servers configured')}
-            </p>
+            <div className="flex flex-col items-center gap-2 py-4 text-center">
+              <p className="text-sm text-muted-foreground">{t('No MCP servers configured')}</p>
+              <Button variant="outline" size="sm" onClick={handleAdd}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t('Add')}
+              </Button>
+            </div>
           ) : (
             mcpServers.map((server) => {
               const isHttp = isHttpMcpServer(server);
               return (
                 <div
                   key={server.id}
-                  className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/50 hover:bg-muted"
+                  className="control-panel-muted flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-accent/20"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <Switch
@@ -213,12 +219,18 @@ export function McpSection({ repoPath }: { repoPath?: string }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 ml-2">
-                    <Button variant="ghost" size="icon-xs" onClick={() => handleEdit(server)}>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={t('Edit')}
+                      onClick={() => handleEdit(server)}
+                    >
                       <Edit2 className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-xs"
+                      aria-label={t('Delete')}
                       className="text-destructive hover:text-destructive"
                       onClick={() => handleDelete(server.id)}
                     >

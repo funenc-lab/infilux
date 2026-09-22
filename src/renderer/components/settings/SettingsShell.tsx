@@ -58,7 +58,7 @@ export function SettingsShell({
         { id: 'appearance', icon: Palette, label: t('Appearance') },
         { id: 'editor', icon: FileCode, label: t('Editor') },
         { id: 'keybindings', icon: Keyboard, label: t('Keybindings') },
-        { id: 'claudeCatalog', icon: Boxes, label: t('Skill & MCP') },
+        { id: 'claudeCatalog', icon: Boxes, label: t('Skill & MCP Catalog') },
         { id: 'projectSchemes', icon: PanelsTopLeft, label: t('Project Schemes') },
         { id: 'agent', icon: Bot, label: t('Agent') },
         { id: 'ai', icon: Sparkles, label: t('AI') },

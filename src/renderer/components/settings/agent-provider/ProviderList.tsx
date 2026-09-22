@@ -176,7 +176,12 @@ function ProviderItem({
         {enableProviderDisableFeature && (
           <Tooltip>
             <TooltipTrigger render={<span />}>
-              <Button variant="ghost" size="icon-xs" onClick={(e) => onToggleEnabled(provider, e)}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={isDisabled ? t('Enable') : t('Disable')}
+                onClick={(e) => onToggleEnabled(provider, e)}
+              >
                 {isDisabled ? (
                   <Check className="h-3.5 w-3.5 text-muted-foreground" />
                 ) : (
@@ -195,6 +200,7 @@ function ProviderItem({
         <Button
           variant="ghost"
           size="icon-xs"
+          aria-label={t('Edit')}
           onClick={(e) => {
             e.stopPropagation();
             onEdit(provider);
@@ -207,6 +213,7 @@ function ProviderItem({
           variant="ghost"
           size="icon-xs"
           className="text-destructive hover:text-destructive"
+          aria-label={t('Delete')}
           onClick={(e) => {
             e.stopPropagation();
             onDelete(provider);
@@ -527,7 +534,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div className="space-y-3 rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
+      <div className="control-panel-muted space-y-3 rounded-xl p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="space-y-0.5">
             <span className="text-xs font-medium text-muted-foreground">{t('Provider Type')}</span>
@@ -555,7 +562,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
           </Select>
         </div>
         {hasDetectedConfig ? (
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
             <div className="min-w-0 space-y-0.5">
               <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                 <span className="truncate">{t('Current CLI Config Detected')}</span>
@@ -567,7 +574,7 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
               </div>
               <p className="truncate text-xs text-muted-foreground">{detectedConfigStatus}</p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
               <Button variant="ghost" size="xs" className="h-6" onClick={handlePreviewCurrent}>
                 <Eye className="mr-1 h-3.5 w-3.5" />
                 {t('Preview')}
@@ -596,18 +603,18 @@ export function ProviderList({ className, repoPath }: ProviderListProps) {
 
       {providers.length > 0 && (
         <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="rounded-md border border-border/60 px-2 py-1">
+          <span className="control-chip">
             {t('{{count}} saved provider profiles', {
               count: providerCapabilitySummary.savedCount,
             })}
           </span>
-          <span className="rounded-md border border-border/60 px-2 py-1">
+          <span className="control-chip">
             {t('{{count}} switchable', {
               count: providerCapabilitySummary.switchableCount,
             })}
           </span>
           {providerCapabilitySummary.waitingForAdapterCount > 0 && (
-            <span className="rounded-md border border-warning/30 bg-warning/8 px-2 py-1 text-warning">
+            <span className="control-chip border-warning/30 bg-warning/8 text-warning">
               {t('{{count}} waiting for provider adapter', {
                 count: providerCapabilitySummary.waitingForAdapterCount,
               })}

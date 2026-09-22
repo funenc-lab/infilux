@@ -1,9 +1,19 @@
 /* @vitest-environment jsdom */
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntegrationSettings } from '../IntegrationSettings';
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const integrationSettingsSource = readFileSync(
+  resolve(currentDir, '../IntegrationSettings.tsx'),
+  'utf8'
+);
+const settingsShellSource = readFileSync(resolve(currentDir, '../SettingsShell.tsx'), 'utf8');
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -23,8 +33,7 @@ vi.mock('lucide-react', () => {
     ChevronDownIcon: icon('ChevronDownIcon'),
     ChevronsUpDownIcon: icon('ChevronsUpDownIcon'),
     ChevronUpIcon: icon('ChevronUpIcon'),
-    Check: icon('Check'),
-    Minus: icon('Minus'),
+    ChevronRight: icon('ChevronRight'),
   };
 });
 
@@ -118,18 +127,6 @@ function mountIntegrationSettings(): { container: HTMLDivElement; root: Root } {
   return { container, root };
 }
 
-function getProgressbar(container: HTMLElement, label: string): HTMLElement {
-  const progressbar = Array.from(
-    container.querySelectorAll<HTMLElement>('[role="progressbar"]')
-  ).find((item) => item.getAttribute('aria-label') === label);
-
-  if (!progressbar) {
-    throw new Error(`Missing progressbar: ${label}`);
-  }
-
-  return progressbar;
-}
-
 describe('agent integration capability settings', () => {
   beforeEach(() => {
     installElectronApi();
@@ -142,65 +139,23 @@ describe('agent integration capability settings', () => {
     vi.clearAllMocks();
   });
 
-  it('renders provider capability coverage from the integration settings surface', () => {
+  it('does not render capability coverage metadata from the integration settings surface', () => {
     const { container, root } = mountIntegrationSettings();
 
-    expect(container.textContent).toContain('Agent capability coverage');
-    expect(container.textContent).toContain(
-      'These controls use provider capabilities instead of assuming every AI tool supports the same hooks.'
-    );
-    expect(container.textContent).toContain('6 capabilities');
-    expect(container.textContent).toContain('4 providers');
-    expect(container.textContent).toContain('Provider coverage summary');
-    expect(container.textContent).toContain('Capability coverage matrix');
-    const legend = container.querySelector('[aria-label="Capability coverage legend"]');
-    expect(legend?.textContent).toContain('Supported');
-    expect(legend?.textContent).toContain('Adapter pending');
-    const providerSummary = container.querySelector(
-      '[aria-labelledby] [role="list"]'
-    ) as HTMLElement | null;
-    expect(providerSummary?.className).toContain('overflow-x-auto');
-    const matrixRegion = container.querySelector(
-      '[role="region"][aria-labelledby]'
-    ) as HTMLElement | null;
-    expect(matrixRegion?.className).toContain('max-h-[22rem]');
-    expect(matrixRegion?.className).toContain('overflow-auto');
-    const matrixHeader = matrixRegion?.querySelector('thead');
-    expect(matrixHeader?.className).toContain('sticky');
-    expect(container.textContent).toContain('Claude Code');
-    expect(container.textContent).toContain('6/6 capabilities');
-    expect(container.textContent).toContain('Full coverage');
-    expect(container.textContent).toContain('Codex CLI');
-    expect(container.textContent).toContain('3/6 capabilities');
-    expect(container.textContent).toContain('Partial coverage');
-    expect(container.textContent).toContain('Cursor CLI');
-    expect(container.textContent).toContain('2/6 capabilities');
-    expect(container.textContent).not.toContain('Provider coverage summaryProvider');
-
-    expect(getProgressbar(container, 'Claude Code: 6/6 capabilities')).toHaveProperty(
-      'ariaValueNow',
-      '100'
-    );
-    expect(getProgressbar(container, 'Codex CLI: 3/6 capabilities')).toHaveProperty(
-      'ariaValueNow',
-      '50'
-    );
-    expect(getProgressbar(container, 'Cursor CLI: 2/6 capabilities')).toHaveProperty(
-      'ariaValueNow',
-      '33'
-    );
+    expect(container.textContent).not.toContain('Agent capability coverage');
+    expect(container.textContent).not.toContain('Provider coverage summary');
+    expect(container.textContent).not.toContain('Currently supported by');
+    expect(container.querySelector('[aria-label="Capability coverage legend"]')).toBeNull();
+    expect(container.textContent).toContain('Agent IDE Bridge');
 
     act(() => {
       root.unmount();
     });
   });
 
-  it('shows provider-scoped support notes without Claude-only generic copy', () => {
+  it('keeps integration controls without provider capability annotations', () => {
     const { container, root } = mountIntegrationSettings();
 
-    expect(container.textContent).toContain(
-      'Currently supported by Claude Code - 3 waiting for provider adapter'
-    );
     expect(container.textContent).toContain(
       'Delay before sending selection changes to supported editor bridges'
     );
@@ -211,19 +166,49 @@ describe('agent integration capability settings', () => {
     expect(container.textContent).toContain(
       'Notify when a supported agent asks for input or permission'
     );
-    expect(container.textContent).not.toContain(
-      'Delay before sending selection changes to Claude Code'
-    );
-    expect(container.textContent).not.toContain('Send selected code range to Claude Code');
-    expect(container.textContent).not.toContain(
-      'Use Claude Stop hook for precise agent completion notifications'
-    );
-    expect(container.textContent).not.toContain(
-      'Notify when Claude asks a question (requires PermissionRequest hook)'
-    );
+    expect(container.textContent).not.toContain('waiting for provider adapter');
 
     act(() => {
       root.unmount();
     });
+  });
+
+  it('groups provider, bridge, and developer tools into distinct sections', () => {
+    const { container, root } = mountIntegrationSettings();
+
+    const sections = Array.from(container.querySelectorAll('section'));
+    expect(sections.length).toBeGreaterThanOrEqual(3);
+    expect(container.textContent).toContain('Agent Providers');
+    expect(container.textContent).toContain('Agent IDE Bridge');
+    expect(container.textContent).toContain('Developer Tools');
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it('keeps status line field choices behind an advanced disclosure', () => {
+    const { container, root } = mountIntegrationSettings();
+
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull();
+    expect(container.textContent).toContain('Display Fields');
+    expect(container.textContent).toContain('Advanced');
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it('uses the shared section layout and responsive status field grid', () => {
+    expect(integrationSettingsSource).toContain("title={t('Agent IDE Bridge')}");
+    expect(integrationSettingsSource).toContain('grid-cols-1');
+    expect(integrationSettingsSource).toContain('sm:grid-cols-2');
+    expect(integrationSettingsSource).toContain('lg:grid-cols-3');
+    expect(integrationSettingsSource).toContain('selectedStatusLineFieldCount');
+  });
+
+  it('distinguishes the read-only catalog from editable integration tools', () => {
+    expect(settingsShellSource).toContain("label: t('Skill & MCP Catalog')");
+    expect(integrationSettingsSource).toContain("title={t('Developer Tools')}");
   });
 });
