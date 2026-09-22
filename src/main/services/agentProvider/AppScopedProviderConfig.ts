@@ -132,6 +132,65 @@ function synchronizeProviderFile(sourcePath: string, targetPath: string): void {
   }
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readJsonObject(filePath: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+    return isJsonObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function synchronizeClaudeProviderSettings(sourcePath: string, targetPath: string): void {
+  if (!existsSync(sourcePath)) {
+    return;
+  }
+
+  if (existsSync(targetPath) && statSync(sourcePath).mtimeMs <= statSync(targetPath).mtimeMs) {
+    return;
+  }
+
+  const sourceSettings = readJsonObject(sourcePath);
+  if (!sourceSettings) {
+    return;
+  }
+
+  const targetExists = existsSync(targetPath);
+  const targetSettings = targetExists ? readJsonObject(targetPath) : {};
+  if (!targetSettings) {
+    return;
+  }
+  const nextSettings = { ...targetSettings };
+  const sourceEnv = sourceSettings.env;
+
+  if (isJsonObject(sourceEnv)) {
+    nextSettings.env = sourceEnv;
+  } else {
+    delete nextSettings.env;
+  }
+
+  if (Object.hasOwn(sourceSettings, 'model')) {
+    nextSettings.model = sourceSettings.model;
+  } else {
+    delete nextSettings.model;
+  }
+
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(nextSettings, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    renameSync(temporaryPath, targetPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+}
+
 function resolveSymlinkTarget(linkPath: string, linkValue: string): string {
   return path.resolve(path.dirname(linkPath), linkValue);
 }
@@ -498,6 +557,12 @@ function initializeProviderScope(seed: ProviderScopeSeed): boolean {
       synchronizeProviderFile(
         path.join(seed.sourceDir, fileName),
         path.join(seed.targetDir, fileName)
+      );
+    }
+    if (seed.envKey === 'CLAUDE_CONFIG_DIR') {
+      synchronizeClaudeProviderSettings(
+        path.join(seed.sourceDir, 'settings.json'),
+        path.join(seed.targetDir, 'settings.json')
       );
     }
     for (const directoryName of seed.linkedDirectories ?? []) {

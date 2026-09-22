@@ -105,6 +105,75 @@ describe('AppScopedProviderConfig', () => {
     );
   });
 
+  it('synchronizes newer Claude provider settings while preserving scoped hooks', () => {
+    const root = createTemporaryRoot();
+    const homeDir = join(root, 'home');
+    const configRoot = join(root, 'infilux-provider-config');
+    const sourceSettingsPath = join(homeDir, '.claude', 'settings.json');
+    const scopedSettingsPath = join(configRoot, 'claude', 'settings.json');
+
+    writeTextFile(
+      sourceSettingsPath,
+      JSON.stringify({
+        env: {
+          ANTHROPIC_AUTH_TOKEN: 'initial-token',
+          ANTHROPIC_BASE_URL: 'https://initial.example.com',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'initial-model',
+        },
+        hooks: { Stop: [{ command: 'global-hook' }] },
+        model: 'initial-model',
+        theme: 'dark',
+      })
+    );
+    utimesSync(sourceSettingsPath, new Date(1_000), new Date(1_000));
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    writeTextFile(
+      scopedSettingsPath,
+      JSON.stringify({
+        env: {
+          ANTHROPIC_AUTH_TOKEN: 'initial-token',
+          ANTHROPIC_BASE_URL: 'https://initial.example.com',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'initial-model',
+        },
+        hooks: { Stop: [{ command: 'infilux-hook' }] },
+        model: 'scoped-model',
+        theme: 'auto',
+      })
+    );
+    utimesSync(scopedSettingsPath, new Date(2_000), new Date(2_000));
+
+    writeTextFile(
+      sourceSettingsPath,
+      JSON.stringify({
+        env: {
+          ANTHROPIC_AUTH_TOKEN: 'rotated-token',
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:15721',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-5[1M]',
+          CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-flash[1M]',
+        },
+        hooks: { Stop: [{ command: 'global-updated-hook' }] },
+        model: 'rotated-model',
+        theme: 'light',
+      })
+    );
+    utimesSync(sourceSettingsPath, new Date(3_000), new Date(3_000));
+
+    initializeAppScopedProviderConfig({ configRoot, env: {}, homeDir });
+
+    expect(JSON.parse(readFileSync(scopedSettingsPath, 'utf8'))).toMatchObject({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'rotated-token',
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:15721',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-5[1M]',
+        CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-flash[1M]',
+      },
+      hooks: { Stop: [{ command: 'infilux-hook' }] },
+      model: 'rotated-model',
+      theme: 'auto',
+    });
+  });
+
   it('excludes user MCP configuration from a newly seeded Codex provider scope', () => {
     const root = createTemporaryRoot();
     const homeDir = join(root, 'home');
