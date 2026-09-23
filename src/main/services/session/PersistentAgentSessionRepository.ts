@@ -310,6 +310,8 @@ interface PersistentAgentSessionRepositoryDiagnosticsSnapshot {
 export class PersistentAgentSessionRepository {
   private db: sqlite3.Database | null = null;
   private initializePromise: Promise<void> | null = null;
+  private closePromise: Promise<void> | null = null;
+  private shutdownStarted = false;
   private cache: PersistentAgentSessionRecord[] = [];
   private lastRuntimeHomePrunedAt: number | null = null;
   private activeCodexRuntimeHomeProvider: ActiveCodexRuntimeHomeProvider = () => [];
@@ -337,7 +339,14 @@ export class PersistentAgentSessionRepository {
     this.activeCodexRuntimeHomeProvider = provider;
   }
 
+  beginShutdown(): void {
+    this.shutdownStarted = true;
+  }
+
   async initialize(): Promise<void> {
+    if (this.shutdownStarted) {
+      throw new Error('[PersistentAgentSessionRepository] Database shutdown has started.');
+    }
     if (this.db) {
       return;
     }
@@ -391,6 +400,16 @@ export class PersistentAgentSessionRepository {
   }
 
   async close(): Promise<void> {
+    this.beginShutdown();
+    if (this.closePromise) {
+      await this.closePromise;
+      return;
+    }
+
+    if (this.initializePromise) {
+      await this.initializePromise.catch(() => undefined);
+    }
+
     const database = this.db;
     if (!database) {
       return;
@@ -398,7 +417,18 @@ export class PersistentAgentSessionRepository {
 
     this.db = null;
     this.cache = [];
-    await dbClose(database);
+    this.closePromise = dbClose(database);
+    try {
+      await this.closePromise;
+    } finally {
+      this.closePromise = null;
+    }
+  }
+
+  closeSync(): void {
+    this.beginShutdown();
+    this.db = null;
+    this.cache = [];
   }
 
   getDiagnosticsSnapshot(): PersistentAgentSessionRepositoryDiagnosticsSnapshot {
@@ -486,6 +516,16 @@ export class PersistentAgentSessionRepository {
       );
       `
       );
+
+      if (this.shutdownStarted) {
+        await dbClose(database).catch((closeError: unknown) => {
+          log.warn(
+            '[PersistentAgentSessionRepository] Failed to close database during shutdown:',
+            closeError
+          );
+        });
+        return;
+      }
 
       this.db = database;
       await this.refreshCache();

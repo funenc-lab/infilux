@@ -642,6 +642,20 @@ describe('PersistentAgentSessionRepository', () => {
     await expect(repository.close()).resolves.toBeUndefined();
   });
 
+  it('supports synchronous shutdown without scheduling sqlite close callbacks', async () => {
+    const { PersistentAgentSessionRepository } = await import(
+      '../PersistentAgentSessionRepository'
+    );
+    const repository = new PersistentAgentSessionRepository();
+    await repository.initialize();
+
+    const database = repositoryTestDoubles.databases[0];
+    repository.closeSync();
+
+    expect(database?.close).not.toHaveBeenCalled();
+    await expect(repository.initialize()).rejects.toThrow('Database shutdown has started');
+  });
+
   it('updates the in-memory cache during upsert without reloading the full sqlite table', async () => {
     const { PersistentAgentSessionRepository } = await import(
       '../PersistentAgentSessionRepository'

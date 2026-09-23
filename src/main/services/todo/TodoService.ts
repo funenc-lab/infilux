@@ -21,6 +21,8 @@ function getDbPath(): string {
 }
 
 let db: sqlite3.Database | null = null;
+let shutdownStarted = false;
+let initializePromise: Promise<void> | null = null;
 
 function getDb(): sqlite3.Database {
   if (!db) {
@@ -83,19 +85,52 @@ function rowToTask(row: TodoTaskRow): {
 }
 
 export async function initialize(): Promise<void> {
+  if (shutdownStarted) {
+    throw new Error('[TodoService] Database shutdown has started.');
+  }
+
+  if (db) {
+    return;
+  }
+
+  if (initializePromise) {
+    await initializePromise;
+    return;
+  }
+
   const dbPath = getDbPath();
 
-  await new Promise<void>((resolve, reject) => {
-    db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
-      if (err) return reject(err);
-      db!.configure('busyTimeout', BUSY_TIMEOUT_MS);
-      resolve();
+  initializePromise = (async () => {
+    const database = await new Promise<sqlite3.Database>((resolve, reject) => {
+      const instance = new sqlite3.Database(
+        dbPath,
+        sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
+        (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(instance);
+        }
+      );
     });
-  });
 
-  await dbExec(
-    db!,
-    `
+    if (shutdownStarted) {
+      await new Promise<void>((resolve) => {
+        database.close((err) => {
+          if (err) console.warn('[TodoService] Failed to close database during shutdown:', err);
+          resolve();
+        });
+      });
+      return;
+    }
+
+    database.configure('busyTimeout', BUSY_TIMEOUT_MS);
+    db = database;
+
+    await dbExec(
+      database,
+      `
     CREATE TABLE IF NOT EXISTS tasks (
       id            TEXT PRIMARY KEY,
       repo_path     TEXT NOT NULL,
@@ -109,9 +144,16 @@ export async function initialize(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_repo_status ON tasks(repo_path, status);
     `
-  );
+    );
 
-  console.log('[TodoService] Database initialized at', dbPath);
+    console.log('[TodoService] Database initialized at', dbPath);
+  })();
+
+  try {
+    await initializePromise;
+  } finally {
+    initializePromise = null;
+  }
 }
 
 export async function getTasks(repoPath: string): Promise<ReturnType<typeof rowToTask>[]> {
@@ -339,18 +381,24 @@ export async function exportAllTasks(): Promise<
 }
 
 export function close(): Promise<void> {
-  return new Promise((resolve) => {
+  beginShutdown();
+  return (async () => {
+    await initializePromise?.catch(() => undefined);
     if (db) {
       const ref = db;
       db = null;
-      ref.close((err) => {
-        if (err) console.warn('[TodoService] Failed to close database:', err);
-        resolve();
+      await new Promise<void>((resolve) => {
+        ref.close((err) => {
+          if (err) console.warn('[TodoService] Failed to close database:', err);
+          resolve();
+        });
       });
-    } else {
-      resolve();
     }
-  });
+  })();
+}
+
+export function beginShutdown(): void {
+  shutdownStarted = true;
 }
 
 export function closeSync(): void {
@@ -358,5 +406,6 @@ export function closeSync(): void {
   // SQLite is crash-safe — the OS will release the file descriptor.
   // Calling db.close() with a callback here would leave an async
   // cleanup hook that fires during FreeEnvironment(), causing SIGABRT.
+  beginShutdown();
   db = null;
 }

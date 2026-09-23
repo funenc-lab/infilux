@@ -617,6 +617,7 @@ describe('TodoService', () => {
     await expect(service.exportAllTasks()).rejects.toThrow(
       '[TodoService] Database not initialized. Call initialize() first.'
     );
+    await expect(service.initialize()).rejects.toThrow('Database shutdown has started');
   });
 
   it('surfaces initialize, exec, and query failures', async () => {

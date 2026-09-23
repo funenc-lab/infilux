@@ -204,6 +204,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
   const todoInitialize = vi.fn(async () => undefined);
   const todoExportAllTasks = vi.fn(async () => [{ id: 'board-1' }]);
   const todoClose = vi.fn(async () => undefined);
+  const todoBeginShutdown = vi.fn();
   const webInspectorSetMainWindow = vi.fn();
   const logInfo = vi.fn();
   const initLogger = vi.fn();
@@ -550,6 +551,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
       todoInitialize,
       todoExportAllTasks,
       todoClose,
+      todoBeginShutdown,
       webInspectorSetMainWindow,
       logInfo,
       initLogger,
@@ -672,6 +674,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     todoInitialize.mockResolvedValue(undefined);
     todoExportAllTasks.mockResolvedValue([{ id: 'board-1' }]);
     todoClose.mockResolvedValue(undefined);
+    todoBeginShutdown.mockReset();
     persistentAgentSessionRepositoryInitialize.mockResolvedValue(undefined);
     persistentAgentSessionRepositorySetActiveCodexRuntimeHomeProvider.mockReset();
     sessionManagerListActiveCodexRuntimeHomePaths.mockReset();
@@ -822,6 +825,7 @@ const mainIndexTestDoubles = vi.hoisted(() => {
     todoInitialize,
     todoExportAllTasks,
     todoClose,
+    todoBeginShutdown,
     webInspectorSetMainWindow,
     logInfo,
     initLogger,
@@ -1046,6 +1050,7 @@ vi.mock('../services/todo/TodoService', () => ({
   initialize: mainIndexTestDoubles.todoInitialize,
   exportAllTasks: mainIndexTestDoubles.todoExportAllTasks,
   close: mainIndexTestDoubles.todoClose,
+  beginShutdown: mainIndexTestDoubles.todoBeginShutdown,
 }));
 
 vi.mock('sqlite3', () => ({

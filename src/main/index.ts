@@ -1774,6 +1774,19 @@ function runBestEffortPreExitStep(reason: string, label: string, step: () => voi
 }
 
 function prepareForExit(reason: string): void {
+  runBestEffortPreExitStep(reason, 'persistentAgentSessions', () => {
+    const beginShutdown = persistentAgentSessionRepository.beginShutdown;
+    if (typeof beginShutdown === 'function') {
+      beginShutdown.call(persistentAgentSessionRepository);
+    }
+  });
+  runBestEffortPreExitStep(reason, 'todo', () => {
+    const beginShutdown = todoService.beginShutdown;
+    if (typeof beginShutdown === 'function') {
+      beginShutdown.call(todoService);
+    }
+  });
+
   const windowCleanup = cleanupWindowHandlers;
   cleanupWindowHandlers = null;
 
@@ -1793,6 +1806,7 @@ function performSynchronousShutdown(
   exitCode: number,
   options: {
     prepareBeforeCleanup?: boolean;
+    forceProcessExit?: boolean;
   } = {}
 ): void {
   if (emergencyShutdownTriggered) {
@@ -1811,7 +1825,12 @@ function performSynchronousShutdown(
   } catch (error) {
     console.error(`[app] Sync cleanup error during ${reason}:`, error);
   } finally {
-    app.exit(exitCode);
+    // Bypass Electron's Node environment teardown when native async cleanup timed out.
+    if (options.forceProcessExit && app.isPackaged) {
+      process.exit(exitCode);
+    } else {
+      app.exit(exitCode);
+    }
   }
 }
 
@@ -1859,6 +1878,7 @@ app.on('will-quit', (event) => {
     if (!asyncCleanupDone) {
       performSynchronousShutdown('will-quit-timeout', 0, {
         prepareBeforeCleanup: false,
+        forceProcessExit: true,
       });
       return;
     }

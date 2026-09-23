@@ -303,6 +303,9 @@ export function cleanupAllResourcesSync(): void {
   // Close Todo database (sync — just nulls the reference, no async callback)
   cleanupTodoSync();
 
+  // Drop the persistent session database reference without scheduling a native callback.
+  persistentAgentSessionRepository.closeSync();
+
   // Clean up temp files (sync)
   cleanupTempFilesSync();
 
