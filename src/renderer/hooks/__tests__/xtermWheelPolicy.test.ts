@@ -98,9 +98,10 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('routes alternate-buffer wheel input to tmux host scrolling for agent sessions', () => {
+  it('uses Claude program scrolling instead of tmux copy mode for alternate-buffer history', () => {
     expect(
       resolveAgentWheelPolicy({
+        agentId: 'claude',
         kind: 'agent',
         activeBufferType: 'alternate',
         mouseTrackingMode: 'any',
@@ -112,9 +113,10 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'host-scroll',
+      action: 'program-scroll',
       carryY: 0,
-      scrollLines: -12,
+      sequence: '\x1b[5~',
+      repeat: 2,
     });
   });
 
@@ -233,7 +235,7 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
-  it('marks Claude tmux scrolling for program fallback when the host cannot scroll', () => {
+  it('uses Claude program scrolling for tmux-backed alternate-buffer history', () => {
     expect(
       resolveAgentWheelPolicy({
         agentId: 'claude',
@@ -248,10 +250,10 @@ describe('xtermWheelPolicy', () => {
         devicePixelRatio: 2,
       })
     ).toEqual({
-      action: 'host-scroll',
+      action: 'program-scroll',
       carryY: 0,
-      scrollLines: -4,
-      fallbackToProgramScroll: true,
+      sequence: '\x1b[5~',
+      repeat: 1,
     });
   });
 

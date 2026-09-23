@@ -163,12 +163,20 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
     };
   }
 
+  if (isClaudeAlternateBuffer) {
+    return {
+      action: 'program-scroll',
+      carryY,
+      sequence: steps < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
+      repeat: resolveAgentProgramScrollRepeat(steps),
+    };
+  }
+
   if (hostScrollMode === 'tmux') {
     return {
       action: 'host-scroll',
       carryY,
       scrollLines: steps,
-      ...(isClaudeAlternateBuffer ? { fallbackToProgramScroll: true } : {}),
     };
   }
 
