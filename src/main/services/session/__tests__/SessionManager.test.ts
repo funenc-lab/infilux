@@ -185,6 +185,7 @@ const sessionTestDoubles = vi.hoisted(() => {
   const tmuxEnsureServerHealthy = vi.fn();
   const tmuxProbeSession = vi.fn();
   const tmuxCaptureSessionHistory = vi.fn();
+  const tmuxCaptureSessionScreen = vi.fn();
   const tmuxKillSession = vi.fn();
   const codexReleaseRuntimeHome = vi.fn();
   const logInfo = vi.fn();
@@ -283,6 +284,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     tmuxEnsureServerHealthy,
     tmuxProbeSession,
     tmuxCaptureSessionHistory,
+    tmuxCaptureSessionScreen,
     tmuxKillSession,
     codexReleaseRuntimeHome,
     logInfo,
@@ -345,6 +347,7 @@ vi.mock('../../cli/TmuxDetector', () => ({
     ensureServerHealthy: sessionTestDoubles.tmuxEnsureServerHealthy,
     probeSession: sessionTestDoubles.tmuxProbeSession,
     captureSessionHistory: sessionTestDoubles.tmuxCaptureSessionHistory,
+    captureSessionScreen: sessionTestDoubles.tmuxCaptureSessionScreen,
     killSession: sessionTestDoubles.tmuxKillSession,
   },
 }));
@@ -531,6 +534,8 @@ describe('SessionManager', () => {
     sessionTestDoubles.tmuxProbeSession.mockResolvedValue('exists');
     sessionTestDoubles.tmuxCaptureSessionHistory.mockReset();
     sessionTestDoubles.tmuxCaptureSessionHistory.mockResolvedValue('');
+    sessionTestDoubles.tmuxCaptureSessionScreen.mockReset();
+    sessionTestDoubles.tmuxCaptureSessionScreen.mockResolvedValue('');
     sessionTestDoubles.tmuxKillSession.mockReset();
     sessionTestDoubles.tmuxKillSession.mockResolvedValue(undefined);
     sessionTestDoubles.codexReleaseRuntimeHome.mockReset();
@@ -652,6 +657,80 @@ describe('SessionManager', () => {
     });
 
     expect(sessionTestDoubles.transcriptArchiveReadPage).toHaveBeenCalledWith(request);
+  });
+
+  it('uses the current tmux screen instead of raw archive output for terminal replay', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-agent', kind: 'agent' });
+    const session = getManagedSessions(manager).get(opened.session.sessionId);
+    const screenSnapshot = '\x1b[38;5;45mCodex is working\x1b[0m\n';
+
+    if (!session) {
+      throw new Error('Expected a managed local agent session');
+    }
+    Reflect.set(session, 'hostSession', {
+      kind: 'tmux',
+      serverName: 'infilux',
+      sessionName: 'infilux-agent-1',
+    });
+    sessionTestDoubles.tmuxCaptureSessionScreen.mockResolvedValueOnce(screenSnapshot);
+
+    await expect(
+      manager.getTranscriptPage({
+        sessionId: opened.session.sessionId,
+        maxBytes: 512,
+        terminalReplay: true,
+      })
+    ).resolves.toEqual({
+      text: screenSnapshot,
+      totalBytes: Buffer.byteLength(screenSnapshot),
+      health: 'complete',
+      initialParserState: 'text',
+    });
+
+    expect(sessionTestDoubles.tmuxCaptureSessionScreen).toHaveBeenCalledWith(
+      'infilux-agent-1',
+      'infilux'
+    );
+    expect(sessionTestDoubles.transcriptArchiveReadPage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the archive when the tmux screen cannot be captured', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo-agent', kind: 'agent' });
+    const session = getManagedSessions(manager).get(opened.session.sessionId);
+
+    if (!session) {
+      throw new Error('Expected a managed local agent session');
+    }
+    Reflect.set(session, 'hostSession', {
+      kind: 'tmux',
+      serverName: 'infilux',
+      sessionName: 'infilux-agent-1',
+    });
+    sessionTestDoubles.tmuxCaptureSessionScreen.mockResolvedValueOnce('');
+
+    await expect(
+      manager.getTranscriptPage({
+        sessionId: opened.session.sessionId,
+        maxBytes: 512,
+        terminalReplay: true,
+      })
+    ).resolves.toEqual({
+      text: 'archived latest output',
+      nextBeforeByteOffset: 512,
+      totalBytes: 1024,
+      health: 'complete',
+    });
+
+    expect(sessionTestDoubles.transcriptArchiveReadPage).toHaveBeenCalledWith({
+      sessionId: opened.session.sessionId,
+      beforeByteOffset: undefined,
+      maxBytes: 512,
+      terminalReplay: true,
+    });
   });
 
   it('reads a local agent transcript after its PTY has exited', async () => {
@@ -1341,6 +1420,8 @@ describe('SessionManager', () => {
       pid: 4101,
       isActive: false,
       isAlive: true,
+      cwd: '/repo',
+      kind: 'terminal',
     });
 
     const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
@@ -1370,6 +1451,8 @@ describe('SessionManager', () => {
         pid: null,
         isActive: true,
         isAlive: false,
+        cwd: 'C:/repo',
+        kind: 'agent',
       });
     } finally {
       platform.mockRestore();
@@ -1390,8 +1473,37 @@ describe('SessionManager', () => {
       pid: null,
       isActive: null,
       isAlive: null,
+      cwd: '/workspace',
+      kind: 'terminal',
     });
     await expect(manager.getSessionRuntimeInfo('missing-session')).resolves.toBeNull();
+  });
+
+  it('reports the persistent agent binding with local runtime info', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, {
+      cwd: '/repo/worktrees/mrrss',
+      kind: 'agent',
+      metadata: {
+        uiSessionId: 'mrrss-session',
+      },
+    });
+    const pty = sessionTestDoubles.ptyInstances[0];
+    pty.getProcessInfo.mockResolvedValueOnce({
+      pid: 4101,
+      isActive: true,
+      isAlive: true,
+    });
+
+    await expect(manager.getSessionRuntimeInfo(opened.session.sessionId)).resolves.toEqual({
+      pid: 4101,
+      isActive: true,
+      isAlive: true,
+      cwd: '/repo/worktrees/mrrss',
+      kind: 'agent',
+      persistentUiSessionId: 'mrrss-session',
+    });
   });
 
   it('returns a session descriptor for active sessions and null for missing or removed sessions', async () => {

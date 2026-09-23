@@ -195,8 +195,6 @@ describe('shell utilities', () => {
         rows: 24,
         env: expect.objectContaining({
           PATH: '/enhanced/path',
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor',
         }),
       })
     );
@@ -207,6 +205,30 @@ describe('shell utilities', () => {
 
     await expect(promise).resolves.toBe('hello world');
     expect(shellUtilTestDoubles.killProcessTree).not.toHaveBeenCalled();
+  });
+
+  it('marks background PTY commands as non-interactive shell probes', async () => {
+    const shellUtils = await import('../shell');
+
+    const promise = shellUtils.execInPty('command -v git');
+    const pty = shellUtilTestDoubles.ptys[0];
+    if (!pty) {
+      throw new Error('Missing spawned PTY');
+    }
+
+    const spawnOptions = shellUtilTestDoubles.spawn.mock.calls[0]?.[2];
+    expect(spawnOptions).toEqual(
+      expect.objectContaining({
+        env: expect.objectContaining({
+          INFILUX_SHELL_PROBE: '1',
+          TERM: 'dumb',
+        }),
+      })
+    );
+    expect(spawnOptions?.env).not.toHaveProperty('COLORTERM');
+
+    pty.emitExit({ exitCode: 0 });
+    await expect(promise).resolves.toBe('');
   });
 
   it('rejects on command failure and supports the WSL shell command wrapper', async () => {

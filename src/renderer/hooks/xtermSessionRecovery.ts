@@ -20,6 +20,13 @@ interface ResolveReusableBackendSessionIdParams {
   getRemoteStatus: (connectionId: string) => Promise<Pick<RemoteConnectionStatus, 'connected'>>;
   getLocalRuntimeInfo?: (sessionId: string) => Promise<SessionRuntimeInfo | null>;
   allowUntrackedLocalAttach?: boolean;
+  sessionBinding?: XtermReusableSessionBinding;
+}
+
+export interface XtermReusableSessionBinding {
+  cwd: string;
+  kind: SessionKind;
+  persistentUiSessionId?: string;
 }
 
 export interface XtermSessionBindingSnapshot {
@@ -210,6 +217,52 @@ function getErrorMessage(error: unknown): string {
   return typeof error === 'string' ? error : '';
 }
 
+function normalizeLocalSessionCwd(cwd: string): string {
+  return cwd.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+}
+
+function matchesReusableSessionCwd(runtimeCwd: string, sessionCwd: string): boolean {
+  const normalizedRuntimeCwd = normalizeLocalSessionCwd(runtimeCwd);
+  const normalizedSessionCwd = normalizeLocalSessionCwd(sessionCwd);
+  if (normalizedRuntimeCwd === normalizedSessionCwd) {
+    return true;
+  }
+
+  if (!isRemoteVirtualPath(sessionCwd)) {
+    return false;
+  }
+
+  try {
+    return (
+      normalizedRuntimeCwd ===
+      normalizeLocalSessionCwd(parseRemoteVirtualPath(sessionCwd).remotePath)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function matchesReusableSessionBinding(
+  runtimeInfo: SessionRuntimeInfo,
+  sessionBinding: XtermReusableSessionBinding | undefined
+): boolean {
+  if (!sessionBinding) {
+    return true;
+  }
+
+  if (
+    !matchesReusableSessionCwd(runtimeInfo.cwd, sessionBinding.cwd) ||
+    runtimeInfo.kind !== sessionBinding.kind
+  ) {
+    return false;
+  }
+
+  return (
+    !sessionBinding.persistentUiSessionId ||
+    runtimeInfo.persistentUiSessionId === sessionBinding.persistentUiSessionId
+  );
+}
+
 export function shouldRetrySessionCreateWithoutHost({
   error,
   kind,
@@ -247,13 +300,14 @@ export async function resolveReusableBackendSessionId({
   getRemoteStatus,
   getLocalRuntimeInfo,
   allowUntrackedLocalAttach = false,
+  sessionBinding,
 }: ResolveReusableBackendSessionIdParams): Promise<string | undefined> {
   if (!backendSessionId) {
     return undefined;
   }
 
   if (!cwd || !isRemoteVirtualPath(cwd)) {
-    if (allowUntrackedLocalAttach) {
+    if (allowUntrackedLocalAttach && !sessionBinding) {
       return backendSessionId;
     }
 
@@ -263,13 +317,26 @@ export async function resolveReusableBackendSessionId({
 
     try {
       const runtimeInfo = await getLocalRuntimeInfo(backendSessionId);
-      return runtimeInfo?.isAlive === true ? backendSessionId : undefined;
+      if (runtimeInfo === null && allowUntrackedLocalAttach) {
+        // Windows supervisor sessions can outlive the in-memory session registry after restart.
+        return backendSessionId;
+      }
+
+      return runtimeInfo?.isAlive === true &&
+        matchesReusableSessionBinding(runtimeInfo, sessionBinding)
+        ? backendSessionId
+        : undefined;
     } catch {
       return undefined;
     }
   }
 
   try {
+    const runtimeInfo = getLocalRuntimeInfo ? await getLocalRuntimeInfo(backendSessionId) : null;
+    if (runtimeInfo && !matchesReusableSessionBinding(runtimeInfo, sessionBinding)) {
+      return undefined;
+    }
+
     const { connectionId } = parseRemoteVirtualPath(cwd);
     const status = await getRemoteStatus(connectionId);
     return status.connected ? backendSessionId : undefined;

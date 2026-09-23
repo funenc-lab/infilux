@@ -30,6 +30,14 @@ interface CreateAgentSessionRecoveryScenarioOptions {
   agentSessionDisplayMode?: 'canvas' | 'tab';
   continuousOutput?: boolean;
   includeForeignWorkspace?: boolean;
+  includeMainWorktreeSession?: boolean;
+}
+
+export interface AgentSessionRecoveryWorktreeSession {
+  displayName: string;
+  panelId: string;
+  tmuxGreeting: string;
+  uiSessionId: string;
 }
 
 export interface AgentSessionRecoveryScenario {
@@ -38,6 +46,7 @@ export interface AgentSessionRecoveryScenario {
   repoName: string;
   worktreePath: string;
   worktreeBranch: string;
+  mainWorktreeSession: AgentSessionRecoveryWorktreeSession | null;
   foreignRepoPath: string;
   foreignWorktreePath: string;
   mainWorktreeBranch: string;
@@ -90,6 +99,11 @@ function buildTmuxSessionName(uiSessionId: string): string {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildTmuxRecoveryScriptPath(rootDir: string, sessionName: string): string {
+  const safeSessionName = sessionName.replace(/[^A-Za-z0-9_.-]/g, '_');
+  return join(rootDir, `tmux-recovery-session-${safeSessionName}.sh`);
 }
 
 function runCommand(command: string, args: string[], options: CommandOptions = {}): string {
@@ -156,7 +170,7 @@ async function createTmuxRecoverySession(options: {
   greeting: string;
   continuousOutputStartPath: string | null;
 }): Promise<void> {
-  const scriptPath = join(options.rootDir, 'tmux-recovery-session.sh');
+  const scriptPath = buildTmuxRecoveryScriptPath(options.rootDir, options.sessionName);
   const scriptContent = [
     '#!/bin/sh',
     `cd ${shellQuote(options.worktreePath)} || exit 1`,
@@ -221,6 +235,7 @@ export async function createAgentSessionRecoveryScenario(
   const agentSessionDisplayMode = options.agentSessionDisplayMode ?? 'tab';
   const continuousOutput = options.continuousOutput ?? false;
   const includeForeignWorkspace = options.includeForeignWorkspace ?? false;
+  const includeMainWorktreeSession = options.includeMainWorktreeSession ?? false;
   const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
   const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-recovery-'));
   const homeDir = join(rootDir, 'home');
@@ -232,13 +247,17 @@ export async function createAgentSessionRecoveryScenario(
   const repoName = 'repo-main';
   const worktreeBranch = 'feature-recovery';
   const uiSessionId = `ui-recovery-${randomUUID()}`;
+  const mainUiSessionId = `ui-main-${randomUUID()}`;
   const foreignUiSessionId = `ui-foreign-${randomUUID()}`;
   const profileName = sanitizeRuntimeProfileName(`e2e-${uiSessionId}`) || 'e2e';
   const tmuxSessionName = buildTmuxSessionName(uiSessionId);
+  const mainTmuxSessionName = buildTmuxSessionName(mainUiSessionId);
   const foreignTmuxSessionName = buildTmuxSessionName(foreignUiSessionId);
   const sessionDisplayName = 'Recovered Session';
+  const mainSessionDisplayName = 'Main Recovered Session';
   const foreignSessionDisplayName = 'Foreign Recovered Session';
   const tmuxGreeting = 'Recovered from tmux';
+  const mainTmuxGreeting = 'Recovered main worktree from tmux';
   const continuousOutputStartPath = continuousOutput
     ? join(rootDir, 'start-continuous-output')
     : null;
@@ -260,6 +279,16 @@ export async function createAgentSessionRecoveryScenario(
     greeting: tmuxGreeting,
     continuousOutputStartPath,
   });
+  if (includeMainWorktreeSession) {
+    await createTmuxRecoverySession({
+      homeDir,
+      rootDir,
+      worktreePath: repoPath,
+      sessionName: mainTmuxSessionName,
+      greeting: mainTmuxGreeting,
+      continuousOutputStartPath: null,
+    });
+  }
   if (includeForeignWorkspace) {
     await createGitRepositoryFixture(foreignRepoPath, foreignWorktreePath);
     await createTmuxRecoverySession({
@@ -344,15 +373,35 @@ export async function createAgentSessionRecoveryScenario(
     updatedAt: now,
     lastKnownState: 'live',
   };
+  const mainPersistentRecord = {
+    uiSessionId: mainUiSessionId,
+    backendSessionId: `stale-backend-${mainUiSessionId}`,
+    agentId: 'shell',
+    agentCommand: 'sh',
+    environment: 'native',
+    repoPath,
+    cwd: repoPath,
+    displayName: mainSessionDisplayName,
+    activated: true,
+    initialized: true,
+    hostKind: 'tmux',
+    hostSessionKey: mainTmuxSessionName,
+    recoveryPolicy: 'auto',
+    createdAt: now - 1000,
+    updatedAt: now,
+    lastKnownState: 'live',
+  };
 
   const sessionStateDocument = {
     version: 2,
     updatedAt: now,
     settingsData: settingsDocument,
     localStorage: localStorageSnapshot,
-    persistentAgentSessions: includeForeignWorkspace
-      ? [persistentRecord, foreignPersistentRecord]
-      : [persistentRecord],
+    persistentAgentSessions: [
+      ...(includeMainWorktreeSession ? [mainPersistentRecord] : []),
+      persistentRecord,
+      ...(includeForeignWorkspace ? [foreignPersistentRecord] : []),
+    ],
     todos: {},
   };
 
@@ -365,6 +414,14 @@ export async function createAgentSessionRecoveryScenario(
     repoName,
     worktreePath,
     worktreeBranch,
+    mainWorktreeSession: includeMainWorktreeSession
+      ? {
+          uiSessionId: mainUiSessionId,
+          displayName: mainSessionDisplayName,
+          panelId: `agent-session-panel-${mainUiSessionId}`,
+          tmuxGreeting: mainTmuxGreeting,
+        }
+      : null,
     foreignRepoPath,
     foreignWorktreePath,
     mainWorktreeBranch: 'main',
@@ -385,6 +442,9 @@ export async function createAgentSessionRecoveryScenario(
     profileName,
     cleanup: async () => {
       ensureTmuxSessionMissing(homeDir, tmuxSessionName);
+      if (includeMainWorktreeSession) {
+        ensureTmuxSessionMissing(homeDir, mainTmuxSessionName);
+      }
       if (includeForeignWorkspace) {
         ensureTmuxSessionMissing(homeDir, foreignTmuxSessionName);
       }

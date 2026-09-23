@@ -721,6 +721,27 @@ describe('PtyManager utilities', () => {
     expect(spawnEnv).not.toHaveProperty('COLORTERM');
   });
 
+  it('executes agent zsh command scripts when the command flag is missing', async () => {
+    const { PtyManager } = await import('../PtyManager');
+    const manager = new PtyManager();
+
+    manager.create(
+      {
+        cwd: '/repo/agent',
+        kind: 'agent',
+        shell: '/bin/zsh',
+        args: ['-l', 'tmux attach-session -t infilux-session'],
+      },
+      vi.fn()
+    );
+
+    expect(ptyManagerTestDoubles.spawn).toHaveBeenCalledWith(
+      '/bin/zsh',
+      ['-l', '-c', 'tmux attach-session -t infilux-session'],
+      expect.any(Object)
+    );
+  });
+
   it('clears inherited no-color environment flags for agent sessions', async () => {
     process.env.NO_COLOR = '1';
     process.env.COLOR = '0';

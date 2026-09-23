@@ -1,4 +1,5 @@
 import type { SessionKind } from '@shared/types';
+import { getAgentInputBaseId } from '@shared/utils/agentInputMode';
 
 export const DOM_DELTA_PIXEL = 0;
 export const DOM_DELTA_LINE = 1;
@@ -14,6 +15,7 @@ export type XtermBufferType = 'normal' | 'alternate';
 export type XtermMouseTrackingMode = 'none' | 'x10' | 'vt200' | 'drag' | 'any';
 export type XtermHostScrollMode = 'tmux';
 interface AgentWheelPolicyInput {
+  agentId?: string;
   kind: SessionKind;
   activeBufferType: XtermBufferType;
   mouseTrackingMode: XtermMouseTrackingMode;
@@ -34,6 +36,7 @@ type AgentWheelPolicyDecision =
       action: 'host-scroll';
       carryY: number;
       scrollLines: number;
+      fallbackToProgramScroll?: boolean;
     }
   | {
       action: 'program-scroll';
@@ -47,7 +50,7 @@ type AgentWheelPolicyDecision =
       scrollLines: number;
     };
 
-function resolveProgramScrollRepeat(scrollLines: number): number {
+export function resolveAgentProgramScrollRepeat(scrollLines: number): number {
   return Math.min(
     MAX_PROGRAM_SCROLL_PAGES_PER_EVENT,
     Math.max(1, Math.ceil(Math.abs(scrollLines) / PROGRAM_SCROLL_LINES_PER_PAGE))
@@ -113,11 +116,19 @@ function normalizeWheelDelta(
 }
 
 export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWheelPolicyDecision {
-  const { activeBufferType, hostScrollMode, kind, mouseTrackingMode, deltaY } = input;
+  const { activeBufferType, agentId, hostScrollMode, kind, mouseTrackingMode, deltaY } = input;
+  const isClaudeAlternateBuffer =
+    kind === 'agent' &&
+    activeBufferType === 'alternate' &&
+    typeof agentId === 'string' &&
+    getAgentInputBaseId(agentId) === 'claude';
 
   const shouldRemapWheel =
     kind === 'agent' &&
-    (hostScrollMode === 'tmux' || activeBufferType === 'normal' || mouseTrackingMode === 'none');
+    (hostScrollMode === 'tmux' ||
+      activeBufferType === 'normal' ||
+      mouseTrackingMode === 'none' ||
+      isClaudeAlternateBuffer);
 
   if (!shouldRemapWheel) {
     return {
@@ -157,6 +168,7 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
       action: 'host-scroll',
       carryY,
       scrollLines: steps,
+      ...(isClaudeAlternateBuffer ? { fallbackToProgramScroll: true } : {}),
     };
   }
 
@@ -165,7 +177,7 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
       action: 'program-scroll',
       carryY,
       sequence: steps < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
-      repeat: resolveProgramScrollRepeat(steps),
+      repeat: resolveAgentProgramScrollRepeat(steps),
     };
   }
 

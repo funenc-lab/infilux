@@ -637,4 +637,23 @@ describe('TmuxDetector', () => {
     await expect(tmuxDetector.captureSessionHistory('enso-ui-session-1')).resolves.toBe('');
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(1);
   });
+
+  it('captures only the visible active tmux pane screen for terminal restoration', async () => {
+    setPlatform('darwin');
+    tmuxDetectorTestDoubles.execInPty
+      .mockResolvedValueOnce('%1\t0\t0\n%0\t1\t0\n')
+      .mockResolvedValueOnce('CURRENT-SCREEN-LINE\n');
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+
+    await expect(tmuxDetector.captureSessionScreen('enso-ui-session-1')).resolves.toBe(
+      'CURRENT-SCREEN-LINE\n'
+    );
+
+    expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(
+      2,
+      `tmux -S '${testSocketPath}' capture-pane -p -e -J -t '%0'`,
+      { timeout: 5000 }
+    );
+  });
 });

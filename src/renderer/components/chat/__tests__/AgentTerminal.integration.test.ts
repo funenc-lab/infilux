@@ -636,6 +636,17 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('passes the Claude provider identity to the terminal wheel policy', async () => {
+    const mounted = await mountAgentTerminal({
+      agentId: 'claude-hapi',
+      agentCommand: 'claude',
+    });
+
+    expect(testState.useXtermOptions.at(-1)?.agentId).toBe('claude-hapi');
+
+    await mounted.unmount();
+  });
+
   it('renders a non-resumable missing-host session as a read-only recovery record', async () => {
     const mounted = await mountAgentTerminal({
       id: 'ui-session-1',
@@ -1281,6 +1292,7 @@ describe('AgentTerminal integration', () => {
     testState.settingsStore.agentIntegration.tmuxEnabled = true;
 
     const mounted = await mountAgentTerminal({
+      recovered: true,
       initialized: true,
       persistenceEnabled: true,
       hostSessionKey: 'infilux-ui-session-1',
@@ -1314,6 +1326,33 @@ describe('AgentTerminal integration', () => {
         shell: '/bin/zsh',
         args: ['-lc', 'codex resume provider-session-1'],
       },
+    });
+
+    await mounted.unmount();
+  });
+
+  it('does not attach an unconfirmed cached session to a persisted tmux host', async () => {
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+
+    const mounted = await mountAgentTerminal({
+      backendSessionId: undefined,
+      initialized: true,
+      persistenceEnabled: true,
+      hostSessionKey: 'infilux-ui-session-1',
+      recovered: false,
+    });
+
+    const lastUseXtermCall = testState.useXtermOptions.at(-1) as
+      | {
+          hostSession?: Record<string, unknown>;
+        }
+      | undefined;
+
+    expect(lastUseXtermCall?.hostSession).toEqual({
+      kind: 'tmux',
+      serverName: 'infilux',
+      sessionName: 'infilux-ui-session-1',
+      mode: 'create-if-missing',
     });
 
     await mounted.unmount();

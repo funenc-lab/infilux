@@ -321,6 +321,26 @@ class TmuxDetector {
   }
 
   async captureSessionHistory(sessionName: string, serverName?: string): Promise<string> {
+    return this.captureSessionPane(
+      sessionName,
+      serverName,
+      (paneId) => `capture-pane -p -e -J -S - -t ${shellQuote(paneId)}`
+    );
+  }
+
+  async captureSessionScreen(sessionName: string, serverName?: string): Promise<string> {
+    return this.captureSessionPane(
+      sessionName,
+      serverName,
+      (paneId) => `capture-pane -p -e -J -t ${shellQuote(paneId)}`
+    );
+  }
+
+  private async captureSessionPane(
+    sessionName: string,
+    serverName: string | undefined,
+    buildCaptureCommand: (paneId: string) => string
+  ): Promise<string> {
     if (isWindows || !sessionName) {
       return '';
     }
@@ -343,10 +363,7 @@ class TmuxDetector {
       }
 
       return await execInPty(
-        buildTmuxShellCommand(
-          resolvedServerName,
-          `capture-pane -p -e -J -S - -t ${shellQuote(pane.paneId)}`
-        ),
+        buildTmuxShellCommand(resolvedServerName, buildCaptureCommand(pane.paneId)),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
         }

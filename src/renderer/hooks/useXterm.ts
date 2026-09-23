@@ -75,7 +75,12 @@ import {
   type XtermViewportSyncController,
 } from './xtermViewportSyncController';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
-import { resolveAgentWheelPolicy } from './xtermWheelPolicy';
+import {
+  PAGE_DOWN_SEQUENCE,
+  PAGE_UP_SEQUENCE,
+  resolveAgentProgramScrollRepeat,
+  resolveAgentWheelPolicy,
+} from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
 
 interface InfiluxE2ETerminalWindow extends Window {
@@ -132,10 +137,12 @@ interface PendingHostScrollRequest {
   amount: number;
   cwd?: string;
   direction: 'up' | 'down';
+  fallbackToProgramScroll: boolean;
   serverName?: string;
   sessionEpoch: number;
   sessionName: string;
   terminal: Terminal;
+  write: (data: string) => void;
 }
 
 interface XtermCommandOptions {
@@ -189,6 +196,7 @@ export interface XtermSessionCreateFallbackOptions {
 }
 
 export interface UseXtermOptions {
+  agentId?: string;
   backendSessionId?: string;
   cwd?: string;
   command?: XtermCommandOptions;
@@ -353,6 +361,7 @@ function clearWebglTextureAtlas(addon: XtermRendererAddon | null): boolean {
 }
 
 export function useXterm({
+  agentId,
   backendSessionId,
   cwd,
   command,
@@ -1179,11 +1188,17 @@ export function useXterm({
       return;
     }
 
-    const fallbackToLocalScrollback = () => {
+    const fallbackFromHostScroll = () => {
       if (
         terminalRef.current !== request.terminal ||
         createRequestIdRef.current !== request.sessionEpoch
       ) {
+        return;
+      }
+
+      if (request.fallbackToProgramScroll) {
+        const sequence = request.direction === 'up' ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE;
+        request.write(sequence.repeat(resolveAgentProgramScrollRepeat(request.amount)));
         return;
       }
 
@@ -1199,10 +1214,10 @@ export function useXterm({
       })
       .then((result) => {
         if (!result.applied) {
-          fallbackToLocalScrollback();
+          fallbackFromHostScroll();
         }
       })
-      .catch(fallbackToLocalScrollback);
+      .catch(fallbackFromHostScroll);
   }, []);
 
   const scheduleHostScroll = useCallback(
@@ -1217,6 +1232,7 @@ export function useXterm({
         pending.cwd === request.cwd &&
         pending.direction === request.direction &&
         pending.serverName === request.serverName &&
+        pending.fallbackToProgramScroll === request.fallbackToProgramScroll &&
         pending.sessionEpoch === request.sessionEpoch &&
         pending.sessionName === request.sessionName &&
         pending.terminal === request.terminal
@@ -1311,6 +1327,7 @@ export function useXterm({
       }
 
       const decision = resolveAgentWheelPolicy({
+        agentId,
         kind,
         activeBufferType: terminal.buffer.active.type,
         mouseTrackingMode: terminal.modes.mouseTrackingMode,
@@ -1335,8 +1352,10 @@ export function useXterm({
             serverName: hostSession.serverName,
             direction: decision.scrollLines < 0 ? 'up' : 'down',
             amount: Math.abs(decision.scrollLines),
+            fallbackToProgramScroll: decision.fallbackToProgramScroll === true,
             terminal,
             sessionEpoch: createRequestIdRef.current,
+            write,
           });
         }
         event.preventDefault();
@@ -1364,7 +1383,7 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [cwd, hostSession, kind, scheduleHostScroll, write]
+    [cwd, hostSession, kind, scheduleHostScroll, write, agentId]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
@@ -2118,15 +2137,21 @@ export function useXterm({
         let session: SessionDescriptor | null = null;
         let replay: string | undefined;
         let reusedExistingSession = false;
+        const allowUntrackedLocalAttach =
+          kind === 'agent' && persistOnDisconnect && getRendererEnvironment().platform === 'win32';
         const reusableBackendSessionId = await resolveReusableBackendSessionId({
           backendSessionId,
           cwd: createOptions.cwd,
           getRemoteStatus: (connectionId) => window.electronAPI.remote.getStatus(connectionId),
           getLocalRuntimeInfo: (sessionId) => window.electronAPI.session.getRuntimeInfo(sessionId),
-          allowUntrackedLocalAttach:
-            kind === 'agent' &&
-            persistOnDisconnect &&
-            getRendererEnvironment().platform === 'win32',
+          allowUntrackedLocalAttach,
+          sessionBinding: {
+            cwd: baseCwd,
+            kind,
+            ...(typeof metadata?.uiSessionId === 'string' && metadata.uiSessionId.length > 0
+              ? { persistentUiSessionId: metadata.uiSessionId }
+              : {}),
+          },
         });
 
         if (reusableBackendSessionId) {

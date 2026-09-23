@@ -149,9 +149,22 @@ export interface ExecInPtyOptions {
   killOnTimeout?: boolean;
 }
 
+const SHELL_PROBE_ENVIRONMENT_FLAG = 'INFILUX_SHELL_PROBE';
+
+function getEnvForShellProbe(): Record<string, string> {
+  const env = getEnvForCommand();
+  delete env.COLORTERM;
+
+  return {
+    ...env,
+    [SHELL_PROBE_ENVIRONMENT_FLAG]: '1',
+    TERM: 'dumb',
+  };
+}
+
 /**
- * Execute command in PTY to load user's environment (PATH, nvm, mise, volta, etc.)
- * Uses the same mechanism as terminal sessions to ensure consistent behavior.
+ * Execute a background command in PTY to load the user's CLI environment.
+ * The child is marked as a probe so interactive shell integrations can skip initialization.
  *
  * @param command - The command to execute
  * @param options - Execution options
@@ -215,11 +228,7 @@ export async function execInPty(command: string, options: ExecInPtyOptions = {})
         cols: 80,
         rows: 24,
         cwd: process.env.HOME || process.env.USERPROFILE || '/',
-        env: {
-          ...getEnvForCommand(),
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor',
-        } as Record<string, string>,
+        env: getEnvForShellProbe(),
       });
 
       trackExecInPty(ptyProcess);

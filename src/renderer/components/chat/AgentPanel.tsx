@@ -50,7 +50,6 @@ import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/shallow';
 import { TEMP_REPO_ID } from '@/App/constants';
 import { normalizePath, pathsEqual } from '@/App/storage';
-import { ControlStateCard } from '@/components/layout/ControlStateCard';
 import { ResizeHandle } from '@/components/terminal/ResizeHandle';
 import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
@@ -573,9 +572,11 @@ const GroupBottomBar = memo(function GroupBottomBar({
 const CanvasSessionContentOutlet = memo(function CanvasSessionContentOutlet({
   className,
   hostElement,
+  onHostAttached,
 }: {
   className?: string;
   hostElement: HTMLDivElement | null;
+  onHostAttached?: (hostElement: HTMLDivElement) => void;
 }) {
   const outletRef = useRef<HTMLDivElement>(null);
 
@@ -588,13 +589,14 @@ const CanvasSessionContentOutlet = memo(function CanvasSessionContentOutlet({
     if (hostElement.parentElement !== outletElement) {
       outletElement.replaceChildren(hostElement);
     }
+    onHostAttached?.(hostElement);
 
     return () => {
       if (hostElement.parentElement === outletElement) {
         hostElement.remove();
       }
     };
-  }, [hostElement]);
+  }, [hostElement, onHostAttached]);
 
   return <div ref={outletRef} className={className} />;
 });
@@ -671,6 +673,7 @@ export function AgentPanel({
   const canvasPanStateRef = useRef<CanvasPanState>(createInitialCanvasPanState());
   const canvasWheelZoomStateRef = useRef<CanvasWheelZoomState>(createInitialCanvasWheelZoomState());
   const canvasSessionContentHostByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pendingCanvasFloatingEnhancedInputFocusSessionIdRef = useRef<string | null>(null);
   const canvasWorktreeGroupElementByKeyRef = useRef<Map<string, HTMLElement>>(new Map());
   const canvasViewportPositionByWorktreeRef = useRef<Record<string, CanvasViewportPosition>>({});
   const canvasViewportSnapshotByWorktreeRef = useRef<Record<string, CanvasViewportSnapshot>>({});
@@ -1278,6 +1281,19 @@ export function AgentPanel({
     return nextHost;
   }, []);
 
+  const handleCanvasFloatingContentHostAttached = useCallback((hostElement: HTMLDivElement) => {
+    const sessionId = hostElement.dataset.agentCanvasContentHost;
+    if (pendingCanvasFloatingEnhancedInputFocusSessionIdRef.current !== sessionId) {
+      return;
+    }
+
+    pendingCanvasFloatingEnhancedInputFocusSessionIdRef.current = null;
+    const enhancedInput = Array.from(
+      hostElement.querySelectorAll<HTMLTextAreaElement>('textarea[data-enhanced-input-session-id]')
+    ).find((element) => element.dataset.enhancedInputSessionId === sessionId);
+    enhancedInput?.focus();
+  }, []);
+
   useEffect(() => {
     if (quickTerminalOpen && isActive) {
       pauseQuickTerminalFocusLock();
@@ -1422,9 +1438,6 @@ export function AgentPanel({
 
     return `${normalizePath(repoPath)}::${normalizePath(cwd)}`;
   }, [cwd, isCurrentWorktreePanel, isWorkspaceCanvasDisplayMode, repoPath]);
-  const [completedWorktreeSessionRecoveryKey, setCompletedWorktreeSessionRecoveryKey] = useState<
-    string | null
-  >(null);
   const startedWorktreeSessionRecoveryKeyRef = useRef<string | null>(null);
   const getWorktreeSessionRecoverySnapshot = useCallback(() => {
     if (!worktreeSessionRecoveryKey) {
@@ -1438,10 +1451,6 @@ export function AgentPanel({
     getWorktreeSessionRecoverySnapshot,
     getWorktreeSessionRecoverySnapshot
   );
-  const isWorktreeSessionRecoveryPending =
-    worktreeSessionRecoveryKey !== null &&
-    completedWorktreeSessionRecoveryKey !== worktreeSessionRecoveryKey &&
-    worktreeSessionRecoveryStatus !== 'settled';
   const subagentScopeSessions = useMemo(
     () => (isWorkspaceCanvasDisplayMode ? allSessions : currentWorktreeSessions),
     [allSessions, currentWorktreeSessions, isWorkspaceCanvasDisplayMode]
@@ -2073,9 +2082,6 @@ export function AgentPanel({
     }
 
     if (worktreeSessionRecoveryStatus === 'settled') {
-      setCompletedWorktreeSessionRecoveryKey((currentKey) =>
-        currentKey === worktreeSessionRecoveryKey ? currentKey : worktreeSessionRecoveryKey
-      );
       return;
     }
 
@@ -2090,13 +2096,9 @@ export function AgentPanel({
       restoreWorktreeSessions: window.electronAPI.agentSession.restoreWorktreeSessions,
       upsertRecoveredSession,
       updateGroupState,
-    })
-      .catch((error) => {
-        console.error('[AgentPanel] Failed to restore worktree sessions', error);
-      })
-      .finally(() => {
-        setCompletedWorktreeSessionRecoveryKey(worktreeSessionRecoveryKey);
-      });
+    }).catch((error) => {
+      console.error('[AgentPanel] Failed to restore worktree sessions', error);
+    });
   }, [
     cwd,
     repoPath,
@@ -3438,6 +3440,10 @@ export function AgentPanel({
   );
   const handleOpenCanvasFloatingSession = useCallback(
     (sessionId: string, groupId?: string) => {
+      const shouldRestoreEnhancedInputFocus = getEnhancedInputState(sessionId).open;
+      pendingCanvasFloatingEnhancedInputFocusSessionIdRef.current = shouldRestoreEnhancedInputFocus
+        ? sessionId
+        : null;
       setUserRequestedCanvasMountSessionIds((current) => {
         if (current.has(sessionId)) {
           return current;
@@ -3449,7 +3455,7 @@ export function AgentPanel({
       setCanvasFloatingSessionIdForCurrentWorktree(sessionId);
 
       requestAnimationFrame(() => {
-        if (!getEnhancedInputState(sessionId).open) {
+        if (!shouldRestoreEnhancedInputFocus) {
           focusTerminal(sessionId);
         }
       });
@@ -4722,19 +4728,12 @@ export function AgentPanel({
     group.sessionIds.some((sessionId) => currentWorktreeSessionIdSet.has(sessionId))
   );
 
-  // Check if current worktree has no sessions (for empty state overlay)
+  // Session recovery is opportunistic and must not block starting a fresh session.
   const showEmptyState = isWorkspaceCanvasDisplayMode
     ? canvasSessionGroups.length === 0
     : !shouldSuppressWorkspaceCanvasPanel &&
-      !isWorktreeSessionRecoveryPending &&
       !hasCurrentWorktreeSessionGroups &&
       currentWorktreeSessions.length === 0;
-  const showWorktreeSessionRecoveryState =
-    !isWorkspaceCanvasDisplayMode &&
-    !shouldSuppressWorkspaceCanvasPanel &&
-    isWorktreeSessionRecoveryPending &&
-    !hasCurrentWorktreeSessionGroups &&
-    currentWorktreeSessions.length === 0;
 
   // Get current worktree's group positions for terminal placement
   const currentGroupPositions = resolveAgentGroupPositions(currentGroupState);
@@ -5319,6 +5318,7 @@ export function AgentPanel({
             <CanvasSessionContentOutlet
               className="min-h-0 w-full flex-1 overflow-hidden"
               hostElement={sessionContentHost}
+              onHostAttached={handleCanvasFloatingContentHostAttached}
             />
           </div>,
           document.body
@@ -5577,29 +5577,6 @@ export function AgentPanel({
       ) : null}
       {/* Empty state overlay - shown when current worktree has no sessions */}
       {/* IMPORTANT: Don't use early return here - terminals must stay mounted to prevent PTY destruction */}
-      {showWorktreeSessionRecoveryState ? (
-        <div
-          aria-busy="true"
-          role="status"
-          data-agent-panel-recovery-state="true"
-          className={cn('absolute inset-0 z-20', !backgroundImageEnabled && 'bg-background')}
-        >
-          <ControlStateCard
-            icon={<Sparkles className="h-5 w-5" />}
-            eyebrow={t('Agent Console')}
-            title={t('Restoring agent sessions')}
-            description={t('Loading persisted sessions for the selected worktree.')}
-            metaLabel={t('Status')}
-            metaValue={t('Recovery in progress')}
-            footer={
-              <div className="flex items-center gap-3 text-[0.76em] text-muted-foreground/78">
-                <ActivityIndicator state="running" size="md" />
-                <span>{t('Preparing terminal views')}</span>
-              </div>
-            }
-          />
-        </div>
-      ) : null}
       {showEmptyState ? (
         <AgentPanelEmptyState
           bgImageEnabled={backgroundImageEnabled}

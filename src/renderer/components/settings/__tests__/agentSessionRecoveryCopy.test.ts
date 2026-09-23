@@ -9,15 +9,20 @@ const integrationSettingsSource = readFileSync(
   'utf8'
 );
 const agentSettingsSource = readFileSync(resolve(currentDir, '../AgentSettings.tsx'), 'utf8');
+const localSessionRecoverySettingsSource = readFileSync(
+  resolve(currentDir, '../LocalSessionRecoverySettings.tsx'),
+  'utf8'
+);
 
 describe('agent session recovery copy', () => {
   it('describes tmux recovery as a local agent session capability', () => {
-    expect(integrationSettingsSource).toContain(
-      "t('Wrap local agent sessions in tmux for session persistence and recovery')"
+    expect(localSessionRecoverySettingsSource).toContain(
+      "t('Keep local agent sessions recoverable after restarting the app.')"
     );
-    expect(integrationSettingsSource).not.toContain(
+    expect(localSessionRecoverySettingsSource).not.toContain(
       "t('Wrap Claude agent in tmux for session persistence and recovery')"
     );
+    expect(integrationSettingsSource).not.toContain('tmuxEnabled');
   });
 
   it('does not claim that only Claude supports session persistence', () => {

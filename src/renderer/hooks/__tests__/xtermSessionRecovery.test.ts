@@ -49,6 +49,34 @@ describe('resolveReusableBackendSessionId', () => {
     expect(getLocalRuntimeInfo).toHaveBeenCalledWith('backend-1');
   });
 
+  it('rejects an alive backend session id when it belongs to another worktree', async () => {
+    const getRemoteStatus = vi.fn();
+    const getLocalRuntimeInfo = vi.fn().mockResolvedValue({
+      pid: 1234,
+      isActive: true,
+      isAlive: true,
+      cwd: '/Users/tanzv/Development/Project/agentspace',
+      kind: 'agent',
+      persistentUiSessionId: 'agentspace-session',
+    });
+
+    await expect(
+      resolveReusableBackendSessionId({
+        backendSessionId: 'pty-8',
+        cwd: '/Users/tanzv/Development/Git/MrRSS',
+        getRemoteStatus,
+        getLocalRuntimeInfo,
+        sessionBinding: {
+          cwd: '/Users/tanzv/Development/Git/MrRSS',
+          kind: 'agent',
+          persistentUiSessionId: 'mrrss-session',
+        },
+      })
+    ).resolves.toBeUndefined();
+
+    expect(getLocalRuntimeInfo).toHaveBeenCalledWith('pty-8');
+  });
+
   it('drops the existing backend session id for local terminals when the process is gone', async () => {
     const getRemoteStatus = vi.fn();
     const getLocalRuntimeInfo = vi.fn().mockResolvedValue({
@@ -88,6 +116,29 @@ describe('resolveReusableBackendSessionId', () => {
     expect(getLocalRuntimeInfo).not.toHaveBeenCalled();
   });
 
+  it('keeps a genuinely untracked local session when its binding is available', async () => {
+    const getRemoteStatus = vi.fn();
+    const getLocalRuntimeInfo = vi.fn().mockResolvedValue(null);
+
+    await expect(
+      resolveReusableBackendSessionId({
+        backendSessionId: 'supervisor-session-2',
+        cwd: 'C:/repo',
+        getRemoteStatus,
+        getLocalRuntimeInfo,
+        allowUntrackedLocalAttach: true,
+        sessionBinding: {
+          cwd: 'C:/repo',
+          kind: 'agent',
+          persistentUiSessionId: 'repo-session',
+        },
+      })
+    ).resolves.toBe('supervisor-session-2');
+
+    expect(getRemoteStatus).not.toHaveBeenCalled();
+    expect(getLocalRuntimeInfo).toHaveBeenCalledWith('supervisor-session-2');
+  });
+
   it('keeps the existing backend session id when cwd is missing', async () => {
     const getRemoteStatus = vi.fn();
 
@@ -112,6 +163,65 @@ describe('resolveReusableBackendSessionId', () => {
       })
     ).resolves.toBe('backend-2');
 
+    expect(getRemoteStatus).toHaveBeenCalledWith('conn-1');
+  });
+
+  it('rejects a remote backend session id from another worktree when its binding is known', async () => {
+    const getRemoteStatus = vi.fn().mockResolvedValue({ connected: true });
+    const getLocalRuntimeInfo = vi.fn().mockResolvedValue({
+      pid: null,
+      isActive: null,
+      isAlive: null,
+      cwd: '/srv/repo/worktrees/other',
+      kind: 'agent',
+      persistentUiSessionId: 'other-session',
+    });
+
+    await expect(
+      resolveReusableBackendSessionId({
+        backendSessionId: 'remote-session-8',
+        cwd: toRemoteVirtualPath('conn-1', '/srv/repo/worktrees/current'),
+        getRemoteStatus,
+        getLocalRuntimeInfo,
+        sessionBinding: {
+          cwd: toRemoteVirtualPath('conn-1', '/srv/repo/worktrees/current'),
+          kind: 'agent',
+          persistentUiSessionId: 'current-session',
+        },
+      })
+    ).resolves.toBeUndefined();
+
+    expect(getLocalRuntimeInfo).toHaveBeenCalledWith('remote-session-8');
+    expect(getRemoteStatus).not.toHaveBeenCalled();
+  });
+
+  it('keeps a remote backend session id when its known binding matches the current worktree', async () => {
+    const getRemoteStatus = vi.fn().mockResolvedValue({ connected: true });
+    const getLocalRuntimeInfo = vi.fn().mockResolvedValue({
+      pid: null,
+      isActive: null,
+      isAlive: null,
+      cwd: '/srv/repo/worktrees/current',
+      kind: 'agent',
+      persistentUiSessionId: 'current-session',
+    });
+    const cwd = toRemoteVirtualPath('conn-1', '/srv/repo/worktrees/current');
+
+    await expect(
+      resolveReusableBackendSessionId({
+        backendSessionId: 'remote-session-current',
+        cwd,
+        getRemoteStatus,
+        getLocalRuntimeInfo,
+        sessionBinding: {
+          cwd,
+          kind: 'agent',
+          persistentUiSessionId: 'current-session',
+        },
+      })
+    ).resolves.toBe('remote-session-current');
+
+    expect(getLocalRuntimeInfo).toHaveBeenCalledWith('remote-session-current');
     expect(getRemoteStatus).toHaveBeenCalledWith('conn-1');
   });
 

@@ -131,6 +131,15 @@ function buildInteractiveShellExecArgs(shellPath: string): string[] | null {
   return null;
 }
 
+function ensureLocalUnixShellCommandArgs(shellPath: string, shellExecArgs: string[]): string[] {
+  if (buildInteractiveShellExecArgs(shellPath) === null) {
+    return shellExecArgs;
+  }
+
+  const hasCommandFlag = shellExecArgs.some((arg) => arg === '-c' || /^-[^-]*c/.test(arg));
+  return hasCommandFlag ? shellExecArgs : [...shellExecArgs, '-c'];
+}
+
 function buildLocalUnixFallbackProbeCommands(params: {
   agentCommand: string;
   effectiveCommand: string;
@@ -177,10 +186,11 @@ function wrapWithLocalUnixFallback(params: {
   probeCommands: string[];
 }): AgentLaunchCommand {
   const interactiveExecArgs = buildInteractiveShellExecArgs(params.shellPath);
+  const shellExecArgs = ensureLocalUnixShellCommandArgs(params.shellPath, params.shellExecArgs);
   if (interactiveExecArgs === null || params.probeCommands.length === 0) {
     return {
       shell: params.shellPath,
-      args: [...params.shellExecArgs, params.finalCommand],
+      args: [...shellExecArgs, params.finalCommand],
     };
   }
 
@@ -200,7 +210,7 @@ function wrapWithLocalUnixFallback(params: {
 
   return {
     shell: params.shellPath,
-    args: [...params.shellExecArgs, bootstrapCommand],
+    args: [...shellExecArgs, bootstrapCommand],
   };
 }
 
@@ -525,7 +535,10 @@ export function buildAgentLaunchPlan({
       },
       fallbackCommand: {
         shell: resolvedShell.shell,
-        args: [...resolvedShell.execArgs, finalCommand],
+        args: [
+          ...ensureLocalUnixShellCommandArgs(resolvedShell.shell, resolvedShell.execArgs),
+          finalCommand,
+        ],
       },
       env: envVars,
       initialCommand: undefined,

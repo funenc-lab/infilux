@@ -215,6 +215,60 @@ describe.sequential('electron agent session recovery', () => {
     }
   });
 
+  it('renders the canvas terminal for the currently selected same-repository worktree', async () => {
+    const scenario = await createAgentSessionRecoveryScenario({
+      agentSessionDisplayMode: 'canvas',
+      includeMainWorktreeSession: true,
+    });
+    cleanupTasks.push(scenario.cleanup);
+
+    const firstLaunch = await launchInfiluxForScenario(scenario);
+    try {
+      await waitForRepositoryAndWorktree(firstLaunch.page, scenario);
+    } finally {
+      await quitElectronApplication(firstLaunch.app);
+    }
+
+    const secondLaunch = await launchInfiluxForScenario(scenario);
+
+    try {
+      if (!scenario.mainWorktreeSession) {
+        throw new Error('Main worktree recovery fixture is unavailable');
+      }
+
+      await waitForRepositoryAndWorktree(secondLaunch.page, scenario);
+      await assertVisibleCanvasTerminal(
+        secondLaunch.page,
+        scenario.mainWorktreeSession.panelId,
+        scenario.mainWorktreeSession.tmuxGreeting
+      );
+
+      await installSessionLifecycleProbe(secondLaunch.page);
+      await selectRecoveryWorktree(secondLaunch.page, scenario);
+      try {
+        await assertVisibleCanvasTerminal(
+          secondLaunch.page,
+          scenario.sessionPanelId,
+          scenario.tmuxGreeting
+        );
+      } catch (error) {
+        throw new Error(
+          [
+            error instanceof Error ? error.message : String(error),
+            'Session lifecycle:',
+            JSON.stringify(await readSessionLifecycleProbe(secondLaunch.page), null, 2),
+            'Canvas terminal diagnostics:',
+            JSON.stringify(await readCanvasTerminalDiagnostics(secondLaunch.page), null, 2),
+            'Runtime session diagnostics:',
+            JSON.stringify(await readRuntimeSessionDiagnostics(secondLaunch.page), null, 2),
+          ].join('\n\n')
+        );
+      }
+    } finally {
+      await quitElectronApplication(secondLaunch.app);
+    }
+  });
+
   it('keeps a recovered canvas terminal mounted when returning to its worktree', async () => {
     const scenario = await createAgentSessionRecoveryScenario({
       agentSessionDisplayMode: 'canvas',
@@ -321,6 +375,185 @@ async function selectWorktreeByBranch(
   await revealWorktreeSidebarForInteraction(worktreeButton);
   console.info(`[e2e] clicking worktree row: ${branch}`);
   await worktreeButton.click();
+}
+
+async function assertVisibleCanvasTerminal(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page'],
+  expectedPanelId: string,
+  expectedGreeting: string
+): Promise<void> {
+  const terminal = page.locator(`#${expectedPanelId} .xterm`).first();
+  await terminal.waitFor({ state: 'visible', timeout: 30000 });
+
+  await expect
+    .poll(async () => await readVisibleCanvasTerminalPanelIds(page), { timeout: 30000 })
+    .toEqual([expectedPanelId]);
+  const viewport = terminal.locator('.xterm-viewport').first();
+  const rows = terminal.locator('.xterm-rows').first();
+  await expect
+    .poll(
+      async () => {
+        await viewport.evaluate((element) => {
+          element.scrollTop = element.scrollHeight;
+        });
+        return await rows.innerText();
+      },
+      { timeout: 30000 }
+    )
+    .toContain(expectedGreeting);
+}
+
+async function readVisibleCanvasTerminalPanelIds(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<string[]> {
+  return await page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('[id^="agent-session-panel-"]'))
+      .filter((panel) => {
+        const terminal = panel.querySelector<HTMLElement>('.xterm');
+        const panelStyle = getComputedStyle(panel);
+        const terminalStyle = terminal ? getComputedStyle(terminal) : null;
+        return Boolean(
+          terminal &&
+            panelStyle.display !== 'none' &&
+            panelStyle.visibility !== 'hidden' &&
+            terminalStyle?.display !== 'none' &&
+            terminalStyle.visibility !== 'hidden' &&
+            panel.offsetWidth > 0 &&
+            panel.offsetHeight > 0 &&
+            terminal.offsetWidth > 0 &&
+            terminal.offsetHeight > 0
+        );
+      })
+      .map((panel) => panel.id)
+      .sort()
+  );
+}
+
+async function installSessionLifecycleProbe(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<void> {
+  await page.evaluate(() => {
+    type SessionLifecycleProbe = {
+      attaches: Array<{ cwd?: string; sessionId: string }>;
+      creates: Array<{
+        cwd?: string;
+        hostSessionName?: string;
+        resultCwd?: string;
+        resultSessionId?: string;
+        uiSessionId?: string;
+      }>;
+      runtimeLookups: Array<{
+        cwd?: string;
+        persistentUiSessionId?: string;
+        sessionId: string;
+      }>;
+    };
+    const windowWithProbe = window as typeof window & {
+      __sessionLifecycleProbe?: SessionLifecycleProbe;
+    };
+    if (windowWithProbe.__sessionLifecycleProbe) {
+      return;
+    }
+
+    const probe: SessionLifecycleProbe = {
+      attaches: [],
+      creates: [],
+      runtimeLookups: [],
+    };
+    const originalCreate = window.electronAPI.session.create;
+    const originalAttach = window.electronAPI.session.attach;
+    const originalGetRuntimeInfo = window.electronAPI.session.getRuntimeInfo;
+    window.electronAPI.session.create = async (options) => {
+      const result = await originalCreate(options);
+      probe.creates.push({
+        cwd: options.cwd,
+        hostSessionName: options.hostSession?.sessionName,
+        resultCwd: result.session.cwd,
+        resultSessionId: result.session.sessionId,
+        uiSessionId:
+          typeof options.metadata?.uiSessionId === 'string'
+            ? options.metadata.uiSessionId
+            : undefined,
+      });
+      return result;
+    };
+    window.electronAPI.session.attach = async (options) => {
+      probe.attaches.push({ cwd: options.cwd, sessionId: options.sessionId });
+      return await originalAttach(options);
+    };
+    window.electronAPI.session.getRuntimeInfo = async (sessionId) => {
+      const result = await originalGetRuntimeInfo(sessionId);
+      probe.runtimeLookups.push({
+        sessionId,
+        cwd: result?.cwd,
+        persistentUiSessionId: result?.persistentUiSessionId,
+      });
+      return result;
+    };
+    windowWithProbe.__sessionLifecycleProbe = probe;
+  });
+}
+
+async function readSessionLifecycleProbe(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<unknown> {
+  return await page.evaluate(() => {
+    const windowWithProbe = window as typeof window & {
+      __sessionLifecycleProbe?: unknown;
+    };
+    return windowWithProbe.__sessionLifecycleProbe ?? null;
+  });
+}
+
+async function readCanvasTerminalDiagnostics(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<unknown> {
+  return await page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('[id^="agent-session-panel-"]')).map(
+      (panel) => {
+        const terminal = panel.querySelector<HTMLElement>('.xterm');
+        const rows = panel.querySelector<HTMLElement>('.xterm-rows');
+        const panelStyle = getComputedStyle(panel);
+        const terminalStyle = terminal ? getComputedStyle(terminal) : null;
+
+        return {
+          id: panel.id,
+          panelDisplay: panelStyle.display,
+          panelVisibility: panelStyle.visibility,
+          terminalDisplay: terminalStyle?.display,
+          terminalText: rows?.innerText ?? '',
+          terminalVisibility: terminalStyle?.visibility,
+        };
+      }
+    )
+  );
+}
+
+async function readRuntimeSessionDiagnostics(
+  page: Awaited<ReturnType<typeof launchInfiluxForScenario>>['page']
+): Promise<unknown> {
+  return await page.evaluate(async () => {
+    const sessions = await window.electronAPI.session.list();
+    return await Promise.all(
+      sessions.map(async (session) => {
+        const [runtimeInfo, transcript] = await Promise.all([
+          window.electronAPI.session.getRuntimeInfo(session.sessionId),
+          window.electronAPI.session.getTranscriptPage({
+            sessionId: session.sessionId,
+            maxBytes: 4096,
+            terminalReplay: true,
+          }),
+        ]);
+        return {
+          cwd: session.cwd,
+          metadata: session.metadata,
+          runtimeInfo,
+          sessionId: session.sessionId,
+          transcript: transcript.text,
+        };
+      })
+    );
+  });
 }
 
 async function installXtermMountProbe(

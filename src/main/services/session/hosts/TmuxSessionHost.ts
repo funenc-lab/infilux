@@ -22,7 +22,7 @@ export class TmuxSessionHost implements PersistentSessionHost {
       return 'live';
     }
     if (probeStatus === 'failed') {
-      return record.lastKnownState;
+      return record.lastKnownState === 'dead' ? 'dead' : 'missing-host-session';
     }
     return record.lastKnownState === 'dead' ? 'dead' : 'missing-host-session';
   }

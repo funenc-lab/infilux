@@ -359,6 +359,41 @@ function hasShellLaunchFlag(args: string[], candidates: string[]): boolean {
   return args.some((arg) => normalizedCandidates.has(arg.toLowerCase()));
 }
 
+function isPosixCommandShell(shell: string): boolean {
+  const shellName = shell.split('/').pop()?.toLowerCase() ?? '';
+  return (
+    shellName === 'sh' ||
+    shellName.includes('bash') ||
+    shellName.includes('zsh') ||
+    shellName.includes('fish') ||
+    shellName === 'nu' ||
+    shellName.includes('nushell')
+  );
+}
+
+function hasPosixCommandFlag(args: string[]): boolean {
+  return args.some((arg) => arg === '-c' || /^-[^-]*c/.test(arg));
+}
+
+function ensureAgentPosixCommandMode(
+  shell: string,
+  args: string[],
+  kind: SessionCreateOptions['kind']
+): string[] {
+  const command = args.at(-1);
+  if (
+    kind !== 'agent' ||
+    !isPosixCommandShell(shell) ||
+    hasPosixCommandFlag(args) ||
+    !command ||
+    command.startsWith('-')
+  ) {
+    return args;
+  }
+
+  return [...args.slice(0, -1), '-c', command];
+}
+
 function buildAgentLaunchShapeStage({
   shell,
   args,
@@ -564,6 +599,8 @@ export class PtyManager {
         args = [...args.filter((a) => a !== '-c'), '-c', `${initialCommand}; exec ${shell}`];
       }
     }
+
+    args = ensureAgentPosixCommandMode(shell, args, options.kind);
 
     let ptyProcess: pty.IPty;
     const startupLogger =

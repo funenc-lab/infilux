@@ -126,7 +126,7 @@ describe('TmuxSessionHost', () => {
     expect(state).toBe('missing-host-session');
   });
 
-  it('preserves the previous state when tmux probing fails', async () => {
+  it('marks live records missing when tmux probing cannot verify the host session', async () => {
     tmuxSessionHostTestDoubles.probeSession.mockResolvedValue('failed');
     const { TmuxSessionHost } = await import('../hosts/TmuxSessionHost');
 
@@ -136,6 +136,6 @@ describe('TmuxSessionHost', () => {
       })
     );
 
-    expect(state).toBe('live');
+    expect(state).toBe('missing-host-session');
   });
 });

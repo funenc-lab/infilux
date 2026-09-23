@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { type AgentToolRoutingOption, resolveAgentToolRoutingModel } from './agentToolRoutingModel';
 import { BUILTIN_AGENT_INFO, BUILTIN_AGENTS } from './constants';
+import { LocalSessionRecoverySettings } from './LocalSessionRecoverySettings';
 
 const itemVariants = {
   initial: { opacity: 0, height: 0, marginBottom: 0 },
@@ -459,6 +460,8 @@ export function AgentSettings({ repoPath }: { repoPath?: string }) {
           'New sessions use the default agent. Long-press the plus to pick another enabled agent. Local session recovery depends on the tmux setting.'
         )}
       </p>
+
+      <LocalSessionRecoverySettings repoPath={repoPath} />
 
       <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

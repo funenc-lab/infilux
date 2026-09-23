@@ -11,6 +11,7 @@ import {
   buildAppRuntimeIdentity,
   buildPersistentAgentHostSessionKey,
 } from '../../src/shared/utils/runtimeIdentity';
+import { buildManagedTmuxSocketPath } from '../../src/shared/utils/tmux';
 import {
   createAgentSessionRecoveryScenario,
   ensureTmuxAvailable,
@@ -47,7 +48,13 @@ describe('createAgentSessionRecoveryScenario', () => {
 
       const tmuxSessionProbe = spawnSync(
         'tmux',
-        ['-L', runtimeIdentity.tmuxServerName, 'has-session', '-t', scenario.tmuxSessionName],
+        [
+          '-S',
+          buildManagedTmuxSocketPath(scenario.homeDir, runtimeIdentity.tmuxServerName),
+          'has-session',
+          '-t',
+          scenario.tmuxSessionName,
+        ],
         {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'pipe'],

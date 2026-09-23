@@ -21,7 +21,10 @@ import {
   createAgentStartupTimelineLogger,
 } from '@shared/utils/agentStartupTimeline';
 import { getSessionReplayCharLimit } from '@shared/utils/agentTerminalHistoryPolicy';
-import { takeTerminalReplayTail } from '@shared/utils/terminalReplayTail';
+import {
+  takeTerminalReplayByteTail,
+  takeTerminalReplayTail,
+} from '@shared/utils/terminalReplayTail';
 import { takeUtf16Tail } from '@shared/utils/utf16Tail';
 import { normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { BrowserWindow, type WebContents } from 'electron';
@@ -647,11 +650,19 @@ export class SessionManager {
       return null;
     }
 
+    const persistentUiSessionId = getPersistentUiSessionId(session.metadata);
+    const sessionBinding = {
+      cwd: session.cwd,
+      kind: session.kind,
+      ...(persistentUiSessionId ? { persistentUiSessionId } : {}),
+    };
+
     if (session.backend === 'remote') {
       return {
         pid: null,
         isActive: null,
         isAlive: null,
+        ...sessionBinding,
       };
     }
 
@@ -664,10 +675,12 @@ export class SessionManager {
         pid: null,
         isActive,
         isAlive,
+        ...sessionBinding,
       };
     }
 
-    return this.localPtyManager.getProcessInfo(sessionId);
+    const processInfo = await this.localPtyManager.getProcessInfo(sessionId);
+    return processInfo ? { ...processInfo, ...sessionBinding } : null;
   }
 
   getSessionDescriptor(sessionId: string): SessionDescriptor | null {
@@ -708,6 +721,13 @@ export class SessionManager {
         totalBytes: 0,
         health: 'unavailable',
       };
+    }
+
+    if (request.terminalReplay) {
+      const hostScreenReplay = await this.captureTmuxHostScreenReplay(session, maxBytes);
+      if (hostScreenReplay) {
+        return hostScreenReplay;
+      }
     }
 
     try {
@@ -791,6 +811,35 @@ export class SessionManager {
       throw new RangeError(`Invalid session transcript page size: ${resolved}`);
     }
     return resolved;
+  }
+
+  private async captureTmuxHostScreenReplay(
+    session: ManagedSessionRecord,
+    maxBytes: number
+  ): Promise<SessionTranscriptPage | null> {
+    if (session.backend !== 'local' || session.hostSession?.kind !== 'tmux') {
+      return null;
+    }
+
+    try {
+      const screen = await tmuxDetector.captureSessionScreen(
+        session.hostSession.sessionName,
+        session.hostSession.serverName
+      );
+      const text = takeTerminalReplayByteTail(screen, maxBytes);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        text,
+        totalBytes: Buffer.byteLength(text),
+        health: 'complete',
+        initialParserState: 'text',
+      };
+    } catch {
+      return null;
+    }
   }
 
   private async readTranscriptArchivePage(

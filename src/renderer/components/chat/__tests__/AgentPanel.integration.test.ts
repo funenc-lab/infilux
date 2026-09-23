@@ -212,6 +212,7 @@ vi.mock('../AgentTerminal', () => ({
     layoutRefreshKey?: string;
     terminalFontScale?: number;
     canMerge?: boolean;
+    enhancedInputOpen?: boolean;
     onSplit?: () => void;
     onMerge?: () => void;
     onTerminalTitleChange?: (title: string) => void;
@@ -247,6 +248,11 @@ vi.mock('../AgentTerminal', () => ({
         },
         'split-terminal'
       ),
+      props.enhancedInputOpen
+        ? React.createElement('textarea', {
+            'data-enhanced-input-session-id': props.id ?? '',
+          })
+        : null,
       props.canMerge
         ? React.createElement(
             'button',
@@ -1403,16 +1409,20 @@ describe('AgentPanel integration', () => {
     await mounted.unmount();
   });
 
-  it('shows a recovery state instead of the empty state while worktree sessions are restoring', async () => {
+  it('keeps the empty state actionable while worktree sessions are restoring', async () => {
     const recovery = createDeferred<RestoreWorktreeSessionsResult>();
     testState.electronAPI.restoreWorktreeSessions.mockReturnValue(recovery.promise);
 
     const mounted = await mountAgentPanel();
 
     expect(
-      mounted.container.querySelector('[data-agent-panel-recovery-state="true"]')
+      mounted.container.querySelector('[data-testid="agent-panel-empty-state"]')
     ).not.toBeNull();
-    expect(mounted.container.querySelector('[data-testid="agent-panel-empty-state"]')).toBeNull();
+    expect(mounted.container.querySelector('[data-agent-panel-recovery-state="true"]')).toBeNull();
+
+    await clickByTestId(mounted.container, 'start-default-session');
+
+    expect(useAgentSessionsStore.getState().sessions).toHaveLength(1);
 
     await act(async () => {
       recovery.resolve({
@@ -1427,7 +1437,6 @@ describe('AgentPanel integration', () => {
       await flushRenderTasks();
     });
 
-    expect(mounted.container.querySelector('[data-agent-panel-recovery-state="true"]')).toBeNull();
     expect(
       mounted.container.querySelector(
         '[data-testid="agent-terminal"][data-session-id="recovered-session-1"]'
@@ -3434,6 +3443,65 @@ describe('AgentPanel integration', () => {
     terminalInput.remove();
 
     expect(activeElementAfterFloating).toBe(terminalInput);
+  });
+
+  it('restores enhanced input focus after moving a canvas session into the floating frame', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+
+    const session = createSession({
+      id: 'session-floating-enhanced-input-focus',
+      sessionId: 'provider-floating-enhanced-input-focus',
+      backendSessionId: 'backend-floating-enhanced-input-focus',
+      repoPath: '/repo',
+      cwd: '/repo/worktree',
+      name: 'Floating Enhanced Input Focus Session',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: {
+        '/repo/worktree': session.id,
+      },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [
+            {
+              id: 'group-floating-enhanced-input-focus',
+              sessionIds: [session.id],
+              activeSessionId: session.id,
+            },
+          ],
+          activeGroupId: 'group-floating-enhanced-input-focus',
+          flexPercents: [100],
+        },
+      },
+    });
+    useAgentSessionsStore.getState().setEnhancedInputOpen(session.id, true);
+
+    const mounted = await mountAgentPanel({
+      cwd: '/repo/worktree',
+    });
+    const enhancedInput = mounted.container.querySelector<HTMLTextAreaElement>(
+      `textarea[data-enhanced-input-session-id="${session.id}"]`
+    );
+    const bringToFrontButton = mounted.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Bring to Front"]'
+    );
+    expect(enhancedInput).not.toBeNull();
+    expect(bringToFrontButton).not.toBeNull();
+
+    enhancedInput?.focus();
+    bringToFrontButton?.focus();
+    expect(document.activeElement).toBe(bringToFrontButton);
+
+    await clickElement(bringToFrontButton);
+
+    const floatingEnhancedInput = document.body.querySelector<HTMLTextAreaElement>(
+      `.agent-canvas-floating-frame textarea[data-enhanced-input-session-id="${session.id}"]`
+    );
+    expect(floatingEnhancedInput).not.toBeNull();
+    expect(document.activeElement).toBe(floatingEnhancedInput);
+
+    await mounted.unmount();
   });
 
   it('keeps the floating canvas session open for IME composition events', async () => {

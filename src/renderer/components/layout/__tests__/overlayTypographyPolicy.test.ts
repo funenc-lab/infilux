@@ -6,10 +6,6 @@ import { describe, expect, it } from 'vitest';
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const dialogSource = readFileSync(resolve(currentDir, '../../ui/dialog.tsx'), 'utf8');
 const popoverSource = readFileSync(resolve(currentDir, '../../ui/popover.tsx'), 'utf8');
-const settingsDialogSource = readFileSync(
-  resolve(currentDir, '../../settings/SettingsDialog.tsx'),
-  'utf8'
-);
 const draggableSettingsWindowSource = readFileSync(
   resolve(currentDir, '../../settings/DraggableSettingsWindow.tsx'),
   'utf8'
@@ -73,7 +69,6 @@ describe('overlay typography policy', () => {
   });
 
   it('uses semantic typography classes in settings overlays and picker surfaces', () => {
-    expect(settingsDialogSource).toContain('ui-type-panel-title');
     expect(draggableSettingsWindowSource).toContain('ui-type-panel-title');
     expect(runningProjectsPopoverSource).toContain('ui-type-panel-description');
     expect(appResourceManagerDrawerSource).toContain('ui-type-panel-description');

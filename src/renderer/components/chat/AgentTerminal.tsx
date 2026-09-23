@@ -1475,6 +1475,8 @@ export function AgentTerminal({
   const [isMouseSelectingTerminal, setIsMouseSelectingTerminal] = useState(false);
   const mouseSelectionAutoScrollPositionRef = useRef<MouseSelectionPosition | null>(null);
   const stopMouseSelectionAutoScrollRef = useRef<(() => void) | null>(null);
+  // Only recovery-confirmed sessions may attach to an existing persistent host.
+  const recoveredHostSessionKey = recovered ? hostSessionKey : undefined;
 
   const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(
     () =>
@@ -1499,7 +1501,7 @@ export function AgentTerminal({
         resolvedShell,
         terminalSessionId,
         runtimeChannel,
-        persistentHostSessionKey: hostSessionKey,
+        persistentHostSessionKey: recoveredHostSessionKey,
       }),
     [
       agentCommand,
@@ -1519,8 +1521,8 @@ export function AgentTerminal({
       resolvedShell,
       terminalSessionId,
       runtimeChannel,
-      hostSessionKey,
       recoveryState,
+      recoveredHostSessionKey,
       shouldBypassHostSessionRecovery,
       handleSessionCreateFallbackRetry,
     ]
@@ -1894,6 +1896,7 @@ export function AgentTerminal({
     restartSession,
     write,
   } = useXterm({
+    agentId,
     cwd,
     backendSessionId: effectiveBackendSessionId,
     command,

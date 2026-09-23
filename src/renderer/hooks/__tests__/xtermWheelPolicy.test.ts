@@ -212,6 +212,49 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
+  it('maps Claude alternate-buffer wheel input to page scrolling when mouse tracking is enabled', () => {
+    expect(
+      resolveAgentWheelPolicy({
+        agentId: 'claude-hapi',
+        kind: 'agent',
+        activeBufferType: 'alternate',
+        mouseTrackingMode: 'any',
+        deltaMode: DOM_DELTA_LINE,
+        deltaY: -3,
+        carryY: 0,
+        cellHeightPx: 20,
+        devicePixelRatio: 2,
+      })
+    ).toEqual({
+      action: 'program-scroll',
+      carryY: 0,
+      sequence: '\x1b[5~',
+      repeat: 1,
+    });
+  });
+
+  it('marks Claude tmux scrolling for program fallback when the host cannot scroll', () => {
+    expect(
+      resolveAgentWheelPolicy({
+        agentId: 'claude',
+        kind: 'agent',
+        activeBufferType: 'alternate',
+        mouseTrackingMode: 'any',
+        hostScrollMode: 'tmux',
+        deltaMode: DOM_DELTA_LINE,
+        deltaY: -4,
+        carryY: 0,
+        cellHeightPx: 20,
+        devicePixelRatio: 2,
+      })
+    ).toEqual({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -4,
+      fallbackToProgramScroll: true,
+    });
+  });
+
   it('keeps normal-buffer agent history scrollable when tmux enables mouse tracking', () => {
     expect(
       resolveAgentWheelPolicy({

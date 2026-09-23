@@ -8,6 +8,53 @@ const legacyEnsoTmuxSocket = '$HOME/.infilux/tmux/enso.sock';
 const agentTmuxUnsetPrefix = buildEnvUnsetPrefix(AGENT_TMUX_UNSET_ENV_KEYS);
 
 describe('buildAgentLaunchPlan', () => {
+  it('does not enable screen reader mode for Claude sessions automatically', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      enableIdeIntegration: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-lc'],
+      },
+    });
+
+    expect(plan.command).toEqual({
+      shell: 'claude',
+      args: [],
+    });
+    expect(plan.fallbackCommand).toEqual({
+      shell: '/bin/zsh',
+      args: ['-lc', 'claude'],
+    });
+  });
+
+  it('preserves an explicit Claude screen reader flag in custom arguments', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      customArgs: '--ax-screen-reader --dangerously-skip-permissions',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      enableIdeIntegration: false,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-lc'],
+      },
+    });
+
+    expect(plan.command?.args.at(-1)).toContain(
+      'then exec claude --ax-screen-reader --dangerously-skip-permissions;'
+    );
+    expect(plan.command?.args.at(-1)).not.toContain(
+      '--ax-screen-reader --dangerously-skip-permissions --ax-screen-reader'
+    );
+  });
+
   it('returns an empty plan when local execution has no resolved shell', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'claude',
@@ -119,6 +166,28 @@ describe('buildAgentLaunchPlan', () => {
       `exec env -u TMUX tmux -S "${infiluxTmuxSocket}" attach-session -t infilux-ui-session-1`
     );
     expect(plan.command?.args[1]).toContain('exec /bin/zsh -i -l -c');
+  });
+
+  it('executes tmux launch scripts when zsh command arguments omit the command flag', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'claude',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      resolvedShell: {
+        shell: '/bin/zsh',
+        execArgs: ['-l'],
+      },
+      terminalSessionId: 'ui-session-zsh-command',
+    });
+
+    expect(plan.command?.shell).toBe('/bin/zsh');
+    expect(plan.command?.args.slice(0, 2)).toEqual(['-l', '-c']);
+    expect(plan.command?.args.at(-1)).toContain(
+      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -s infilux-ui-session-zsh-command`
+    );
   });
 
   it('reuses a recovered tmux host session key instead of regenerating the current namespace', () => {

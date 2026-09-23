@@ -132,6 +132,7 @@ const testState = vi.hoisted(() => ({
   terminalRenderer: 'dom' as 'dom' | 'webgl',
   terminalFontSize: 14,
   terminalFontFamily: 'monospace',
+  rendererPlatform: 'darwin' as 'darwin' | 'win32',
   backgroundImageEnabled: false,
   recreateWebglRenderer: null as (() => void) | null,
   webglAddonInstances: [] as object[],
@@ -328,7 +329,7 @@ vi.mock('@xterm/addon-webgl', () => ({
 vi.mock('@/lib/electronEnvironment', () => ({
   getRendererEnvironment: () => ({
     HOME: '/home/tester',
-    platform: 'darwin',
+    platform: testState.rendererPlatform,
   }),
 }));
 
@@ -463,6 +464,10 @@ vi.mock('../xtermWheelHandlerPersistence', () => ({
 }));
 
 vi.mock('../xtermWheelPolicy', () => ({
+  PAGE_DOWN_SEQUENCE: '\x1b[6~',
+  PAGE_UP_SEQUENCE: '\x1b[5~',
+  resolveAgentProgramScrollRepeat: (scrollLines: number) =>
+    Math.min(3, Math.max(1, Math.ceil(Math.abs(scrollLines) / 8))),
   resolveAgentWheelPolicy: () => testState.resolveAgentWheelPolicy(),
 }));
 
@@ -626,6 +631,7 @@ describe('useXterm startup loading state', () => {
     testState.terminalRenderer = 'dom';
     testState.terminalFontSize = 14;
     testState.terminalFontFamily = 'monospace';
+    testState.rendererPlatform = 'darwin';
     testState.backgroundImageEnabled = false;
     testState.recreateWebglRenderer = null;
     testState.webglAddonInstances = [];
@@ -712,6 +718,37 @@ describe('useXterm startup loading state', () => {
     expect(testState.terminalParserRegisterCsiHandler).not.toHaveBeenCalledWith(
       expect.objectContaining({ final: 'l' }),
       expect.any(Function)
+    );
+
+    await mounted.unmount();
+  });
+
+  it('binds persistent Windows agent recovery to the current worktree', async () => {
+    testState.rendererPlatform = 'win32';
+    vi.mocked(resolveReusableBackendSessionId).mockClear();
+
+    const mounted = mountHookHarness({
+      backendSessionId: 'pty-8',
+      cwd: 'C:/repo/current',
+      persistOnDisconnect: true,
+      metadata: { uiSessionId: 'current-session' },
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(resolveReusableBackendSessionId).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendSessionId: 'pty-8',
+        cwd: 'C:/repo/current',
+        allowUntrackedLocalAttach: true,
+        sessionBinding: {
+          cwd: 'C:/repo/current',
+          kind: 'agent',
+          persistentUiSessionId: 'current-session',
+        },
+      })
     );
 
     await mounted.unmount();
@@ -2654,6 +2691,62 @@ describe('useXterm startup loading state', () => {
     expect(testState.terminalScrollLines).not.toHaveBeenCalled();
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(stopPropagation).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('falls back to Claude page scrolling when tmux host scrolling is unavailable', async () => {
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -4,
+      fallbackToProgramScroll: true,
+    } as never);
+    testState.tmuxScrollClient.mockResolvedValue({
+      applied: false,
+      inMode: false,
+      paneId: '%0',
+    });
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+
+    const mounted = mountHookHarness({
+      agentId: 'claude',
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+      kind: 'agent',
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -4,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as WheelEvent);
+      await vi.advanceTimersByTimeAsync(16);
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', '\x1b[5~');
+    expect(testState.terminalScrollLines).not.toHaveBeenCalled();
 
     await mounted.unmount();
   });

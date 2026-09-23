@@ -780,6 +780,7 @@ export const zhTranslations: Record<string, string> = {
   'View diff': '查看差异',
   'View more': '查看更多',
   'Waiting {{seconds}} seconds': '{{seconds}} 秒',
+  'Waiting for provider adapter': '等待提供商适配器',
   Workspace: '工作区',
   'Loading workspace': '正在加载工作区',
   'Preparing main surfaces, navigation state, and active context':
@@ -805,10 +806,16 @@ export const zhTranslations: Record<string, string> = {
     '将 Claude agent 包装在 tmux 中以实现会话持久化与恢复',
   'Wrap local agent sessions in tmux for session persistence and recovery':
     '将本地 Agent 会话包装在 tmux 中以实现会话持久化与恢复',
+  'Local session recovery': '本地会话恢复',
+  'Keep local agent sessions recoverable after restarting the app.':
+    '在应用重启后保留本地 Agent 会话的恢复能力。',
   'Local session recovery is disabled.': '本地会话恢复当前已禁用。',
   'Local agent sessions started without tmux will not restore after app restart. Enable recovery before starting the next session.':
     '未通过 tmux 启动的本地 Agent 会话在应用重启后不会恢复。请在启动下一个会话前开启恢复能力。',
+  'New sessions created after enabling recovery can restore after an app restart. Restart existing sessions to make them recoverable.':
+    '开启恢复后新建的会话可在应用重启后恢复。请重启现有会话以使其可恢复。',
   'Enable Recovery': '开启恢复',
+  'Enable local session recovery': '开启本地会话恢复',
   'Session Recovery': '会话恢复',
   'Automatic recovery is unavailable for this session.': '当前会话无法自动恢复。',
   'Persistent host recovery is unavailable and this session cannot resume automatically. Start a fresh session to continue.':
@@ -816,6 +823,7 @@ export const zhTranslations: Record<string, string> = {
   'Recovery now applies to new local sessions. Restart current sessions to make them recoverable after app restart.':
     '恢复能力现在只会应用到新建的本地会话。请重启当前会话，使其在应用重启后也能恢复。',
   'tmux is not installed. Please install tmux first.': 'tmux 未安装，请先安装 tmux。',
+  'Unable to verify tmux. Please try again.': '无法验证 tmux，请重试。',
   'New sessions use the default agent. Long-press the plus to pick another enabled agent. Local session recovery depends on the tmux setting.':
     '新会话会使用默认 Agent。长按加号可选择其他已启用的 Agent，本地会话恢复能力取决于 tmux 设置。',
   'Unable to load file explorer': '无法加载文件浏览器',

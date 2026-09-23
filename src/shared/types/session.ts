@@ -55,6 +55,9 @@ export interface SessionRuntimeInfo {
   pid: number | null;
   isActive: boolean | null;
   isAlive: boolean | null;
+  cwd: string;
+  kind: SessionKind;
+  persistentUiSessionId?: string;
 }
 
 export type SessionTranscriptHealth = 'complete' | 'degraded' | 'unavailable';
