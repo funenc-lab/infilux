@@ -80,6 +80,7 @@ const testState = vi.hoisted(() => ({
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
   terminalWrite: vi.fn(),
+  terminalReset: vi.fn(),
   terminalWriteInstanceIds: [] as number[],
   terminalWriteCallbacks: [] as Array<() => void>,
   terminalDispose: vi.fn(),
@@ -218,7 +219,9 @@ vi.mock('@xterm/xterm', () => ({
       }
     }
     refresh(): void {}
-    reset(): void {}
+    reset(): void {
+      testState.terminalReset();
+    }
     write(data: string, callback?: () => void): void {
       testState.terminalWrite(data);
       testState.terminalWriteInstanceIds.push(this.instanceId);
@@ -589,6 +592,7 @@ describe('useXterm startup loading state', () => {
     testState.navigationToFile.mockClear();
     testState.sessionOpen.mockClear();
     testState.terminalWrite.mockClear();
+    testState.terminalReset.mockClear();
     testState.terminalWriteInstanceIds = [];
     testState.terminalWriteCallbacks = [];
     testState.terminalDispose.mockClear();
@@ -1750,9 +1754,8 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    const resyncReplayCallback = testState.terminalWriteCallbacks.at(-1);
-    expect(resyncReplayCallback).toBeTypeOf('function');
-    expect(resyncReplayCallback).not.toBe(initialReplayCallback);
+    expect(testState.terminalWriteCallbacks).toHaveLength(1);
+    expect(testState.terminalWriteCallbacks.at(-1)).toBe(initialReplayCallback);
 
     await act(async () => {
       initialReplayCallback?.();
@@ -1761,6 +1764,10 @@ describe('useXterm startup loading state', () => {
 
     expect(terminalSurface.style.visibility).toBe('hidden');
     expect(testState.sessionAcknowledgeOutputResync).not.toHaveBeenCalled();
+
+    const resyncReplayCallback = testState.terminalWriteCallbacks.at(-1);
+    expect(resyncReplayCallback).toBeTypeOf('function');
+    expect(resyncReplayCallback).not.toBe(initialReplayCallback);
 
     await act(async () => {
       resyncReplayCallback?.();
@@ -1801,9 +1808,8 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
-    const secondReplayCallback = testState.terminalWriteCallbacks.at(-1);
-    expect(secondReplayCallback).toBeTypeOf('function');
-    expect(secondReplayCallback).not.toBe(firstReplayCallback);
+    expect(testState.terminalWriteCallbacks).toHaveLength(1);
+    expect(testState.terminalWriteCallbacks.at(-1)).toBe(firstReplayCallback);
 
     await act(async () => {
       firstReplayCallback?.();
@@ -1813,6 +1819,10 @@ describe('useXterm startup loading state', () => {
     expect(terminalSurface.style.visibility).toBe('hidden');
     expect(testState.sessionAcknowledgeOutputResync).not.toHaveBeenCalled();
 
+    const secondReplayCallback = testState.terminalWriteCallbacks.at(-1);
+    expect(secondReplayCallback).toBeTypeOf('function');
+    expect(secondReplayCallback).not.toBe(firstReplayCallback);
+
     await act(async () => {
       secondReplayCallback?.();
       await flushMicrotasks();
@@ -1820,6 +1830,39 @@ describe('useXterm startup loading state', () => {
 
     expect(terminalSurface.style.visibility).toBe('');
     expect(testState.sessionAcknowledgeOutputResync).toHaveBeenCalledTimes(1);
+    await mounted.unmount();
+  });
+
+  it('serializes overlapping output resync replays until xterm finishes the current write', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: 'first resync replay\n',
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('first resync replay\n');
+    expect(testState.terminalReset).toHaveBeenCalledTimes(1);
+    expect(testState.terminalWriteCallbacks).toHaveLength(1);
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: 'second resync replay\n',
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    expect(testState.terminalReset).toHaveBeenCalledTimes(1);
+
     await mounted.unmount();
   });
 

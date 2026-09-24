@@ -159,6 +159,12 @@ interface InFlightTerminalWrite {
   terminal: Terminal;
 }
 
+interface PendingOutputResync {
+  replay: string;
+  sessionId: string;
+  viewport?: XtermReplayViewport;
+}
+
 interface HibernatedXtermSurfaceState {
   searchState: TerminalSearchState;
   viewportY: number;
@@ -541,7 +547,9 @@ export function useXterm({
   const terminalWriteInFlightRef = useRef(false);
   const terminalWriteInFlightIdentityRef = useRef<InFlightTerminalWrite | null>(null);
   const terminalWriteGenerationRef = useRef(0);
-  const pendingOutputResyncRef = useRef<{ sessionId: string; replay: string } | null>(null);
+  const pendingOutputResyncRef = useRef<PendingOutputResync | null>(null);
+  const outputResyncDrainPromiseRef = useRef<Promise<void> | null>(null);
+  const terminalWriteIdleWaitersRef = useRef(new Set<() => void>());
   const terminalReplaySurfaceRef = useRef<{
     generation: number;
     restore: () => void;
@@ -957,6 +965,28 @@ export function useXterm({
     loadRenderer(terminal, 'webgl', latestWebglVisualSignatureRef.current);
   }, [effectiveTerminalRenderer, loadRenderer]);
 
+  const notifyTerminalWriteStateChanged = useCallback(() => {
+    const waiters = Array.from(terminalWriteIdleWaitersRef.current);
+    terminalWriteIdleWaitersRef.current.clear();
+    for (const waiter of waiters) {
+      waiter();
+    }
+  }, []);
+
+  const waitForTerminalWriteIdle = useCallback((): Promise<void> => {
+    return new Promise((resolve) => {
+      const resolveWhenIdle = () => {
+        if (!initialTerminalWriteInProgressRef.current && !terminalWriteInFlightRef.current) {
+          resolve();
+          return;
+        }
+        terminalWriteIdleWaitersRef.current.add(resolveWhenIdle);
+      };
+
+      resolveWhenIdle();
+    });
+  }, []);
+
   const flushPendingTerminalExit = useCallback(() => {
     if (
       !pendingTerminalExitRef.current ||
@@ -1025,6 +1055,7 @@ export function useXterm({
 
         terminalWriteInFlightRef.current = false;
         terminalWriteInFlightIdentityRef.current = null;
+        notifyTerminalWriteStateChanged();
         if (hasRenderableTerminalOutput(bufferedData)) {
           hasRenderableRenderedDataRef.current = true;
         }
@@ -1047,7 +1078,7 @@ export function useXterm({
       onDataRef.current?.(bufferedData);
       return true;
     },
-    []
+    [notifyTerminalWriteStateChanged]
   );
   flushBufferedTerminalOutputRef.current = flushBufferedTerminalOutput;
 
@@ -1082,6 +1113,7 @@ export function useXterm({
       } finally {
         if (initialTerminalWriteGenerationRef.current === initialWriteGeneration) {
           initialTerminalWriteInProgressRef.current = false;
+          notifyTerminalWriteStateChanged();
           if (!flushBufferedTerminalOutputRef.current(terminal)) {
             flushPendingViewportSyncRef.current();
             flushPendingTerminalExitRef.current();
@@ -1089,7 +1121,7 @@ export function useXterm({
         }
       }
     },
-    []
+    [notifyTerminalWriteStateChanged]
   );
 
   const clearTerminalWriteFlushTimers = useCallback(() => {
@@ -1111,11 +1143,16 @@ export function useXterm({
     pendingTerminalExitRef.current = false;
   }, []);
 
-  const restoreOutputAfterResync = useCallback(
-    async (sessionId: string, replay: string, viewport?: XtermReplayViewport): Promise<void> => {
+  const applyOutputResync = useCallback(
+    async (request: PendingOutputResync): Promise<boolean> => {
+      const { replay, sessionId, viewport } = request;
       const terminal = terminalRef.current;
-      if (!terminal || ptyIdRef.current !== sessionId || !isVisibleRef.current) {
-        return;
+      if (!terminal || ptyIdRef.current !== sessionId) {
+        return true;
+      }
+      if (!isVisibleRef.current) {
+        pendingOutputResyncRef.current = request;
+        return false;
       }
 
       const targetViewport = viewport ?? {
@@ -1123,7 +1160,6 @@ export function useXterm({
         line: terminal.buffer.active.viewportY,
       };
       const replaySurfaceGeneration = hideTerminalReplaySurface(terminal);
-
       const restoredOutput = await resolveLatestAgentTranscriptReplay(sessionId, replay);
 
       if (
@@ -1132,12 +1168,31 @@ export function useXterm({
         !isTerminalReplaySurfaceCurrent(terminal, replaySurfaceGeneration)
       ) {
         revealTerminalReplaySurface(terminal, replaySurfaceGeneration);
-        return;
+        return true;
+      }
+      if (pendingOutputResyncRef.current) {
+        return true;
+      }
+
+      await waitForTerminalWriteIdle();
+
+      if (
+        terminalRef.current !== terminal ||
+        ptyIdRef.current !== sessionId ||
+        !isVisibleRef.current ||
+        !isTerminalReplaySurfaceCurrent(terminal, replaySurfaceGeneration)
+      ) {
+        if (!isVisibleRef.current && !pendingOutputResyncRef.current) {
+          pendingOutputResyncRef.current = request;
+        }
+        revealTerminalReplaySurface(terminal, replaySurfaceGeneration);
+        return isVisibleRef.current;
+      }
+      if (pendingOutputResyncRef.current) {
+        return true;
       }
 
       clearTerminalWriteFlushTimers();
-      terminalWriteInFlightRef.current = false;
-      terminalWriteInFlightIdentityRef.current = null;
       terminal.reset();
       replaceReplaySnapshot(restoredOutput);
       try {
@@ -1146,15 +1201,22 @@ export function useXterm({
           restoredOutput,
           targetViewport
         );
-        if (!replayApplied || !isTerminalReplaySurfaceCurrent(terminal, replaySurfaceGeneration)) {
-          return;
+        if (
+          !replayApplied ||
+          pendingOutputResyncRef.current ||
+          !isTerminalReplaySurfaceCurrent(terminal, replaySurfaceGeneration)
+        ) {
+          return true;
         }
         await window.electronAPI.session.acknowledgeOutputResync(sessionId).catch((error) => {
           console.warn('[xterm] Failed to acknowledge session output resync:', error);
         });
       } finally {
-        finishTerminalReplaySurface(terminal, replaySurfaceGeneration);
+        if (!pendingOutputResyncRef.current) {
+          finishTerminalReplaySurface(terminal, replaySurfaceGeneration);
+        }
       }
+      return true;
     },
     [
       clearTerminalWriteFlushTimers,
@@ -1164,8 +1226,61 @@ export function useXterm({
       replaceReplaySnapshot,
       revealTerminalReplaySurface,
       resolveLatestAgentTranscriptReplay,
+      waitForTerminalWriteIdle,
       writeInitialTerminalContent,
     ]
+  );
+
+  const restoreOutputAfterResync = useCallback(
+    (sessionId: string, replay: string, viewport?: XtermReplayViewport): Promise<void> => {
+      const terminal = terminalRef.current;
+      if (!terminal || ptyIdRef.current !== sessionId || !isVisibleRef.current) {
+        return Promise.resolve();
+      }
+
+      const pendingResync = pendingOutputResyncRef.current;
+      pendingOutputResyncRef.current = {
+        replay,
+        sessionId,
+        viewport:
+          viewport ?? (pendingResync?.sessionId === sessionId ? pendingResync.viewport : undefined),
+      };
+
+      const activeDrain = outputResyncDrainPromiseRef.current;
+      if (activeDrain) {
+        return activeDrain;
+      }
+
+      const drain = (async () => {
+        while (true) {
+          const nextResync = pendingOutputResyncRef.current;
+          if (!nextResync) {
+            return;
+          }
+          pendingOutputResyncRef.current = null;
+          const shouldContinue = await applyOutputResync(nextResync);
+          if (!shouldContinue) {
+            return;
+          }
+        }
+      })();
+      outputResyncDrainPromiseRef.current = drain;
+      void drain.then(
+        () => {
+          if (outputResyncDrainPromiseRef.current === drain) {
+            outputResyncDrainPromiseRef.current = null;
+          }
+        },
+        (error) => {
+          if (outputResyncDrainPromiseRef.current === drain) {
+            outputResyncDrainPromiseRef.current = null;
+          }
+          console.warn('[xterm] Failed to restore session output resync:', error);
+        }
+      );
+      return drain;
+    },
+    [applyOutputResync]
   );
 
   const clearPendingHostScroll = useCallback(() => {
@@ -1289,10 +1404,16 @@ export function useXterm({
     searchAddonRef.current = null;
     terminalWriteInFlightRef.current = false;
     terminalWriteInFlightIdentityRef.current = null;
+    notifyTerminalWriteStateChanged();
     if ((window as InfiluxE2ETerminalWindow).__INFILUX_E2E_ENABLE__ === true) {
       (window as InfiluxE2ETerminalWindow).__INFILUX_E2E_LAST_XTERM__ = undefined;
     }
-  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers, revealTerminalReplaySurface]);
+  }, [
+    clearPendingHostScroll,
+    clearTerminalWriteFlushTimers,
+    notifyTerminalWriteStateChanged,
+    revealTerminalReplaySurface,
+  ]);
 
   const resetSessionBinding = useCallback(async () => {
     createRequestIdRef.current += 1;
@@ -1309,6 +1430,7 @@ export function useXterm({
     sessionEventsCleanupRef.current?.();
     sessionEventsCleanupRef.current = null;
     clearTerminalWriteFlushTimers();
+    notifyTerminalWriteStateChanged();
     setRuntimeState('live');
 
     const currentSessionId = ptyIdRef.current;
@@ -1317,7 +1439,7 @@ export function useXterm({
     if (currentSessionId) {
       await window.electronAPI.session.detach(currentSessionId).catch(() => {});
     }
-  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers]);
+  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers, notifyTerminalWriteStateChanged]);
 
   const handleTerminalWheelEvent = useCallback(
     (event: WheelEvent) => {
