@@ -56,8 +56,27 @@ const CODEX_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
 const CODEX_EXECUTABLE_NAMES = new Set(['codex', 'codex.exe', 'codex.cmd', 'codex.bat']);
 const CODEX_TOKEN_PATTERN =
   /(^|[\s&])((?:"[^"]*codex(?:\.(?:exe|cmd|bat))?"|'[^']*codex(?:\.(?:exe|cmd|bat))?'|[^\s'"`]+[\\/]codex(?:\.(?:exe|cmd|bat))?|codex(?:\.(?:exe|cmd|bat))?))(?=(?:[\s'"]|$))/i;
+const CHATGPT_NODE_REPL_COMMAND_SUFFIX = '/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl';
+const CHATGPT_CODEX_CLI_PATH_SUFFIX = '/ChatGPT.app/Contents/Resources/codex';
 type TomlLiteralValue = string | boolean | TomlLiteralValue[] | { [key: string]: TomlLiteralValue };
 type CodexShellFragmentStyle = 'posix' | 'powershell';
+
+function normalizeExecutablePath(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
+function isChatGptHostedNodeRepl(config: McpServerConfig): boolean {
+  if (isHttpMcpConfig(config)) {
+    return false;
+  }
+
+  const codexCliPath = config.env?.CODEX_CLI_PATH;
+  return (
+    normalizeExecutablePath(config.command).endsWith(CHATGPT_NODE_REPL_COMMAND_SUFFIX) &&
+    typeof codexCliPath === 'string' &&
+    normalizeExecutablePath(codexCliPath).endsWith(CHATGPT_CODEX_CLI_PATH_SUFFIX)
+  );
+}
 
 function toStableValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -296,6 +315,13 @@ function buildCodexResolvedMcpEntries(
     const selectedEntry = chooseCodexConfigEntry(id, configs, warnings);
     if (!selectedEntry) {
       warnings.push(`Codex MCP id "${id}" has no runtime configuration source and was skipped.`);
+      continue;
+    }
+
+    if (isChatGptHostedNodeRepl(selectedEntry.config)) {
+      warnings.push(
+        `Codex MCP id "${id}" is bound to the ChatGPT desktop runtime and was skipped for Infilux.`
+      );
       continue;
     }
 

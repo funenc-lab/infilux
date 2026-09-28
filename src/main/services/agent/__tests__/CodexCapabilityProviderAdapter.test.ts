@@ -153,6 +153,44 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
   });
 
+  it('does not inject ChatGPT-hosted node repl MCP into an Infilux Codex launch', () => {
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: '/repo/worktrees/feat-a',
+        kind: 'agent',
+        shell: 'codex',
+        args: ['resume', 'codex-session-1'],
+      },
+      [],
+      createResolvedPolicy({
+        allowedSharedMcpIds: ['shared-project'],
+        allowedPersonalMcpIds: ['node_repl'],
+      }),
+      {
+        ...createMcpConfigs(),
+        personalById: {
+          node_repl: {
+            id: 'node_repl',
+            config: {
+              command: '/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl',
+              env: {
+                CODEX_CLI_PATH: '/Applications/ChatGPT.app/Contents/Resources/codex',
+              },
+            },
+            sourceScope: 'user',
+          },
+        },
+      }
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.metadata?.codexMcpServerIds).toEqual(['shared-project']);
+    expect(projection.sessionOverrides?.args).toEqual(
+      expect.arrayContaining(['-c', 'mcp_servers.shared-project.command="/bin/echo"'])
+    );
+    expect(projection.sessionOverrides?.args?.join(' ')).not.toContain('node_repl');
+  });
+
   it('does not inject disabled skills into Codex runtime configuration', () => {
     const projection = buildCodexSessionProjection(
       {
