@@ -540,6 +540,7 @@ export function useXterm({
   );
   // Batches terminal output before xterm accepts the next write.
   const terminalOutputBufferRef = useRef(new XtermOutputBuffer());
+  const terminalOutputResyncBufferRef = useRef(new XtermOutputBuffer());
   const terminalOutputBacklogWarningRef = useRef(false);
   const initialTerminalWriteInProgressRef = useRef(false);
   const initialTerminalWriteGenerationRef = useRef(0);
@@ -1018,6 +1019,7 @@ export function useXterm({
 
       if (
         !terminal ||
+        outputResyncDrainPromiseRef.current ||
         terminalWriteInFlightRef.current ||
         initialTerminalWriteInProgressRef.current
       ) {
@@ -1124,24 +1126,30 @@ export function useXterm({
     [notifyTerminalWriteStateChanged]
   );
 
-  const clearTerminalWriteFlushTimers = useCallback(() => {
-    if (dataFlushTimerRef.current) {
-      clearTimeout(dataFlushTimerRef.current);
-      dataFlushTimerRef.current = null;
-    }
-    if (exitFlushTimerRef.current) {
-      clearTimeout(exitFlushTimerRef.current);
-      exitFlushTimerRef.current = null;
-    }
-    terminalOutputBufferRef.current.clear();
-    terminalOutputBacklogWarningRef.current = false;
-    initialTerminalWriteInProgressRef.current = false;
-    initialTerminalWriteGenerationRef.current += 1;
-    isFlushPendingRef.current = false;
-    terminalWriteGenerationRef.current += 1;
-    viewportSyncControllerRef.current.reset();
-    pendingTerminalExitRef.current = false;
-  }, []);
+  const clearTerminalWriteFlushTimers = useCallback(
+    (options: { preserveResyncOutput?: boolean } = {}) => {
+      if (dataFlushTimerRef.current) {
+        clearTimeout(dataFlushTimerRef.current);
+        dataFlushTimerRef.current = null;
+      }
+      if (exitFlushTimerRef.current) {
+        clearTimeout(exitFlushTimerRef.current);
+        exitFlushTimerRef.current = null;
+      }
+      terminalOutputBufferRef.current.clear();
+      if (!options.preserveResyncOutput) {
+        terminalOutputResyncBufferRef.current.clear();
+      }
+      terminalOutputBacklogWarningRef.current = false;
+      initialTerminalWriteInProgressRef.current = false;
+      initialTerminalWriteGenerationRef.current += 1;
+      isFlushPendingRef.current = false;
+      terminalWriteGenerationRef.current += 1;
+      viewportSyncControllerRef.current.reset();
+      pendingTerminalExitRef.current = false;
+    },
+    []
+  );
 
   const applyOutputResync = useCallback(
     async (request: PendingOutputResync): Promise<boolean> => {
@@ -1192,7 +1200,7 @@ export function useXterm({
         return true;
       }
 
-      clearTerminalWriteFlushTimers();
+      clearTerminalWriteFlushTimers({ preserveResyncOutput: true });
       terminal.reset();
       replaceReplaySnapshot(restoredOutput);
       try {
@@ -1265,16 +1273,33 @@ export function useXterm({
         }
       })();
       outputResyncDrainPromiseRef.current = drain;
+      const releaseDrain = () => {
+        if (outputResyncDrainPromiseRef.current !== drain) {
+          return;
+        }
+
+        const resyncOutput = terminalOutputResyncBufferRef.current.take(Number.MAX_SAFE_INTEGER);
+        if (resyncOutput) {
+          terminalOutputBufferRef.current.append(resyncOutput);
+        }
+        outputResyncDrainPromiseRef.current = null;
+
+        const terminal = terminalRef.current;
+        if (
+          terminal &&
+          !isUnmountedRef.current &&
+          !flushBufferedTerminalOutputRef.current(terminal)
+        ) {
+          flushPendingViewportSyncRef.current();
+          flushPendingTerminalExitRef.current();
+        }
+      };
       void drain.then(
         () => {
-          if (outputResyncDrainPromiseRef.current === drain) {
-            outputResyncDrainPromiseRef.current = null;
-          }
+          releaseDrain();
         },
         (error) => {
-          if (outputResyncDrainPromiseRef.current === drain) {
-            outputResyncDrainPromiseRef.current = null;
-          }
+          releaseDrain();
           console.warn('[xterm] Failed to restore session output resync:', error);
         }
       );
@@ -1377,6 +1402,8 @@ export function useXterm({
     revealTerminalReplaySurface();
     clearPendingHostScroll();
     clearTerminalWriteFlushTimers();
+    pendingOutputResyncRef.current = null;
+    outputResyncDrainPromiseRef.current = null;
     terminalInputCleanupRef.current?.dispose();
     terminalInputCleanupRef.current = null;
     outputProtocolGuardRef.current?.dispose();
@@ -2090,7 +2117,9 @@ export function useXterm({
                 agentStartupFirstOutputLoggedRef.current = true;
                 agentStartupLoggerRef.current?.markStage('first-output');
               }
-              const outputBuffer = terminalOutputBufferRef.current;
+              const outputBuffer = outputResyncDrainPromiseRef.current
+                ? terminalOutputResyncBufferRef.current
+                : terminalOutputBufferRef.current;
               outputBuffer.append(event.data);
               if (
                 !terminalOutputBacklogWarningRef.current &&

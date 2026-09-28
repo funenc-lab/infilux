@@ -1866,6 +1866,68 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('does not start buffered output before an output resync reset', async () => {
+    const mounted = mountHookHarness();
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'first output\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('first output\n');
+    const firstWriteCallback = testState.terminalWriteCallbacks.shift();
+    expect(firstWriteCallback).toBeTypeOf('function');
+
+    await act(async () => {
+      testState.sessionHandlers?.onResync?.({
+        sessionId: 'backend-session-1',
+        replay: 'resynced output\n',
+      });
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'buffered output\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      firstWriteCallback?.();
+      await flushMicrotasks();
+    });
+
+    const resetOrder = testState.terminalReset.mock.invocationCallOrder[0];
+    const replayWriteOrder = testState.terminalWrite.mock.invocationCallOrder[1];
+    expect(resetOrder).toBeLessThan(replayWriteOrder);
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('resynced output\n');
+
+    const replayWriteCallback = testState.terminalWriteCallbacks.shift();
+    expect(replayWriteCallback).toBeTypeOf('function');
+
+    await act(async () => {
+      replayWriteCallback?.();
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('buffered output\n');
+    await mounted.unmount();
+  });
+
   it('writes restored replay in bounded xterm chunks', async () => {
     const mounted = mountHookHarness();
     const replay = 'x'.repeat(XTERM_OUTPUT_WRITE_CHAR_LIMIT + 2);
