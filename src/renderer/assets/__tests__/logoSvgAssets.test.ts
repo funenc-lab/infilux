@@ -31,7 +31,7 @@ describe('logo asset sources', () => {
   it('uses a monochrome filled ribbon for tray assets', () => {
     const svg = readAsset('src/renderer/assets/logo-mono.svg');
 
-    expect(svg).toContain('transform="translate(28 62) scale(0.34)"');
+    expect(svg).toContain('transform="translate(-28 22) scale(0.46)"');
     expect(svg).toContain('fill-rule="evenodd"');
     expect(svg).toContain('clip-rule="evenodd"');
     expect(svg).toContain('fill="#000000"');
