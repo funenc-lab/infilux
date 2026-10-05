@@ -75,14 +75,14 @@ describe.sequential('electron capability policy launch integration', () => {
       expect(normalizeScenarioPath(invocation.cwd)).toBe(
         normalizeScenarioPath(scenario.worktreePath)
       );
-      expect(skillsConfigArg).toContain(
+      expect(normalizedSkillsConfigArg).toContain(
         `enabled = false, path = "${normalizeScenarioPath(scenario.userDuplicateSkillPath)}"`
       );
-      expect(skillsConfigArg).toContain(
+      expect(normalizedSkillsConfigArg).toContain(
         `enabled = false, path = "${normalizeScenarioPath(scenario.projectDuplicateSkillPath)}"`
       );
-      expect(normalizedSkillsConfigArg).toContain(
-        `enabled = true, path = "${normalizeScenarioPath(scenario.projectOnlySkillPath)}"`
+      expect(normalizedSkillsConfigArg).not.toContain(
+        `path = "${normalizeScenarioPath(scenario.projectOnlySkillPath)}"`
       );
 
       const joinedArgs = invocation.argv.join(' ');
@@ -127,11 +127,11 @@ describe.sequential('electron capability policy launch integration', () => {
       expect(normalizedSkillsConfigArg).toContain(
         `enabled = false, path = "${normalizeScenarioPath(scenario.worktreeOnlySkillPath)}"`
       );
-      expect(normalizedSkillsConfigArg).toContain(
-        `enabled = true, path = "${normalizeScenarioPath(scenario.userDuplicateSkillPath)}"`
+      expect(normalizedSkillsConfigArg).not.toContain(
+        `path = "${normalizeScenarioPath(scenario.userDuplicateSkillPath)}"`
       );
-      expect(normalizedSkillsConfigArg).toContain(
-        `enabled = true, path = "${normalizeScenarioPath(scenario.projectDuplicateSkillPath)}"`
+      expect(normalizedSkillsConfigArg).not.toContain(
+        `path = "${normalizeScenarioPath(scenario.projectDuplicateSkillPath)}"`
       );
 
       const joinedArgs = invocation.argv.join(' ');
@@ -185,9 +185,7 @@ async function openProjectConfigurationDialog(
     .filter({ hasText: scenario.repoName })
     .first();
   await selectedRepoRow.waitFor({ state: 'visible', timeout: 30000 });
-  await selectedRepoRow
-    .locator('button[aria-label="仓库操作"], button[aria-label="Repository actions"]')
-    .click();
+  await selectedRepoRow.locator('button.control-tree-action').click();
   await page.getByRole('menuitem', { name: /Project Configuration|项目配置/ }).click();
   await page.locator('[data-policy-action="save"]').waitFor({ state: 'visible', timeout: 30000 });
 }

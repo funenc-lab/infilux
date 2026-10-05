@@ -342,6 +342,7 @@ function buildCodexResolvedSkillEntries(
 ): { entries: CodexResolvedSkillEntry[]; warnings: string[] } {
   const warnings: string[] = [];
   const allowedCapabilityIds = new Set(resolvedPolicy.allowedCapabilityIds);
+  const blockedCapabilityIds = new Set(resolvedPolicy.blockedCapabilityIds);
   const skillEntries: CodexResolvedSkillEntry[] = [];
 
   for (const capability of capabilities) {
@@ -350,7 +351,11 @@ function buildCodexResolvedSkillEntries(
     }
 
     const enabled = allowedCapabilityIds.has(capability.id);
-    if (!enabled || !isExplicitPolicyDecision(resolvedPolicy, capability.id)) {
+    const blocked = blockedCapabilityIds.has(capability.id);
+    if (!enabled && !blocked) {
+      continue;
+    }
+    if (!isExplicitPolicyDecision(resolvedPolicy, capability.id)) {
       continue;
     }
 
@@ -374,7 +379,12 @@ function buildCodexResolvedSkillEntries(
       repoPath: resolvedPolicy.repoPath,
       worktreePath: resolvedPolicy.worktreePath,
     });
-    const injectedSourcePaths = preferredSourcePath ? [preferredSourcePath] : sourcePaths;
+    // Explicit blocks must cover every duplicate source; allows only need the provider-preferred path.
+    const injectedSourcePaths = enabled
+      ? preferredSourcePath
+        ? [preferredSourcePath]
+        : sourcePaths
+      : sourcePaths;
 
     for (const sourcePath of injectedSourcePaths) {
       skillEntries.push({

@@ -331,7 +331,6 @@ async function buildScenarioError(
       }`;
     }
   );
-
   return new Error(
     [
       error instanceof Error ? error.message : String(error),
@@ -375,10 +374,13 @@ async function expectAutoScrollWhileDragSelecting(
     );
   }
 
-  const dragStartX = terminalBox.x + terminalBox.width * 0.18;
+  const dragStartX = terminalBox.x + terminalBox.width * 0.45;
   const dragStartY = terminalBox.y + terminalBox.height * 0.25;
   const dragHoldX = terminalBox.x + terminalBox.width * 0.72;
-  const dragHoldY = sessionPanelBox.y + sessionPanelBox.height - 4;
+  const dragHoldY = Math.min(
+    sessionPanelBox.y + sessionPanelBox.height - 4,
+    terminalBox.y + terminalBox.height - 4
+  );
 
   await launch.page.mouse.move(dragStartX, dragStartY);
   await launch.page.mouse.down();

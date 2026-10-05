@@ -177,15 +177,39 @@ export class CodexRuntimeHomeService {
     return this.delegate;
   }
 
-  private collectLegacyRuntimeSessionPaths(sessionHistoryPath: string): string[] {
-    if (!existsSync(this.runtimeRootPath)) {
-      return [];
-    }
-
+  private collectLegacyRuntimeSessionPaths(
+    sessionHistoryPath: string,
+    sourceHomePath: string
+  ): string[] {
     const historyRootPath = path.resolve(path.dirname(path.dirname(sessionHistoryPath)));
+    const sourceSessionsPath = path.join(sourceHomePath, 'sessions');
+    const sourceSessionPaths: string[] = [];
 
     try {
-      return readdirSync(this.runtimeRootPath, { withFileTypes: true }).flatMap((entry) => {
+      const sourceSessionsStat = lstatSync(sourceSessionsPath);
+      if (sourceSessionsStat.isDirectory()) {
+        sourceSessionPaths.push(sourceSessionsPath);
+      } else if (sourceSessionsStat.isSymbolicLink()) {
+        const linkedTarget = resolveSymlinkTarget(
+          sourceSessionsPath,
+          readlinkSync(sourceSessionsPath)
+        );
+        if (!isPathWithin(historyRootPath, linkedTarget)) {
+          sourceSessionPaths.push(sourceSessionsPath);
+        }
+      }
+    } catch {
+      // A missing user history root is a normal first-run state.
+    }
+
+    if (!existsSync(this.runtimeRootPath)) {
+      return sourceSessionPaths;
+    }
+
+    try {
+      const runtimeSessionPaths = readdirSync(this.runtimeRootPath, {
+        withFileTypes: true,
+      }).flatMap((entry) => {
         if (!entry.isDirectory() || entry.isSymbolicLink()) {
           return [];
         }
@@ -216,14 +240,16 @@ export class CodexRuntimeHomeService {
           return [];
         }
       });
+      return [...sourceSessionPaths, ...runtimeSessionPaths];
     } catch {
-      return [];
+      return sourceSessionPaths;
     }
   }
 
   private scheduleWorkspaceMigration(
     options: CodexRuntimeHomeOptions,
-    currentRuntimeLegacySessionPaths: readonly string[]
+    currentRuntimeLegacySessionPaths: readonly string[],
+    sourceHomePath: string
   ): void {
     const sessionHistoryPath = options.sessionHistoryPath;
     void this.migrationCoordinator.schedule(path.resolve(sessionHistoryPath), async () => {
@@ -233,7 +259,7 @@ export class CodexRuntimeHomeService {
         sessionHistoryPath,
         sourceSessionsPaths: [
           ...currentRuntimeLegacySessionPaths,
-          ...this.collectLegacyRuntimeSessionPaths(sessionHistoryPath),
+          ...this.collectLegacyRuntimeSessionPaths(sessionHistoryPath, sourceHomePath),
           ...legacyWorkspaceSessionPaths,
         ],
         worktreePath: options.sessionHistoryScope.worktreePath ?? '',
@@ -253,7 +279,8 @@ export class CodexRuntimeHomeService {
     );
     this.scheduleWorkspaceMigration(
       options,
-      migratedRuntimeSessionPath ? [migratedRuntimeSessionPath] : []
+      migratedRuntimeSessionPath ? [migratedRuntimeSessionPath] : [],
+      runtimeHome.sourceHomePath
     );
     return runtimeHome;
   }

@@ -167,23 +167,24 @@ describe('AgentCapabilityLaunchService smoke tests', () => {
     expect(preparedLaunch.sessionOverrides?.metadata).toMatchObject({
       providerLaunchStrategy: 'codex-runtime-config',
       codexMcpServerIds: ['repo-mcp'],
-      codexSkillIds: ['legacy-skill:ship'],
+      codexSkillIds: ['legacy-skill:review', 'legacy-skill:ship'],
     });
     expect(preparedLaunch.sessionOverrides?.args).toEqual(
       expect.arrayContaining([
         '-c',
         'mcp_servers.repo-mcp.command="/bin/echo"',
-        '-c',
-        `skills.config=[{enabled = true, path = "${join(
-          repoPath,
-          '.codex',
-          'skills',
-          'ship',
-          'SKILL.md'
-        )}"}]`,
         'resume',
         'codex-session-1',
       ])
+    );
+    const skillsConfigArg = preparedLaunch.sessionOverrides?.args?.find((arg) =>
+      arg.startsWith('skills.config=')
+    );
+    expect(skillsConfigArg).toContain(
+      `enabled = false, path = "${join(worktreePath, '.codex', 'skills', 'review', 'SKILL.md')}"`
+    );
+    expect(skillsConfigArg).toContain(
+      `enabled = true, path = "${join(repoPath, '.codex', 'skills', 'ship', 'SKILL.md')}"`
     );
   });
 
@@ -231,10 +232,10 @@ describe('AgentCapabilityLaunchService smoke tests', () => {
     ]);
     expect(preparedLaunch.launchResult.projected).toMatchObject({ applied: true });
     expect(preparedLaunch.sessionOverrides?.metadata).toMatchObject({
-      codexSkillIds: [],
+      codexSkillIds: ['legacy-skill:agent-review'],
     });
-    expect(preparedLaunch.sessionOverrides?.args ?? []).not.toContainEqual(
-      expect.stringContaining('skills.config')
+    expect(preparedLaunch.sessionOverrides?.args ?? []).toContainEqual(
+      expect.stringContaining(`skills.config=[{enabled = false, path = "${agentSkillPath}"}]`)
     );
   });
 

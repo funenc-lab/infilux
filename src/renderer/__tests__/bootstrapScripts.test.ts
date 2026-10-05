@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 function readRendererFile(fileName: string): string {
-  return readFileSync(join(process.cwd(), 'src/renderer', fileName), 'utf8');
+  return readFileSync(join(process.cwd(), 'src/renderer/public', fileName), 'utf8');
 }
 
 describe('renderer bootstrap scripts', () => {

@@ -191,7 +191,7 @@ describe('CodexCapabilityProviderAdapter', () => {
     expect(projection.sessionOverrides?.args?.join(' ')).not.toContain('node_repl');
   });
 
-  it('does not inject disabled skills into Codex runtime configuration', () => {
+  it('injects explicit disabled skills into Codex runtime configuration', () => {
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
@@ -223,9 +223,53 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
 
     expect(projection.applied).toBe(true);
-    expect(projection.sessionOverrides?.metadata?.codexSkillIds).toEqual([]);
-    expect(projection.sessionOverrides?.args ?? []).not.toContainEqual(
-      expect.stringContaining('skills.config')
+    expect(projection.sessionOverrides?.metadata?.codexSkillIds).toEqual([
+      'legacy-skill:skill-creator',
+    ]);
+    expect(projection.sessionOverrides?.args).toEqual(
+      expect.arrayContaining([
+        '-c',
+        'skills.config=[{enabled = false, path = "/Users/test/.agents/skills/skill-creator/SKILL.md"}, {enabled = false, path = "/Users/test/.codex/skills/.system/skill-creator/SKILL.md"}, {enabled = false, path = "/Users/test/.codex/skills/skill-creator/SKILL.md"}]',
+      ])
+    );
+  });
+
+  it('disables every source path for an explicitly blocked duplicate skill', () => {
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: '/repo/worktrees/feat-a',
+        kind: 'agent',
+        shell: 'codex',
+        args: ['resume', 'codex-session-1'],
+      },
+      [
+        {
+          id: 'legacy-skill:skill-creator',
+          kind: 'legacy-skill',
+          name: 'Skill Creator',
+          description: 'Create skills',
+          sourceScope: 'project',
+          sourcePath: '/repo/.agents/skills/skill-creator/SKILL.md',
+          sourcePaths: [
+            '/Users/test/.codex/skills/skill-creator/SKILL.md',
+            '/repo/.agents/skills/skill-creator/SKILL.md',
+          ],
+          isAvailable: true,
+          isConfigurable: true,
+        },
+      ],
+      createResolvedPolicy({
+        blockedCapabilityIds: ['legacy-skill:skill-creator'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.args).toEqual(
+      expect.arrayContaining([
+        '-c',
+        'skills.config=[{enabled = false, path = "/repo/.agents/skills/skill-creator/SKILL.md"}, {enabled = false, path = "/Users/test/.codex/skills/skill-creator/SKILL.md"}]',
+      ])
     );
   });
 

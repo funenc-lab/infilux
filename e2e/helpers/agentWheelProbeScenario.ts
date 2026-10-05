@@ -3,6 +3,20 @@ import { randomUUID } from 'node:crypto';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  RUNTIME_STATE_DIRNAME,
+  SESSION_STATE_FILENAME,
+  SETTINGS_FILENAME,
+} from '../../src/shared/paths';
+import {
+  buildAppRuntimeIdentity,
+  buildPersistentAgentHostSessionKey,
+} from '../../src/shared/utils/runtimeIdentity';
+import { sanitizeRuntimeProfileName } from '../../src/shared/utils/runtimeProfile';
+import {
+  buildManagedTmuxSocketDirPath,
+  buildManagedTmuxSocketPath,
+} from '../../src/shared/utils/tmux';
 import { buildRepositoryId } from '../../src/shared/utils/workspace';
 
 const DEFAULT_PROBE_TIMEOUT_MS = 30000;
@@ -122,6 +136,40 @@ async function createGitRepositoryFixture(repoPath: string, worktreePath: string
   runCommand('git', ['worktree', 'add', worktreePath, 'feature-wheel-scroll'], { cwd: repoPath });
 }
 
+async function createTmuxProbeSession(options: {
+  homeDir: string;
+  rootDir: string;
+  worktreePath: string;
+  sessionName: string;
+}): Promise<void> {
+  const runtimeIdentity = buildAppRuntimeIdentity('dev');
+  const socketPath = buildManagedTmuxSocketPath(options.homeDir, runtimeIdentity.tmuxServerName);
+  const wrapperPath = join(options.rootDir, 'agent-wheel-host.sh');
+  await mkdir(buildManagedTmuxSocketDirPath(options.homeDir), { recursive: true });
+  await writeFile(
+    wrapperPath,
+    ['#!/bin/sh', `cd ${shellQuote(options.worktreePath)} || exit 1`, 'exec sleep 300', ''].join(
+      '\n'
+    ),
+    { encoding: 'utf8', mode: 0o755 }
+  );
+
+  spawnSync('tmux', ['-S', socketPath, 'kill-session', '-t', options.sessionName], {
+    stdio: 'ignore',
+  });
+  runCommand('tmux', [
+    '-S',
+    socketPath,
+    '-f',
+    '/dev/null',
+    'new-session',
+    '-d',
+    '-s',
+    options.sessionName,
+    wrapperPath,
+  ]);
+}
+
 async function installWheelProbeScript(rootDir: string): Promise<{
   probeScriptPath: string;
   probeLogPath: string;
@@ -162,8 +210,6 @@ async function installWheelProbeScript(rootDir: string): Promise<{
     '    except Exception:',
     '        pass',
     '    try:',
-    "        sys.stdout.write('\\x1b[?1000l\\x1b[?1006l')",
-    "        sys.stdout.write('\\x1b[?1049l')",
     '        sys.stdout.flush()',
     '    except Exception:',
     '        pass',
@@ -171,7 +217,6 @@ async function installWheelProbeScript(rootDir: string): Promise<{
     'atexit.register(cleanup)',
     '',
     'tty.setraw(fd)',
-    "sys.stdout.write('\\x1b[?1049h\\x1b[?1000h\\x1b[?1006h')",
     'for index in range(1, TRANSCRIPT_LINE_COUNT + 1):',
     "    sys.stdout.write(f'TRANSCRIPT-LINE-{index:03d}\\r\\n')",
     "sys.stdout.write('Wheel probe ready\\r\\n')",
@@ -257,9 +302,11 @@ function buildBrowserLocalStorageSnapshot(input: {
         customArgs: `-u ${shellQuote(input.probeScriptPath)} ${shellQuote(input.probeLogPath)}`,
         initialized: true,
         activated: true,
+        recoveryState: 'live',
         repoPath: input.repoPath,
         cwd: input.worktreePath,
         environment: 'native',
+        // Keep a live host record so renderer hydration can recover the seeded session.
         persistenceEnabled: true,
       },
     ],
@@ -305,7 +352,8 @@ function buildBrowserLocalStorageSnapshot(input: {
 }
 
 export async function createAgentWheelProbeScenario(): Promise<AgentWheelProbeScenario> {
-  const rootDir = await mkdtemp(join(tmpdir(), 'infilux-agent-wheel-'));
+  const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
+  const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-wheel-'));
   const homeDir = join(rootDir, 'home');
   const workspaceRoot = join(rootDir, 'workspace');
   const repoPath = join(workspaceRoot, 'repo-main');
@@ -322,8 +370,74 @@ export async function createAgentWheelProbeScenario(): Promise<AgentWheelProbeSc
   await mkdir(homeDir, { recursive: true });
   await mkdir(workspaceRoot, { recursive: true });
   await createGitRepositoryFixture(repoPath, worktreePath);
+  const settingsRoot = join(
+    homeDir,
+    `${RUNTIME_STATE_DIRNAME}-dev`,
+    sanitizeRuntimeProfileName(profileName) || 'dev'
+  );
+  await mkdir(settingsRoot, { recursive: true });
+  const settingsDocument = {
+    'enso-settings': {
+      state: {
+        terminalRenderer: 'dom',
+        claudeCodeIntegration: {
+          tmuxEnabled: false,
+        },
+      },
+    },
+  };
+  await writeFile(
+    join(settingsRoot, SETTINGS_FILENAME),
+    `${JSON.stringify(settingsDocument, null, 2)}\n`,
+    'utf8'
+  );
 
   const { probeScriptPath, probeLogPath } = await installWheelProbeScript(rootDir);
+  const hostSessionKey = buildPersistentAgentHostSessionKey(uiSessionId, 'dev');
+  await createTmuxProbeSession({
+    homeDir,
+    rootDir,
+    worktreePath,
+    sessionName: hostSessionKey,
+  });
+  const now = Date.now();
+  await writeFile(
+    join(settingsRoot, SESSION_STATE_FILENAME),
+    `${JSON.stringify(
+      {
+        version: 2,
+        updatedAt: now,
+        settingsData: settingsDocument,
+        localStorage: {},
+        persistentAgentSessions: [
+          {
+            uiSessionId,
+            backendSessionId: `stale-backend-${uiSessionId}`,
+            agentId: 'shell',
+            agentCommand: 'python3',
+            customPath: 'python3',
+            customArgs: `-u ${shellQuote(probeScriptPath)} ${shellQuote(probeLogPath)}`,
+            environment: 'native',
+            repoPath,
+            cwd: worktreePath,
+            displayName: sessionDisplayName,
+            activated: true,
+            initialized: true,
+            hostKind: 'tmux',
+            hostSessionKey,
+            recoveryPolicy: 'auto',
+            createdAt: now - 1000,
+            updatedAt: now,
+            lastKnownState: 'live',
+          },
+        ],
+        todos: {},
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
   const browserLocalStorage = buildBrowserLocalStorageSnapshot({
     repoId,
     repoName,
@@ -350,6 +464,18 @@ export async function createAgentWheelProbeScenario(): Promise<AgentWheelProbeSc
     probeLogPath,
     browserLocalStorage,
     cleanup: async () => {
+      const runtimeIdentity = buildAppRuntimeIdentity('dev');
+      spawnSync(
+        'tmux',
+        [
+          '-S',
+          buildManagedTmuxSocketPath(homeDir, runtimeIdentity.tmuxServerName),
+          'kill-session',
+          '-t',
+          hostSessionKey,
+        ],
+        { stdio: 'ignore' }
+      );
       await rm(rootDir, { recursive: true, force: true });
     },
   };

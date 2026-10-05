@@ -177,6 +177,10 @@ async function writeSettingsDocument(
             agentDetectionStatus: {
               codex: { installed: true, version: '0.99.0' },
             },
+            terminalRenderer: 'dom',
+            claudeCodeIntegration: {
+              tmuxEnabled: true,
+            },
           },
         },
       },

@@ -81,6 +81,7 @@ export default defineConfig({
         '@shared': path.resolve(__dirname, 'src/shared'),
       },
     },
+    publicDir: path.resolve(__dirname, 'src/renderer/public'),
     server: {
       host: '127.0.0.1',
       strictPort: true,

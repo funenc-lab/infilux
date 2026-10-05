@@ -293,6 +293,10 @@ export async function waitForRepositoryAndWorktree(
     .filter({ hasText: scenario.repoName })
     .first();
   await selectedRepoRow.waitFor({ state: 'visible', timeout: 30000 });
+  await revealWorktreeSidebarForInteraction(
+    page,
+    selectedRepoRow.locator('button.control-tree-action').first()
+  );
 
   const disclosureButton = selectedRepoRow.locator('button.control-tree-disclosure').first();
   const expanded = await disclosureButton.getAttribute('aria-expanded');
@@ -306,6 +310,48 @@ export async function waitForRepositoryAndWorktree(
     .locator('button[data-surface="row"]')
     .first();
   await worktreeButton.waitFor({ state: 'visible', timeout: 30000 });
+  await revealWorktreeSidebarForInteraction(page, worktreeButton);
+}
+
+async function revealWorktreeSidebarForInteraction(
+  page: Page,
+  worktreeButton: ReturnType<Page['locator']>
+): Promise<void> {
+  const hoverRevealGroup = worktreeButton
+    .locator('xpath=ancestor::*[@data-sidebar-hover-reveal-group="active"]')
+    .first();
+
+  if ((await hoverRevealGroup.count()) === 0) {
+    return;
+  }
+
+  const groupBox = await hoverRevealGroup.boundingBox();
+  const targetBox = await worktreeButton.boundingBox();
+  if (!groupBox || !targetBox) {
+    throw new Error('Unable to resolve the sidebar hover-reveal geometry.');
+  }
+
+  await page.mouse.move(groupBox.x + groupBox.width / 2, targetBox.y + targetBox.height / 2);
+
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const ready = await worktreeButton.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const hitTarget = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2
+      );
+
+      return hitTarget === element || hitTarget?.closest('button') === element;
+    });
+    if (ready) {
+      return;
+    }
+
+    await page.waitForTimeout(50);
+  }
+
+  throw new Error('Worktree sidebar did not become interactive after hover reveal.');
 }
 
 export function formatElectronDiagnostics(launched: LaunchedElectronApp): string {
