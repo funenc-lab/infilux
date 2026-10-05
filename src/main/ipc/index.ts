@@ -198,7 +198,7 @@ export async function cleanupAllResources(): Promise<CleanupSummary> {
     {
       label: 'hapi',
       timeoutMs: 4_000,
-      run: () => cleanupHapi(4_000),
+      run: () => cleanupHapi(2_000),
     },
     {
       label: 'terminals',

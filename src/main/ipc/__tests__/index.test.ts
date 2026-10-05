@@ -48,6 +48,8 @@ const indexTestDoubles = vi.hoisted(() => {
   const autoUpdaterCleanup = vi.fn();
   const disposeClaudeIdeBridge = vi.fn();
   const remoteCleanup = vi.fn();
+  const persistentAgentSessionClose = vi.fn();
+  const persistentAgentSessionCloseSync = vi.fn();
   const cleanupTodo = vi.fn();
   const cleanupTodoSync = vi.fn();
   const webInspectorStop = vi.fn();
@@ -100,6 +102,8 @@ const indexTestDoubles = vi.hoisted(() => {
       autoUpdaterCleanup,
       disposeClaudeIdeBridge,
       remoteCleanup,
+      persistentAgentSessionClose,
+      persistentAgentSessionCloseSync,
       cleanupTodo,
       cleanupTodoSync,
       webInspectorStop,
@@ -116,6 +120,7 @@ const indexTestDoubles = vi.hoisted(() => {
     stopClaudeCompletionsWatchers.mockResolvedValue(undefined);
     cleanupTempFiles.mockResolvedValue(undefined);
     remoteCleanup.mockResolvedValue(undefined);
+    persistentAgentSessionClose.mockResolvedValue(undefined);
     cleanupTodo.mockResolvedValue(undefined);
     webInspectorStop.mockResolvedValue(undefined);
   }
@@ -167,6 +172,8 @@ const indexTestDoubles = vi.hoisted(() => {
     autoUpdaterCleanup,
     disposeClaudeIdeBridge,
     remoteCleanup,
+    persistentAgentSessionClose,
+    persistentAgentSessionCloseSync,
     cleanupTodo,
     cleanupTodoSync,
     webInspectorStop,
@@ -264,6 +271,13 @@ vi.mock('../hapi', () => ({
 vi.mock('../../services/remote/RemoteConnectionManager', () => ({
   remoteConnectionManager: {
     cleanup: indexTestDoubles.remoteCleanup,
+  },
+}));
+
+vi.mock('../../services/session/PersistentAgentSessionRepository', () => ({
+  persistentAgentSessionRepository: {
+    close: indexTestDoubles.persistentAgentSessionClose,
+    closeSync: indexTestDoubles.persistentAgentSessionCloseSync,
   },
 }));
 
@@ -403,7 +417,7 @@ describe('ipc index', () => {
     const summary = await cleanupAllResources();
 
     expect(indexTestDoubles.cleanupExecInPtys).toHaveBeenCalledWith(4000);
-    expect(indexTestDoubles.cleanupHapi).toHaveBeenCalledWith(4000);
+    expect(indexTestDoubles.cleanupHapi).toHaveBeenCalledWith(2000);
     expect(indexTestDoubles.destroyAllTerminalsAndWait).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.destroyAllTerminals).toHaveBeenCalledTimes(1);
     expect(indexTestDoubles.stopAllFileWatchers).toHaveBeenCalledTimes(1);

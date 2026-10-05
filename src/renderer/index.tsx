@@ -156,6 +156,10 @@ async function startApp(): Promise<void> {
   const rootRenderer = createRoot(root);
   setBootstrapStage('start-app-entered');
   await runAppBootstrap({
+    onBootstrapRetry: (error, attempt) => {
+      setBootstrapStage('bootstrap-retrying');
+      console.warn(`[renderer] Bootstrap failed; retrying attempt ${attempt + 1}`, error);
+    },
     renderStartupShell: () => {
       setBootstrapStage('rendering-startup-shell');
       rootRenderer.render(

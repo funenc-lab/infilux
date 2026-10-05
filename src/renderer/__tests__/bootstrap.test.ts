@@ -133,4 +133,28 @@ describe('runAppBootstrap', () => {
 
     expect(renderOrder).toEqual(['startup-shell', 'app:App']);
   });
+
+  it('retries a transient bootstrap failure before surfacing the error', async () => {
+    const renderOrder: string[] = [];
+    let attempts = 0;
+
+    await runAppBootstrap({
+      renderStartupShell: () => {
+        renderOrder.push('startup-shell');
+      },
+      bootstrap: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error('transient bootstrap failure');
+        }
+        return { default: 'App' };
+      },
+      renderApp: ({ default: App }) => {
+        renderOrder.push(`app:${App}`);
+      },
+    });
+
+    expect(attempts).toBe(2);
+    expect(renderOrder).toEqual(['startup-shell', 'app:App']);
+  });
 });

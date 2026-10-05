@@ -16,6 +16,8 @@ export interface PrepareAppBootstrapResult<TAppModule> {
 }
 
 export interface RunAppBootstrapOptions<TAppModule> {
+  maxAttempts?: number;
+  onBootstrapRetry?: (error: unknown, attempt: number) => void;
   renderStartupShell: () => void;
   bootstrap: () => Promise<TAppModule>;
   renderApp: (appModule: TAppModule) => void;
@@ -75,11 +77,28 @@ export async function prepareAppBootstrap<TAppModule>({
 }
 
 export async function runAppBootstrap<TAppModule>({
+  maxAttempts = 2,
+  onBootstrapRetry,
   renderStartupShell,
   bootstrap,
   renderApp,
 }: RunAppBootstrapOptions<TAppModule>): Promise<void> {
   renderStartupShell();
-  const appModule = await bootstrap();
-  renderApp(appModule);
+  const attemptLimit = Math.max(1, Math.floor(maxAttempts));
+
+  for (let attempt = 1; attempt <= attemptLimit; attempt += 1) {
+    let appModule: TAppModule;
+    try {
+      appModule = await bootstrap();
+    } catch (error) {
+      if (attempt >= attemptLimit) {
+        throw error;
+      }
+      onBootstrapRetry?.(error, attempt);
+      continue;
+    }
+
+    renderApp(appModule);
+    return;
+  }
 }

@@ -745,10 +745,9 @@ async function migrateLegacyTodoIfNeeded(): Promise<void> {
       todos: boards,
     });
     markLegacyTodoMigrated();
+    // Keep the shared Todo service open; normal app shutdown owns its lifecycle.
   } catch (error) {
     console.warn('[migration] Failed to migrate legacy todo.db:', error);
-  } finally {
-    await todoService.close();
   }
 }
 
@@ -1706,7 +1705,12 @@ app.whenReady().then(async () => {
   recordMainStartupStage('hapi-auto-start-queued');
 
   // Initialize auto-updater
-  await initAutoUpdater(mainWindow);
+  try {
+    await initAutoUpdater(mainWindow);
+  } catch (error) {
+    // Update checks are optional and must not prevent the workspace from opening.
+    console.warn('[startup] Auto updater initialization failed:', error);
+  }
   recordMainStartupStage('auto-updater-initialized');
 
   // Initialize git auto-fetch service

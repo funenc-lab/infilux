@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { killProcessTree } from '../../utils/processUtils';
 import { getEnvForCommand, getShellForCommand } from '../../utils/shell';
@@ -21,9 +21,19 @@ interface RunnerCommandResult {
 
 class HapiRunnerManager extends EventEmitter {
   private status: HapiRunnerStatus = { running: false };
+  private isCleaningUp = false;
+  private lastHapiCommand: string | null = null;
+  private readonly cancelPendingStarts = new Set<() => void>();
+  private readonly pendingStarts = new Set<Promise<HapiRunnerStatus>>();
 
   private async getRunnerCommand(action: RunnerAction): Promise<string> {
-    const hapiCommand = await hapiServerManager.getHapiCommand();
+    const hapiCommand =
+      action === 'stop' && this.isCleaningUp && this.lastHapiCommand
+        ? this.lastHapiCommand
+        : await hapiServerManager.getHapiCommand();
+    if (action === 'start') {
+      this.lastHapiCommand = hapiCommand;
+    }
     return hapiCommand === 'hapi'
       ? `hapi runner ${action}`
       : `npx -y @twsxtd/hapi runner ${action}`;
@@ -34,6 +44,9 @@ class HapiRunnerManager extends EventEmitter {
     timeoutMs = 30000
   ): Promise<RunnerCommandResult> {
     const command = await this.getRunnerCommand(action);
+    if (action === 'start' && this.isCleaningUp) {
+      return { code: null, stdout: '', stderr: '', timedOut: false };
+    }
     const { shell, args: shellArgs } = getShellForCommand();
 
     return new Promise((resolve) => {
@@ -45,15 +58,35 @@ class HapiRunnerManager extends EventEmitter {
       let stdout = '';
       let stderr = '';
       let settled = false;
-
-      const timeout = setTimeout(() => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const settle = (result: RunnerCommandResult) => {
         if (settled) {
           return;
         }
-
         settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        this.cancelPendingStarts.delete(cancelStart);
+        resolve(result);
+      };
+      const cancelStart = () => {
+        if (settled) {
+          return;
+        }
         killProcessTree(proc);
-        resolve({ code: null, stdout, stderr, timedOut: true });
+        settle({ code: null, stdout, stderr, timedOut: false });
+      };
+      if (action === 'start') {
+        this.cancelPendingStarts.add(cancelStart);
+      }
+
+      timeout = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        killProcessTree(proc);
+        settle({ code: null, stdout, stderr, timedOut: true });
       }, timeoutMs);
 
       proc.stdout?.on('data', (data: Buffer) => {
@@ -68,10 +101,7 @@ class HapiRunnerManager extends EventEmitter {
         if (settled) {
           return;
         }
-
-        settled = true;
-        clearTimeout(timeout);
-        resolve({
+        settle({
           code: null,
           stdout,
           stderr: `${stderr}\n${error.message}`.trim(),
@@ -80,13 +110,7 @@ class HapiRunnerManager extends EventEmitter {
       });
 
       proc.on('exit', (code) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timeout);
-        resolve({ code, stdout, stderr, timedOut: false });
+        settle({ code, stdout, stderr, timedOut: false });
       });
     });
   }
@@ -137,21 +161,36 @@ class HapiRunnerManager extends EventEmitter {
     return /(already\s+stopped|not\s+running|\bstopped\b|\binactive\b|no\s+runner)/i.test(output);
   }
 
-  async start(): Promise<HapiRunnerStatus> {
-    const result = await this.runRunnerCommand('start', 120000);
-    const output = `${result.stdout}\n${result.stderr}`.trim();
-
-    if (result.code === 0 || this.isRunningOutput(output)) {
-      return this.setStatus({
-        running: true,
-        pid: this.extractPid(output),
-      });
+  start(): Promise<HapiRunnerStatus> {
+    if (this.isCleaningUp) {
+      return Promise.resolve(this.status);
     }
 
-    return this.setStatus({
-      running: false,
-      error: this.buildCommandError('start', result),
+    const startPromise = this.runRunnerCommand('start', 120000).then((result) => {
+      if (this.isCleaningUp) {
+        return this.status;
+      }
+      const output = `${result.stdout}\n${result.stderr}`.trim();
+
+      if (result.code === 0 || this.isRunningOutput(output)) {
+        return this.setStatus({
+          running: true,
+          pid: this.extractPid(output),
+        });
+      }
+
+      return this.setStatus({
+        running: false,
+        error: this.buildCommandError('start', result),
+      });
     });
+
+    this.pendingStarts.add(startPromise);
+    void startPromise.then(
+      () => this.pendingStarts.delete(startPromise),
+      () => this.pendingStarts.delete(startPromise)
+    );
+    return startPromise;
   }
 
   async stop(timeoutMs = 30000): Promise<HapiRunnerStatus> {
@@ -171,7 +210,7 @@ class HapiRunnerManager extends EventEmitter {
     }
 
     return this.setStatus({
-      running: false,
+      ...this.status,
       error: this.buildCommandError('stop', result),
     });
   }
@@ -180,7 +219,22 @@ class HapiRunnerManager extends EventEmitter {
     return this.status;
   }
 
+  private beginCleanup(): boolean {
+    const shouldStop =
+      this.status.running ||
+      this.cancelPendingStarts.size > 0 ||
+      (this.pendingStarts.size > 0 && this.lastHapiCommand !== null);
+    this.isCleaningUp = true;
+    for (const cancelStart of Array.from(this.cancelPendingStarts)) {
+      cancelStart();
+    }
+    return shouldStop;
+  }
+
   async cleanup(timeoutMs = 5000): Promise<void> {
+    if (!this.beginCleanup()) {
+      return;
+    }
     const status = await this.stop(timeoutMs);
     if (status.error) {
       console.warn('[hapi:runner] Cleanup warning:', status.error);
@@ -188,9 +242,36 @@ class HapiRunnerManager extends EventEmitter {
   }
 
   cleanupSync(): void {
-    void this.stop(3000).catch((error) => {
+    if (!this.beginCleanup()) {
+      return;
+    }
+
+    if (!this.lastHapiCommand) {
+      console.warn('[hapi:runner] Sync cleanup skipped: runner command is unavailable');
+      return;
+    }
+
+    try {
+      const { shell, args: shellArgs } = getShellForCommand();
+      const command =
+        this.lastHapiCommand === 'hapi' ? 'hapi runner stop' : 'npx -y @twsxtd/hapi runner stop';
+      const result = spawnSync(shell, [...shellArgs, command], {
+        env: getEnvForCommand(),
+        stdio: 'ignore',
+        timeout: 1500,
+      });
+      if (result.error || result.status !== 0) {
+        console.warn(
+          '[hapi:runner] Sync cleanup failed:',
+          result.error ??
+            new Error(`hapi runner stop exited with code ${result.status ?? 'unknown'}`)
+        );
+        return;
+      }
+      this.setStatus({ running: false });
+    } catch (error) {
       console.warn('[hapi:runner] Sync cleanup failed:', error);
-    });
+    }
   }
 }
 

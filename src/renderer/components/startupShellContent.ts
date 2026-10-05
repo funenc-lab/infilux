@@ -30,6 +30,7 @@ function resolveStartupShellTemplate(stage: string | null | undefined): StartupS
         progressMax: 4,
       };
     case 'importing-app':
+    case 'bootstrap-retrying':
       return {
         title: 'Loading shell',
         description: 'Preparing runtime modules and workspace services.',

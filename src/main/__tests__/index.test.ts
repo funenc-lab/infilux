@@ -1557,6 +1557,7 @@ describe('main entry', () => {
     );
     expect(mainIndexTestDoubles.todoInitialize).toHaveBeenCalled();
     expect(mainIndexTestDoubles.todoExportAllTasks).toHaveBeenCalled();
+    expect(mainIndexTestDoubles.todoClose).not.toHaveBeenCalled();
     expect(mainIndexTestDoubles.writeSharedSessionState).toHaveBeenCalledWith(
       expect.objectContaining({
         todos: [{ id: 'board-1' }],
@@ -1944,6 +1945,30 @@ describe('main entry', () => {
       activatedWindow
     );
     expect(mainIndexTestDoubles.autoUpdaterAttachWindow).toHaveBeenLastCalledWith(activatedWindow);
+  });
+
+  it('keeps the main window available when optional auto updater startup fails', async () => {
+    const mainWindow = mainIndexTestDoubles.createWindow({ loading: false });
+    const updaterError = new Error('updater initialization failed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mainIndexTestDoubles.setNextOpenWindow(mainWindow);
+    mainIndexTestDoubles.autoUpdaterInit.mockImplementationOnce(() => {
+      throw updaterError;
+    });
+
+    await importMainModule({
+      autoReady: true,
+      platform: 'win32',
+    });
+
+    expect(mainIndexTestDoubles.openLocalWindow).toHaveBeenCalledWith({
+      bootstrapMainStage: 'main-init-complete',
+    });
+    expect(mainIndexTestDoubles.setApplicationMenu).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[startup] Auto updater initialization failed:',
+      updaterError
+    );
   });
 
   it('does not delay main window creation while previous temp input cleanup is pending', async () => {
