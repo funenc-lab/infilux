@@ -729,6 +729,8 @@ export function AgentTerminal({
   const runtimeStateRef = useRef<'live' | 'reconnecting' | 'dead'>('live');
   const trustPromptSubmitRef = useRef<(data: string) => void>(() => {});
   const terminalFocusRef = useRef<(() => void) | null>(null);
+  const terminalIdentityRef = useRef<unknown>(null);
+  const terminalLoadingRef = useRef(false);
 
   // Output state tracking for global store
   const outputStateRef = useRef<OutputState>('idle');
@@ -1960,6 +1962,28 @@ export function AgentTerminal({
   trustPromptSubmitRef.current = write;
   terminalFocusRef.current = () => focusXtermTextInput(terminal);
   runtimeStateRef.current = runtimeState;
+
+  useEffect(() => {
+    const previousTerminal = terminalIdentityRef.current;
+    const wasLoading = terminalLoadingRef.current;
+    terminalIdentityRef.current = terminal;
+    terminalLoadingRef.current = isLoading;
+
+    if (
+      !terminal ||
+      isLoading ||
+      !isActive ||
+      isReadOnlyTranscript ||
+      enhancedInputOpen ||
+      runtimeState !== 'live' ||
+      (!wasLoading && (previousTerminal === null || previousTerminal === terminal))
+    ) {
+      return;
+    }
+
+    focusXtermTextInput(terminal);
+  }, [enhancedInputOpen, isActive, isLoading, isReadOnlyTranscript, runtimeState, terminal]);
+
   const lastAppliedLayoutRefreshRef = useRef<{
     key: string;
     terminal: NonNullable<typeof terminal>;

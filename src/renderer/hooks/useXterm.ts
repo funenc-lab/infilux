@@ -106,6 +106,24 @@ const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 const PENDING_TERMINAL_INPUT_CHAR_LIMIT = 1024 * 1024;
 
+interface TerminalInputRef {
+  current: string;
+}
+
+function appendPendingTerminalInput(ref: TerminalInputRef, data: string): boolean {
+  if (ref.current.length + data.length > PENDING_TERMINAL_INPUT_CHAR_LIMIT) {
+    console.warn('[xterm] Discarding oversized pending terminal input', {
+      bufferedChars: ref.current.length,
+      inputChars: data.length,
+      limit: PENDING_TERMINAL_INPUT_CHAR_LIMIT,
+    });
+    return false;
+  }
+
+  ref.current += data;
+  return true;
+}
+
 interface InternalTerminalSearchDecorations {
   matchBackground?: string;
   matchBorder?: string;
@@ -608,6 +626,10 @@ export function useXterm({
   }, [recoveredReplaySnapshot]);
 
   const write = useCallback((data: string) => {
+    if (!data) {
+      return;
+    }
+
     if (
       ptyIdRef.current &&
       runtimeStateRef.current === 'live' &&
@@ -617,19 +639,8 @@ export function useXterm({
       return;
     }
 
-    if (isSessionCreationPendingRef.current) {
-      if (
-        pendingTerminalInputRef.current.length + data.length >
-        PENDING_TERMINAL_INPUT_CHAR_LIMIT
-      ) {
-        console.warn('[xterm] Discarding oversized pending terminal input', {
-          bufferedChars: pendingTerminalInputRef.current.length,
-          inputChars: data.length,
-          limit: PENDING_TERMINAL_INPUT_CHAR_LIMIT,
-        });
-        return;
-      }
-      pendingTerminalInputRef.current += data;
+    if (isSessionCreationPendingRef.current || runtimeStateRef.current === 'reconnecting') {
+      appendPendingTerminalInput(pendingTerminalInputRef, data);
     }
   }, []);
 
@@ -2174,6 +2185,14 @@ export function useXterm({
               }, 30);
             },
             onState: (event) => {
+              runtimeStateRef.current = event.state;
+              if (
+                event.state === 'live' &&
+                ptyIdRef.current === event.sessionId &&
+                !isSessionCreationPendingRef.current
+              ) {
+                flushPendingTerminalInput(event.sessionId);
+              }
               setRuntimeState(event.state);
             },
           });

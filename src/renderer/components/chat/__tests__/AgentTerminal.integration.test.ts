@@ -1146,6 +1146,22 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('restores native terminal focus after xterm finishes rebuilding', async () => {
+    const mounted = await mountAgentTerminal();
+    testState.terminal.focus.mockClear();
+
+    testState.xtermResult.isLoading = true;
+    await mounted.rerender();
+    expect(testState.terminal.focus).not.toHaveBeenCalled();
+
+    testState.xtermResult.isLoading = false;
+    await mounted.rerender();
+
+    expect(testState.terminal.focus).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
   it('renders the startup overlay for active new sessions before xterm reports loading', async () => {
     testState.terminalInstance = null;
 

@@ -1240,6 +1240,95 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('preserves input typed during a reconnect and flushes it when the session is live again', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onState).toBeTypeOf('function');
+    act(() => {
+      testState.sessionHandlers?.onState?.({
+        sessionId: 'backend-session-1',
+        state: 'reconnecting',
+      });
+      testState.terminalDataHandler?.('typed while reconnecting');
+    });
+
+    expect(testState.sessionWrite).not.toHaveBeenCalledWith(
+      'backend-session-1',
+      'typed while reconnecting'
+    );
+
+    act(() => {
+      testState.sessionHandlers?.onState?.({
+        sessionId: 'backend-session-1',
+        state: 'live',
+      });
+      testState.terminalDataHandler?.('typed immediately after recovery');
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith(
+      'backend-session-1',
+      'typed while reconnecting'
+    );
+    expect(testState.sessionWrite).toHaveBeenCalledWith(
+      'backend-session-1',
+      'typed immediately after recovery'
+    );
+
+    await mounted.unmount();
+  });
+
+  it('waits for attach before replaying input when a live state event arrives early', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    act(() => {
+      testState.terminalDataHandler?.('typed before attach');
+      testState.sessionHandlers?.onState?.({
+        sessionId: 'backend-session-1',
+        state: 'live',
+      });
+    });
+
+    expect(testState.sessionWrite).not.toHaveBeenCalledWith(
+      'backend-session-1',
+      'typed before attach'
+    );
+
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+        },
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', 'typed before attach');
+    await mounted.unmount();
+  });
+
   it('queues terminal input until a new session is attached', async () => {
     let resolveSessionCreate:
       | ((value: {
