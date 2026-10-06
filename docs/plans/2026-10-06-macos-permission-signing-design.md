@@ -11,10 +11,13 @@ startup fixes in the current source tree.
 ## Decision
 
 Tag builds must import the release certificate successfully and must not fall
-back to unsigned output. Before a tag build can finish, verify the packaged
-macOS app with `codesign` and confirm its Developer ID Application signer and
-team `SG6MVT62JU`. Keep unsigned builds available only for untagged manual CI
-runs; they must not become release assets or replace a signed installation.
+back to unsigned output. Build macOS packages with `--publish never` so CI
+cannot upload artifacts before checking the packaged app with `codesign` and
+confirming its Developer ID Application signer and team `SG6MVT62JU`. Only then
+upload the signed DMG and ZIP to a draft release, without replacing assets on
+an already published release. Keep unsigned builds available only for untagged
+manual CI runs; they must never become release assets or replace a signed
+installation.
 
 Alternatives considered:
 
@@ -30,8 +33,9 @@ Alternatives considered:
 The release workflow owns the signing gate; the app's file-access IPC and TCC
 database remain unchanged. CI must fail before invoking an unsigned tag build
 if signing prerequisites or certificate import fail. A signed build must pass
-signature and team verification before the release-notes job can publish the
-draft release. Tests cover the workflow branches and verification wiring.
+signature and team verification before its packages are uploaded; the
+release-notes job merges and uploads update metadata before publishing the
+draft release. Tests cover the workflow branches and upload ordering.
 
 This machine has no Developer ID signing identity or authenticated GitHub CLI.
 Publishing and replacing the local installation require a signed artifact from

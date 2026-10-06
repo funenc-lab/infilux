@@ -46,7 +46,7 @@ describe('build workflow macOS signing policy', () => {
   it('supports unsigned macOS fallback only for untagged builds', () => {
     expect(workflowSource).toContain(`Build macOS (${macArchPlaceholder}) unsigned`);
     expect(workflowSource).toContain("CSC_IDENTITY_AUTO_DISCOVERY: 'false'");
-    expect(workflowSource).toContain('-c.mac.identity=null -c.mac.notarize=false');
+    expect(workflowSource).toContain('-c.mac.identity=null -c.mac.notarize=false --publish never');
     expect(workflowSource).toContain(
       `if: ${expressionOpen} !startsWith(github.ref, 'refs/tags/') && (steps.macos_signing.outputs.ready != 'true' || steps.import_apple_certificate.outcome != 'success') ${expressionClose}`
     );
@@ -99,6 +99,34 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).toContain('codesign --verify --deep --strict --verbose=2 "$app_path"');
     expect(workflowSource).toContain('Authority=Developer ID Application:');
     expect(workflowSource).toContain('TeamIdentifier=SG6MVT62JU');
+  });
+
+  it('builds without implicit publishing and uploads only after signing verification', () => {
+    const signedBuildStep = workflowSource.indexOf(`Build macOS (${macArchPlaceholder}) signed`);
+    const verificationStep = workflowSource.indexOf('name: Verify signed macOS app');
+    const publishStep = workflowSource.indexOf('name: Publish verified macOS artifacts');
+    const metadataUploadStep = workflowSource.indexOf('name: Upload latest-mac.yml');
+
+    expect(workflowSource.slice(signedBuildStep, verificationStep)).toContain(
+      `npx electron-builder --mac --${macArchPlaceholder} --publish never`
+    );
+    expect(publishStep).toBeGreaterThan(verificationStep);
+    expect(publishStep).toBeLessThan(metadataUploadStep);
+    expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
+      "if: startsWith(github.ref, 'refs/tags/v')"
+    );
+    expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
+      `gh release upload "$TAG" "${shellExpressionOpen}dmg_files[0]}" "${shellExpressionOpen}zip_files[0]}" --clobber`
+    );
+    expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
+      `[[ "${shellExpressionOpen}#dmg_files[@]}" -ne 1 || "${shellExpressionOpen}#zip_files[@]}" -ne 1 || ! -f dist/latest-mac.yml ]]`
+    );
+    expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
+      'gh release view "$TAG" --json isDraft --jq .isDraft'
+    );
+    expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
+      'gh release create "$TAG" --draft --verify-tag'
+    );
   });
 
   it('resolves the Developer ID Application identity from the imported certificate', () => {

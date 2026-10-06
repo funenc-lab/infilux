@@ -319,7 +319,7 @@ jobs:
 
       - name: Build macOS (${{ matrix.arch }}) signed
         if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome == 'success' }}
-        run: npx electron-builder --mac --${{ matrix.arch }}
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -358,10 +358,35 @@ jobs:
 
       - name: Build macOS (${{ matrix.arch }}) unsigned
         if: ${{ !startsWith(github.ref, 'refs/tags/') && (steps.macos_signing.outputs.ready != 'true' || steps.import_apple_certificate.outcome != 'success') }}
-        run: npx electron-builder --mac --${{ matrix.arch }} -c.mac.identity=null -c.mac.notarize=false
+        run: npx electron-builder --mac --${{ matrix.arch }} -c.mac.identity=null -c.mac.notarize=false --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Publish verified macOS artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          dmg_files=(dist/*.dmg)
+          zip_files=(dist/*.zip)
+          if [[ "${#dmg_files[@]}" -ne 1 || "${#zip_files[@]}" -ne 1 || ! -f dist/latest-mac.yml ]]; then
+            echo '::error title=Missing macOS artifacts::Expected one DMG, one ZIP, and update metadata.'
+            exit 1
+          fi
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes "" || gh release view "$TAG" >/dev/null
+          fi
+          if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo '::error title=Release already published::Refusing to replace published macOS artifacts.'
+            exit 1
+          fi
+          gh release upload "$TAG" "${dmg_files[0]}" "${zip_files[0]}" --clobber
 
       - name: Upload latest-mac.yml
         uses: actions/upload-artifact@v6

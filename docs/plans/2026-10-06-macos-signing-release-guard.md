@@ -4,7 +4,7 @@
 
 **Goal:** Prevent a tagged macOS release from silently replacing the Developer ID-signed app with an unsigned or differently signed bundle.
 
-**Architecture:** The existing GitHub Actions macOS job retains its untagged unsigned test builds. Tagged builds require successful certificate import before building, then verify the completed app's code signature and its original Developer ID team before downstream release jobs can publish it. No renderer, TCC database, or installed app code changes are needed.
+**Architecture:** The existing GitHub Actions macOS job retains its untagged unsigned test builds. All macOS builds suppress implicit publishing. Tagged builds require successful certificate import before building, then verify the completed app's code signature and its original Developer ID team before uploading DMG and ZIP artifacts. Downstream release jobs upload merged update metadata and publish the release. No renderer, TCC database, or installed app code changes are needed.
 
 **Tech Stack:** GitHub Actions YAML, bash, macOS `codesign`, Vitest.
 
@@ -35,7 +35,7 @@
     fi
 ```
 
-Restrict the existing unsigned build step to non-tag refs, so no release tag invokes electron-builder with `mac.identity=null`.
+Restrict the existing unsigned build step to non-tag refs, so no release tag invokes electron-builder with `mac.identity=null`. Pass `--publish never` to signed and unsigned macOS builds; electron-builder v26 otherwise uploads from CI before later checks, and untagged builds can upload to an existing draft.
 
 **Step 4: Verify green.** Run the focused Vitest command and inspect the resulting YAML branch conditions.
 
@@ -45,11 +45,11 @@ Restrict the existing unsigned build step to non-tag refs, so no release tag inv
 - Modify: `scripts/__tests__/buildWorkflowMacSigning.test.ts`
 - Modify: `.github/workflows/build.yml`
 
-**Step 1: Add a failing test.** Assert the tagged post-build gate calls `codesign --verify --deep --strict`, checks `Authority=Developer ID Application:` and `TeamIdentifier=SG6MVT62JU`, and handles both `dist/mac` and `dist/mac-arm64` app bundles.
+**Step 1: Add a failing test.** Assert the tagged post-build gate calls `codesign --verify --deep --strict`, checks `Authority=Developer ID Application:` and `TeamIdentifier=SG6MVT62JU`, and handles both `dist/mac` and `dist/mac-arm64` app bundles. Require both macOS builder branches to suppress implicit publishing and the explicit upload to follow signature verification.
 
 **Step 2: Verify failure.** Run the focused Vitest command; only the new signer verification test should fail.
 
-**Step 3: Implement the check.** After the signed build and before uploading update metadata, choose the bundle for the matrix architecture, require it to exist, run `codesign --verify --deep --strict --verbose=2`, inspect `codesign --display --verbose=4` output, and fail the job if the Developer ID authority or original team does not match.
+**Step 3: Implement the check.** After the signed build and before uploading update metadata, choose the bundle for the matrix architecture, require it to exist, run `codesign --verify --deep --strict --verbose=2`, inspect `codesign --display --verbose=4` output, and fail the job if the Developer ID authority or original team does not match. For `v*` tags, require one DMG, one ZIP, and update metadata, then explicitly upload only the validated build's DMG and ZIP to GitHub Release. The existing release-notes job merges and uploads update metadata.
 
 **Step 4: Verify green and adjacent gates.** Run the focused Vitest command, `NODE_OPTIONS=--no-webstorage pnpm typecheck`, `NODE_OPTIONS=--no-webstorage pnpm lint`, and `git diff --check`. If full tests are run, report the existing ImageMagick `magick` prerequisite separately.
 
