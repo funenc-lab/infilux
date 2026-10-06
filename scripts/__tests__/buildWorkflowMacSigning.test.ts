@@ -31,6 +31,14 @@ const developerIdCertificateName =
   '"';
 
 describe('build workflow macOS signing policy', () => {
+  it('serializes workflow runs sharing a release tag without cancelling an active upload', () => {
+    const workflowHeader = workflowSource.slice(0, workflowSource.indexOf('\njobs:'));
+
+    expect(workflowHeader).toContain(
+      `concurrency:\n  group: ${expressionOpen} github.workflow ${expressionClose}-${expressionOpen} github.ref ${expressionClose}\n  cancel-in-progress: false`
+    );
+  });
+
   it('uses the organization Apple signing secret names without a release-wide unsigned override', () => {
     expect(workflowSource).toContain('allow_unsigned_macos:');
     expect(workflowSource).toContain(appleId);
@@ -116,10 +124,16 @@ describe('build workflow macOS signing policy', () => {
       "if: startsWith(github.ref, 'refs/tags/v')"
     );
     expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
-      `gh release upload "$TAG" "${shellExpressionOpen}dmg_files[0]}" "${shellExpressionOpen}zip_files[0]}" --clobber`
+      `gh release upload "$TAG" "${shellExpressionOpen}dmg_files[0]}" "${shellExpressionOpen}zip_files[0]}" "${shellExpressionOpen}dmg_blockmaps[0]}" "${shellExpressionOpen}zip_blockmaps[0]}" --clobber`
     );
     expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
-      `[[ "${shellExpressionOpen}#dmg_files[@]}" -ne 1 || "${shellExpressionOpen}#zip_files[@]}" -ne 1 || ! -f dist/latest-mac.yml ]]`
+      `[[ "${shellExpressionOpen}#dmg_files[@]}" -ne 1 || "${shellExpressionOpen}#zip_files[@]}" -ne 1 || "${shellExpressionOpen}#dmg_blockmaps[@]}" -ne 1 || "${shellExpressionOpen}#zip_blockmaps[@]}" -ne 1 || ! -f dist/latest-mac.yml ]]`
+    );
+    expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
+      'dmg_blockmaps=(dist/*.dmg.blockmap)'
+    );
+    expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
+      'zip_blockmaps=(dist/*.zip.blockmap)'
     );
     expect(workflowSource.slice(publishStep, metadataUploadStep)).toContain(
       'gh release view "$TAG" --json isDraft --jq .isDraft'

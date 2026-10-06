@@ -14,10 +14,11 @@ Tag builds must import the release certificate successfully and must not fall
 back to unsigned output. Build macOS packages with `--publish never` so CI
 cannot upload artifacts before checking the packaged app with `codesign` and
 confirming its Developer ID Application signer and team `SG6MVT62JU`. Only then
-upload the signed DMG and ZIP to a draft release, without replacing assets on
+upload the signed DMG, ZIP, and both blockmaps to a draft release, without replacing assets on
 an already published release. Keep unsigned builds available only for untagged
 manual CI runs; they must never become release assets or replace a signed
-installation.
+installation. Serialize entire workflow runs for the same ref so a retry cannot
+overwrite release assets after a prior run publishes the draft.
 
 Alternatives considered:
 

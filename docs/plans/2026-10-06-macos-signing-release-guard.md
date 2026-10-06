@@ -4,7 +4,7 @@
 
 **Goal:** Prevent a tagged macOS release from silently replacing the Developer ID-signed app with an unsigned or differently signed bundle.
 
-**Architecture:** The existing GitHub Actions macOS job retains its untagged unsigned test builds. All macOS builds suppress implicit publishing. Tagged builds require successful certificate import before building, then verify the completed app's code signature and its original Developer ID team before uploading DMG and ZIP artifacts. Downstream release jobs upload merged update metadata and publish the release. No renderer, TCC database, or installed app code changes are needed.
+**Architecture:** The existing GitHub Actions macOS job retains its untagged unsigned test builds. All macOS builds suppress implicit publishing. Tagged builds require successful certificate import before building, then verify the completed app's code signature and its original Developer ID team before uploading DMG, ZIP, and both blockmap artifacts. Downstream release jobs upload merged update metadata and publish the release. No renderer, TCC database, or installed app code changes are needed.
 
 **Tech Stack:** GitHub Actions YAML, bash, macOS `codesign`, Vitest.
 
@@ -17,6 +17,8 @@
 - Modify: `.github/workflows/build.yml`
 
 **Step 1: Write failing policy tests.** Require a tagged preflight that rejects `allow_unsigned_macos`, no repository-wide unsigned release override, a tag-only post-import gate, and an unsigned build limited to untagged runs. Preserve the untagged manual override and unsigned fallback assertions.
+
+Require workflow-level concurrency by ref with `cancel-in-progress: false` to prevent a retry from racing against a release being published.
 
 **Step 2: Verify failure.** Run `NODE_OPTIONS=--no-webstorage pnpm exec vitest run scripts/__tests__/buildWorkflowMacSigning.test.ts`; the new tag signing tests must fail against the existing workflow.
 
@@ -49,7 +51,7 @@ Restrict the existing unsigned build step to non-tag refs, so no release tag inv
 
 **Step 2: Verify failure.** Run the focused Vitest command; only the new signer verification test should fail.
 
-**Step 3: Implement the check.** After the signed build and before uploading update metadata, choose the bundle for the matrix architecture, require it to exist, run `codesign --verify --deep --strict --verbose=2`, inspect `codesign --display --verbose=4` output, and fail the job if the Developer ID authority or original team does not match. For `v*` tags, require one DMG, one ZIP, and update metadata, then explicitly upload only the validated build's DMG and ZIP to GitHub Release. The existing release-notes job merges and uploads update metadata.
+**Step 3: Implement the check.** After the signed build and before uploading update metadata, choose the bundle for the matrix architecture, require it to exist, run `codesign --verify --deep --strict --verbose=2`, inspect `codesign --display --verbose=4` output, and fail the job if the Developer ID authority or original team does not match. For `v*` tags, require one DMG, one ZIP, both blockmaps, and update metadata, then explicitly upload only the validated build's packages and blockmaps to GitHub Release. The existing release-notes job merges and uploads update metadata.
 
 **Step 4: Verify green and adjacent gates.** Run the focused Vitest command, `NODE_OPTIONS=--no-webstorage pnpm typecheck`, `NODE_OPTIONS=--no-webstorage pnpm lint`, and `git diff --check`. If full tests are run, report the existing ImageMagick `magick` prerequisite separately.
 

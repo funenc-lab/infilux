@@ -12,6 +12,10 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -374,8 +378,10 @@ jobs:
 
           dmg_files=(dist/*.dmg)
           zip_files=(dist/*.zip)
-          if [[ "${#dmg_files[@]}" -ne 1 || "${#zip_files[@]}" -ne 1 || ! -f dist/latest-mac.yml ]]; then
-            echo '::error title=Missing macOS artifacts::Expected one DMG, one ZIP, and update metadata.'
+          dmg_blockmaps=(dist/*.dmg.blockmap)
+          zip_blockmaps=(dist/*.zip.blockmap)
+          if [[ "${#dmg_files[@]}" -ne 1 || "${#zip_files[@]}" -ne 1 || "${#dmg_blockmaps[@]}" -ne 1 || "${#zip_blockmaps[@]}" -ne 1 || ! -f dist/latest-mac.yml ]]; then
+            echo '::error title=Missing macOS artifacts::Expected one DMG, one ZIP, their blockmaps, and update metadata.'
             exit 1
           fi
 
@@ -386,7 +392,7 @@ jobs:
             echo '::error title=Release already published::Refusing to replace published macOS artifacts.'
             exit 1
           fi
-          gh release upload "$TAG" "${dmg_files[0]}" "${zip_files[0]}" --clobber
+          gh release upload "$TAG" "${dmg_files[0]}" "${zip_files[0]}" "${dmg_blockmaps[0]}" "${zip_blockmaps[0]}" --clobber
 
       - name: Upload latest-mac.yml
         uses: actions/upload-artifact@v6
