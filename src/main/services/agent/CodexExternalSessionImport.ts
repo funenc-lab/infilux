@@ -589,6 +589,12 @@ export async function importCodexExternalSessions({
           }
           if (
             provenance.relativePath === relativePath &&
+            (provenance.sourceDevice !== before.dev || provenance.sourceInode !== before.ino)
+          ) {
+            continue;
+          }
+          if (
+            provenance.relativePath === relativePath &&
             provenance.sourceSize === before.size &&
             provenance.sourceDevice === before.dev &&
             provenance.sourceInode === before.ino &&

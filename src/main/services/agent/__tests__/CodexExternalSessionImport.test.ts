@@ -301,6 +301,29 @@ describe('importCodexExternalSessions', () => {
     expect(readFileSync(target)).toEqual(localBytes);
   });
 
+  it('does not refresh from a replacement source inode at the same relative path', async () => {
+    const fixture = createFixture();
+    const relativePath = 'replaced-external.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const source = path.join(fixture.sourceSessionsPath, relativePath);
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    const original = readFileSync(target);
+    const originalMarker = readFileSync(`${target}${provenanceSuffix}`);
+    const originalSourceIdentity = statSync(source);
+    const replacement = `${source}.replacement`;
+    writeFileSync(replacement, original);
+    appendTranscriptLine(replacement, 'New inode, same prefix');
+    renameSync(replacement, source);
+    expect(statSync(source).ino).not.toBe(originalSourceIdentity.ino);
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.refreshed).toBe(0);
+    expect(readFileSync(target)).toEqual(original);
+    expect(readFileSync(`${target}${provenanceSuffix}`)).toEqual(originalMarker);
+  });
+
   it('never refreshes a pre-existing target without provenance even when source ID and filename match', async () => {
     const fixture = createFixture();
     const relativePath = 'unowned.jsonl';
