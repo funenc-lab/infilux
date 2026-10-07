@@ -4,6 +4,7 @@ import {
   buildAgentCapabilityLaunchMetadata,
   buildAgentCapabilityLaunchRequest,
   extractAgentCapabilitySessionMetadata,
+  extractCodexRuntimeSessionWarnings,
 } from '../agentCapabilityLaunch';
 
 function createProjectPolicy(): ClaudeProjectPolicy {
@@ -160,5 +161,16 @@ describe('agentCapabilityLaunch', () => {
       hash: 'hash-1',
       warnings: ['warn-1'],
     });
+  });
+
+  it('extracts distinct runtime warnings without requiring capability policy metadata', () => {
+    expect(
+      extractCodexRuntimeSessionWarnings({
+        codexRuntimeWarnings: ['wrapper unavailable', 'wrapper unavailable', 42, ''],
+      })
+    ).toEqual(['wrapper unavailable']);
+    expect(extractCodexRuntimeSessionWarnings({ claudePolicy: { warnings: ['other'] } })).toEqual(
+      []
+    );
   });
 });

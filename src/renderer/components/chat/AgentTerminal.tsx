@@ -73,6 +73,7 @@ import { AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE } from './agentCanvasInteractionP
 import {
   buildAgentCapabilityLaunchMetadata,
   extractAgentCapabilitySessionMetadata,
+  extractCodexRuntimeSessionWarnings,
 } from './agentCapabilityLaunch';
 import { resolveFallbackCommandShell } from './agentCommandShellFallback';
 import {
@@ -179,6 +180,7 @@ interface AgentTerminalProps {
     hash: string;
     warnings: string[];
   }) => void;
+  onAgentRuntimeWarningsChange?: (warnings: string[]) => void;
   readOnlyTranscript?: AgentTerminalReadOnlyTranscript | null;
   replaySnapshot?: string;
 }
@@ -429,6 +431,7 @@ export function AgentTerminal({
   onReplaySnapshotChange,
   onRuntimeStateChange,
   onClaudePolicyStateChange,
+  onAgentRuntimeWarningsChange,
   readOnlyTranscript = null,
   replaySnapshot,
 }: AgentTerminalProps) {
@@ -1480,7 +1483,7 @@ export function AgentTerminal({
   // Only recovery-confirmed sessions may attach to an existing persistent host.
   const recoveredHostSessionKey = recovered ? hostSessionKey : undefined;
 
-  const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(
+  const { command, env, initialCommand, hostSession, codexLaunch, sessionCreateFallback } = useMemo(
     () =>
       resolveAgentTerminalLaunchPlan({
         isReadOnlyTranscript,
@@ -1904,6 +1907,7 @@ export function AgentTerminal({
     command,
     env,
     hostSession,
+    codexLaunch,
     initialCommand,
     activateOnInitialCommandWhenInactive,
     isActive: effectiveIsActive,
@@ -1930,6 +1934,8 @@ export function AgentTerminal({
     onTitleChange: handleTitleChange,
     onSessionIdChange: handleBackendSessionIdChange,
     onSessionOpen: (session) => {
+      const runtimeWarnings = extractCodexRuntimeSessionWarnings(session.metadata);
+      onAgentRuntimeWarningsChange?.(runtimeWarnings);
       const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);
       if (capabilityState) {
         onClaudePolicyStateChange?.(capabilityState);

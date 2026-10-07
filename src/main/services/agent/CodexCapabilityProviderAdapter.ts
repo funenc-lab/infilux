@@ -1,4 +1,3 @@
-import * as path from 'node:path';
 import type {
   AgentCapabilityLaunchRequest,
   ClaudeCapabilityCatalogItem,
@@ -8,6 +7,7 @@ import type {
   SessionCreateOptions,
 } from '@shared/types';
 import { isHttpMcpConfig } from '@shared/types';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { listClaudeCapabilityCatalog } from '../claude/CapabilityCatalogService';
 import {
   type CapabilityMcpConfigEntry,
@@ -23,6 +23,12 @@ import type {
 } from './AgentCapabilityProviderAdapter';
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
+import {
+  applyCodexNativeLaunchAssignments,
+  CODEX_WRAPPER_SQLITE_WARNING,
+  isCodexShell,
+  isCodexThirdPartyWrapperLaunch,
+} from './CodexSqliteLaunchOptions';
 import { resolveCodexWorkspaceSessionHistoryPath } from './CodexWorkspaceSessionHistory';
 
 export interface CodexCapabilityProviderAdapterDependencies {
@@ -53,13 +59,9 @@ interface CodexSessionProjectionResult {
 }
 
 const CODEX_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
-const CODEX_EXECUTABLE_NAMES = new Set(['codex', 'codex.exe', 'codex.cmd', 'codex.bat']);
-const CODEX_TOKEN_PATTERN =
-  /(^|[\s&])((?:"[^"]*codex(?:\.(?:exe|cmd|bat))?"|'[^']*codex(?:\.(?:exe|cmd|bat))?'|[^\s'"`]+[\\/]codex(?:\.(?:exe|cmd|bat))?|codex(?:\.(?:exe|cmd|bat))?))(?=(?:[\s'"]|$))/i;
 const CHATGPT_NODE_REPL_COMMAND_SUFFIX = '/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl';
 const CHATGPT_CODEX_CLI_PATH_SUFFIX = '/ChatGPT.app/Contents/Resources/codex';
 type TomlLiteralValue = string | boolean | TomlLiteralValue[] | { [key: string]: TomlLiteralValue };
-type CodexShellFragmentStyle = 'posix' | 'powershell';
 
 function normalizeExecutablePath(value: string): string {
   return value.replace(/\\/g, '/');
@@ -118,14 +120,6 @@ function toTomlLiteral(value: TomlLiteralValue): string {
   return `{${entries
     .map(([key, entryValue]) => `${toTomlKey(key)} = ${toTomlLiteral(entryValue)}`)
     .join(', ')}}`;
-}
-
-function quotePosixDouble(input: string): string {
-  return `"${input.replace(/["\\$`]/g, '\\$&')}"`;
-}
-
-function quotePowerShellSingle(input: string): string {
-  return `'${input.replace(/'/g, "''")}'`;
 }
 
 function buildCodexAssignments(entries: CodexResolvedMcpEntry[]): {
@@ -191,82 +185,6 @@ function isExplicitPolicyDecision(
 
 function buildCodexCliArgs(assignments: string[]): string[] {
   return assignments.flatMap((assignment) => ['-c', assignment]);
-}
-
-function buildCodexShellFragment(
-  assignments: string[],
-  style: CodexShellFragmentStyle = 'posix'
-): string {
-  const quote = style === 'powershell' ? quotePowerShellSingle : quotePosixDouble;
-  return assignments.map((assignment) => `-c ${quote(assignment)}`).join(' ');
-}
-
-function injectCodexShellFragment(command: string, shellFragment: string): string | null {
-  if (!command.trim()) {
-    return null;
-  }
-
-  let applied = false;
-  const updated = command.replace(CODEX_TOKEN_PATTERN, (_fullMatch, prefix, executable) => {
-    applied = true;
-    return `${prefix}${executable} ${shellFragment}`;
-  });
-
-  return applied ? updated : null;
-}
-
-function patchTrailingCommandArg(
-  args: string[] | undefined,
-  shellFragment: string
-): string[] | undefined {
-  if (!args || args.length === 0) {
-    return undefined;
-  }
-
-  const lastIndex = args.length - 1;
-  const updatedCommand = injectCodexShellFragment(args[lastIndex] ?? '', shellFragment);
-  if (!updatedCommand) {
-    return undefined;
-  }
-
-  const nextArgs = [...args];
-  nextArgs[lastIndex] = updatedCommand;
-  return nextArgs;
-}
-
-function isCodexShell(shell: string | undefined): boolean {
-  if (!shell) {
-    return false;
-  }
-
-  const normalizedShell = shell.replace(/\\/g, '/').replace(/^['"]|['"]$/g, '');
-  const fileName = path.posix.basename(normalizedShell).toLowerCase();
-  return CODEX_EXECUTABLE_NAMES.has(fileName);
-}
-
-function resolveShellFragmentStyle(shell: string | undefined): CodexShellFragmentStyle {
-  if (!shell) {
-    return 'posix';
-  }
-
-  const normalizedShell = shell.replace(/\\/g, '/').replace(/^['"]|['"]$/g, '');
-  const fileName = path.posix.basename(normalizedShell).toLowerCase();
-  return fileName === 'powershell' ||
-    fileName === 'powershell.exe' ||
-    fileName === 'pwsh' ||
-    fileName === 'pwsh.exe'
-    ? 'powershell'
-    : 'posix';
-}
-
-function isUnsupportedShellConfig(sessionOptions: SessionCreateOptions): boolean {
-  const shellType = sessionOptions.shellConfig?.shellType;
-  return (
-    shellType === 'powershell' ||
-    shellType === 'powershell7' ||
-    shellType === 'cmd' ||
-    shellType === 'wsl'
-  );
 }
 
 function chooseCodexConfigEntry(
@@ -429,12 +347,17 @@ export function buildCodexSessionProjection(
     };
   }
 
+  if (
+    sessionOptions.codexLaunch?.kind === 'native' &&
+    sessionOptions.codexLaunch.layout === 'tmux-attach'
+  ) {
+    allWarnings.push(
+      'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.'
+    );
+    return { warnings: allWarnings, applied: false };
+  }
+
   const cliArgs = buildCodexCliArgs(assignments);
-  const shellFragment = buildCodexShellFragment(assignments);
-  const commandShellFragment = buildCodexShellFragment(
-    assignments,
-    resolveShellFragmentStyle(sessionOptions.shell)
-  );
   const sessionOverrides: AgentCapabilitySessionOverrides = {
     metadata: {
       providerLaunchStrategy: 'codex-runtime-config',
@@ -443,52 +366,46 @@ export function buildCodexSessionProjection(
     },
   };
 
-  if (isCodexShell(sessionOptions.shell)) {
-    sessionOverrides.args = [...cliArgs, ...(sessionOptions.args ?? [])];
-    const fallbackArgs = patchTrailingCommandArg(sessionOptions.fallbackArgs, shellFragment);
-    if (fallbackArgs) {
-      sessionOverrides.fallbackArgs = fallbackArgs;
+  if (sessionOptions.codexLaunch?.kind === 'native') {
+    try {
+      const updated = applyCodexNativeLaunchAssignments(sessionOptions, assignments);
+      return {
+        sessionOverrides: {
+          ...sessionOverrides,
+          ...(updated.args ? { args: updated.args } : {}),
+          ...(updated.fallbackArgs ? { fallbackArgs: updated.fallbackArgs } : {}),
+          ...(updated.initialCommand ? { initialCommand: updated.initialCommand } : {}),
+          codexLaunch: updated.codexLaunch,
+        },
+        warnings: allWarnings,
+        applied: true,
+      };
+    } catch {
+      allWarnings.push(
+        'Codex runtime capability injection could not match the current session launch shape. Restart the session with a standard Codex launch command to apply MCP overrides.'
+      );
+      return { warnings: allWarnings, applied: false };
     }
+  }
+  if (sessionOptions.codexLaunch?.kind === 'wrapper') {
+    allWarnings.push(
+      'Codex MCP and skill settings were not applied for Hapi/Happy wrapper launches. Use native Codex to apply the configured capabilities.'
+    );
+    return { warnings: allWarnings, applied: false };
+  }
 
+  if (
+    isCodexShell(sessionOptions.shell) &&
+    !sessionOptions.fallbackArgs &&
+    !sessionOptions.fallbackShell &&
+    !sessionOptions.initialCommand
+  ) {
+    sessionOverrides.args = [...cliArgs, ...(sessionOptions.args ?? [])];
     return {
       sessionOverrides,
       warnings: allWarnings,
       applied: true,
     };
-  }
-
-  if (!isUnsupportedShellConfig(sessionOptions)) {
-    const updatedInitialCommand = sessionOptions.initialCommand
-      ? injectCodexShellFragment(sessionOptions.initialCommand, commandShellFragment)
-      : null;
-    if (updatedInitialCommand) {
-      sessionOverrides.initialCommand = updatedInitialCommand;
-      const fallbackArgs = patchTrailingCommandArg(sessionOptions.fallbackArgs, shellFragment);
-      if (fallbackArgs) {
-        sessionOverrides.fallbackArgs = fallbackArgs;
-      }
-
-      return {
-        sessionOverrides,
-        warnings: allWarnings,
-        applied: true,
-      };
-    }
-
-    const updatedArgs = patchTrailingCommandArg(sessionOptions.args, commandShellFragment);
-    if (updatedArgs) {
-      sessionOverrides.args = updatedArgs;
-      const fallbackArgs = patchTrailingCommandArg(sessionOptions.fallbackArgs, shellFragment);
-      if (fallbackArgs) {
-        sessionOverrides.fallbackArgs = fallbackArgs;
-      }
-
-      return {
-        sessionOverrides,
-        warnings: allWarnings,
-        applied: true,
-      };
-    }
   }
 
   allWarnings.push(
@@ -540,37 +457,59 @@ export function createCodexCapabilityProviderAdapter(
         resolvedPolicy,
         mcpConfigs
       );
+      const isWrapperLaunch = isCodexThirdPartyWrapperLaunch(sessionOptions);
       const uiSessionId =
         typeof sessionOptions.metadata?.uiSessionId === 'string' &&
         sessionOptions.metadata.uiSessionId.length > 0
           ? sessionOptions.metadata.uiSessionId
           : undefined;
-      const runtimeHome = await runtimeHomeService.prepareRuntimeHome(
-        uiSessionId ?? `${request.worktreePath}:${Date.now()}`,
-        {
-          sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath({
-            repoPath: request.repoPath,
-            worktreePath: request.worktreePath,
-          }),
-          sessionHistoryScope: {
-            repoPath: request.repoPath,
-            worktreePath: request.worktreePath,
-          },
-        }
-      );
+      const hasUserOwnedHome =
+        Boolean(sessionOptions.env?.CODEX_HOME) &&
+        sessionOptions.env?.CODEX_HOME !== sessionOptions.env?.INFILUX_MANAGED_CODEX_RUNTIME_HOME;
+      const runtimeWorktreePath = sessionOptions.cwd ?? request.worktreePath;
+      const runtimeHome = hasUserOwnedHome
+        ? null
+        : await runtimeHomeService.prepareRuntimeHome(
+            uiSessionId ?? `${runtimeWorktreePath}:${Date.now()}`,
+            {
+              sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath({
+                repoPath: request.repoPath,
+                worktreePath: runtimeWorktreePath,
+              }),
+              sessionHistoryScope: {
+                repoPath: request.repoPath,
+                worktreePath: runtimeWorktreePath,
+              },
+            }
+          );
+      const warnings =
+        isWrapperLaunch && runtimeHome
+          ? [...projection.warnings, CODEX_WRAPPER_SQLITE_WARNING]
+          : projection.warnings;
       const sessionOverrides: AgentCapabilitySessionOverrides = {
         ...(projection.sessionOverrides ?? {}),
         env: {
           ...(projection.sessionOverrides?.env ?? {}),
-          CODEX_HOME: runtimeHome.homePath,
-          INFILUX_MANAGED_CODEX_RUNTIME_HOME: runtimeHome.homePath,
+          ...(runtimeHome
+            ? {
+                CODEX_HOME: runtimeHome.homePath,
+                ...(!isRemoteVirtualPath(runtimeWorktreePath) && !isWrapperLaunch
+                  ? { CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath }
+                  : {}),
+                INFILUX_MANAGED_CODEX_RUNTIME_HOME: runtimeHome.homePath,
+              }
+            : {}),
         },
         metadata: {
           ...(projection.sessionOverrides?.metadata ?? {}),
-          codexRuntimeHome: {
-            homePath: runtimeHome.homePath,
-            sourceHomePath: runtimeHome.sourceHomePath,
-          },
+          ...(runtimeHome
+            ? {
+                codexRuntimeHome: {
+                  homePath: runtimeHome.homePath,
+                  sourceHomePath: runtimeHome.sourceHomePath,
+                },
+              }
+            : {}),
         },
       };
 
@@ -580,14 +519,14 @@ export function createCodexCapabilityProviderAdapter(
           repoPath: request.repoPath,
           worktreePath: request.worktreePath,
           hash: resolvedPolicy.hash,
-          warnings: projection.warnings,
+          warnings,
           resolvedPolicy,
           projected: {
             hash: resolvedPolicy.hash,
             materializationMode: 'provider-native',
             applied: projection.applied,
             updatedFiles: [],
-            warnings: projection.warnings,
+            warnings,
             errors: [],
           },
           policyHash: resolvedPolicy.hash,

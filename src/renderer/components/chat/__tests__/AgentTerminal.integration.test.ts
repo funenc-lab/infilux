@@ -1347,6 +1347,33 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('clears stale tmux-attach resume warnings when the hostless fallback opens a new process', async () => {
+    testState.settingsStore.agentIntegration.tmuxEnabled = true;
+    const onAgentRuntimeWarningsChange = vi.fn();
+    const mounted = await mountAgentTerminal({
+      recovered: true,
+      initialized: true,
+      persistenceEnabled: true,
+      hostSessionKey: 'infilux-ui-session-1',
+      recoveryState: 'live',
+      onAgentRuntimeWarningsChange,
+    });
+    const launch = testState.useXtermOptions.at(-1);
+    expect(launch?.sessionCreateFallback).toBeDefined();
+    const sessionOpen = launch?.onSessionOpen as
+      | ((session: { metadata: Record<string, unknown> }) => void)
+      | undefined;
+    expect(sessionOpen).toBeDefined();
+    const warning =
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+
+    sessionOpen?.({ metadata: { codexRuntimeWarnings: [warning] } });
+    sessionOpen?.({ metadata: {} });
+
+    expect(onAgentRuntimeWarningsChange.mock.calls).toEqual([[[warning]], [[]]]);
+    await mounted.unmount();
+  });
+
   it('does not attach an unconfirmed cached session to a persisted tmux host', async () => {
     testState.settingsStore.agentIntegration.tmuxEnabled = true;
 

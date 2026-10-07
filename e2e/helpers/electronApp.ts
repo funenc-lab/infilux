@@ -22,6 +22,10 @@ type ResolveProcessTreePids = (pid: number) => Promise<number[]>;
 export interface ElectronLaunchScenario {
   homeDir: string;
   profileName: string;
+  environmentPatch?: {
+    omitPrefixes?: readonly string[];
+    set?: Readonly<Record<string, string>>;
+  };
 }
 
 export interface RepositoryWorktreeScenario {
@@ -48,20 +52,40 @@ export function ensureElectronBuildExists(): void {
   }
 }
 
+export function buildElectronLaunchEnvironment(
+  scenario: ElectronLaunchScenario,
+  inheritedEnvironment: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const environment = { ...inheritedEnvironment };
+  const omittedPrefixes = scenario.environmentPatch?.omitPrefixes?.map((prefix) =>
+    prefix.toUpperCase()
+  );
+  if (omittedPrefixes) {
+    for (const name of Object.keys(environment)) {
+      if (omittedPrefixes.some((prefix) => name.toUpperCase().startsWith(prefix))) {
+        delete environment[name];
+      }
+    }
+  }
+
+  return {
+    ...environment,
+    ...scenario.environmentPatch?.set,
+    HOME: scenario.homeDir,
+    USERPROFILE: scenario.homeDir,
+    ENSOAI_PROFILE: scenario.profileName,
+    INFILUX_RUNTIME_CHANNEL: AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL,
+    ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+  };
+}
+
 export async function launchInfiluxForScenario(
   scenario: ElectronLaunchScenario
 ): Promise<LaunchedElectronApp> {
   const consoleMessages: string[] = [];
   const app = await electron.launch({
     args: [PROJECT_ROOT, encodeRuntimeChannelArgument(AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL)],
-    env: {
-      ...process.env,
-      HOME: scenario.homeDir,
-      USERPROFILE: scenario.homeDir,
-      ENSOAI_PROFILE: scenario.profileName,
-      INFILUX_RUNTIME_CHANNEL: AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
-    },
+    env: buildElectronLaunchEnvironment(scenario),
   });
 
   app.on('console', async (message) => {

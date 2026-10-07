@@ -20,6 +20,7 @@ export interface AgentTerminalLaunchPlanResult {
   env?: Record<string, string>;
   initialCommand?: string;
   hostSession?: ReturnType<typeof buildAgentLaunchPlan>['hostSession'];
+  codexLaunch?: ReturnType<typeof buildAgentLaunchPlan>['codexLaunch'];
   sessionCreateFallback?: XtermSessionCreateFallbackOptions;
 }
 
@@ -81,6 +82,7 @@ export function resolveAgentTerminalLaunchPlan({
         env: hostlessPlan.env,
         initialCommand: hostlessPlan.initialCommand,
         hostSession: undefined,
+        codexLaunch: hostlessPlan.codexLaunch,
         onRetry: onHostlessRetry,
       };
     }
@@ -91,6 +93,7 @@ export function resolveAgentTerminalLaunchPlan({
     env: primaryPlan.env,
     initialCommand: primaryPlan.initialCommand,
     hostSession: primaryPlan.hostSession,
+    codexLaunch: primaryPlan.codexLaunch,
     sessionCreateFallback,
   };
 }

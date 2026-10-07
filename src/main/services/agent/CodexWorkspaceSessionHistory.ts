@@ -28,9 +28,11 @@ export interface CodexWorkspaceSessionHistoryMigrationResult {
   migratedFileCount: number;
 }
 
-type SessionWorktreeLookupResult = { kind: 'found'; worktreePath: string } | { kind: 'unknown' };
+export type SessionWorktreeLookupResult =
+  | { kind: 'found'; worktreePath: string; threadId?: string }
+  | { kind: 'unknown' };
 
-interface SessionFileCollectionResult {
+export interface SessionFileCollectionResult {
   complete: boolean;
   files: string[];
 }
@@ -45,7 +47,7 @@ function resolveLocalWorkspacePlatform(): WorkspacePlatform {
   return 'linux';
 }
 
-function normalizeWorktreePath(value: string | undefined): string {
+export function normalizeWorktreePath(value: string | undefined): string {
   const trimmedValue = value?.trim();
   if (!trimmedValue) {
     return '';
@@ -70,11 +72,14 @@ function resolveWorkspaceIdentity(scope: CodexWorkspaceSessionHistoryScope): str
   return requireWorktreePath(scope.worktreePath);
 }
 
-async function readSessionWorktreePath(
+export async function readSessionWorktreePath(
   sessionFilePath: string
 ): Promise<SessionWorktreeLookupResult> {
   try {
-    const fileHandle = await open(sessionFilePath, 'r');
+    const fileHandle = await open(
+      sessionFilePath,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+    );
     try {
       const buffer = Buffer.alloc(SESSION_META_SCAN_BYTES);
       const { bytesRead } = await fileHandle.read(buffer, 0, buffer.length, 0);
@@ -104,12 +109,17 @@ async function readSessionWorktreePath(
           continue;
         }
 
-        const cwd = (parsed.payload as { cwd?: unknown }).cwd;
+        const payload = parsed.payload as { cwd?: unknown; id?: unknown };
+        const cwd = payload.cwd;
         if (typeof cwd !== 'string' || !cwd.trim()) {
           return { kind: 'unknown' };
         }
 
-        return { kind: 'found', worktreePath: cwd };
+        return {
+          kind: 'found',
+          worktreePath: cwd,
+          threadId: typeof payload.id === 'string' ? payload.id : undefined,
+        };
       }
     } finally {
       await fileHandle.close();
@@ -121,7 +131,7 @@ async function readSessionWorktreePath(
   return { kind: 'unknown' };
 }
 
-async function collectSessionFiles(
+export async function collectSessionFiles(
   sourceSessionsPath: string
 ): Promise<SessionFileCollectionResult> {
   const files: string[] = [];
@@ -181,6 +191,12 @@ export function resolveCodexWorkspaceSessionHistoryPath(
   const identity = resolveWorkspaceIdentity(scope);
   const key = createHash('sha256').update(identity).digest('hex').slice(0, 32);
   return path.join(historyRoot, `workspace-${key}`, 'sessions');
+}
+
+export function resolveCodexWorkspaceSqliteHomePath(
+  scope: CodexWorkspaceSessionHistoryScope
+): string {
+  return path.join(path.dirname(resolveCodexWorkspaceSessionHistoryPath(scope)), 'sqlite');
 }
 
 export async function listLegacyCodexWorkspaceSessionHistoryPaths(

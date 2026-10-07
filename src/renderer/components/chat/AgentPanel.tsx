@@ -5129,6 +5129,12 @@ export function AgentPanel({
               updateSession(sessionId, { recoveryState: runtimeState });
             }}
             replaySnapshot={session.replaySnapshot}
+            onAgentRuntimeWarningsChange={(warnings) => {
+              if (JSON.stringify(session.agentRuntimeWarnings ?? []) === JSON.stringify(warnings)) {
+                return;
+              }
+              updateSession(sessionId, { agentRuntimeWarnings: warnings });
+            }}
             onClaudePolicyStateChange={(policyState) => {
               if (
                 session.agentCapabilityHash === policyState.hash &&

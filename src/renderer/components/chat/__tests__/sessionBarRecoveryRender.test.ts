@@ -216,4 +216,322 @@ describe('SessionBar recovery render', () => {
     expect(tooltip?.className).toContain('whitespace-normal');
     expect(tooltip?.className).toContain('break-words');
   });
+
+  it('shows the active Hapi Codex SQLite limitation as persistent readable feedback', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'hapi',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Codex resume history is not isolated for Hapi/Happy sessions'
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Use the native Codex environment'
+    );
+  });
+
+  it.each([
+    false,
+    true,
+  ])('shows the wrapper limitation without capability metadata and without duplicates (previous warning: %s)', async (previousWarning) => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        ...(previousWarning
+          ? {
+              agentCapabilityWarnings: [
+                'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+              ],
+            }
+          : {}),
+        agentRuntimeWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Codex resume history is not isolated'
+    );
+  });
+
+  it('shows a separate persistent capability warning when Hapi/Happy cannot apply configured MCP and skills', async () => {
+    const sqliteWarning =
+      'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.';
+    const capabilityWarning =
+      'Codex MCP and skill settings were not applied for Hapi/Happy wrapper launches. Use native Codex to apply the configured capabilities.';
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'hapi',
+        agentCapabilityWarnings: [sqliteWarning, capabilityWarning],
+        agentRuntimeWarnings: [sqliteWarning, capabilityWarning],
+      })
+    ));
+
+    const notices = [...container.querySelectorAll('[role="status"]')].map(
+      (notice) => notice.textContent
+    );
+    expect(notices).toHaveLength(2);
+    expect(notices).toContainEqual(expect.stringContaining('Codex resume history is not isolated'));
+    expect(notices).toContainEqual(
+      expect.stringContaining('Codex MCP and skill settings were not applied')
+    );
+    expect(notices).toContainEqual(expect.stringContaining('Use the native Codex environment'));
+  });
+
+  it('does not claim configured MCP and skill settings were skipped without a capability warning', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        agentRuntimeWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.',
+        ],
+      })
+    ));
+
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.textContent).not.toContain('Codex MCP and skill settings were not applied');
+  });
+
+  it('shows a restart notice when Codex MCP changes were not applied to an existing tmux session', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'native',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Restart this Codex session'
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('MCP and skill');
+  });
+
+  it.each([
+    { withCapabilities: false, expectedNotices: 1 },
+    { withCapabilities: true, expectedNotices: 2 },
+  ])('shows a persistent resume-index warning for an active Codex tmux attach (capabilities: $withCapabilities)', async ({
+    withCapabilities,
+    expectedNotices,
+  }) => {
+    const sqliteWarning =
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'native',
+        agentRuntimeWarnings: [sqliteWarning, sqliteWarning],
+        ...(withCapabilities
+          ? {
+              agentCapabilityWarnings: [
+                'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.',
+              ],
+            }
+          : {}),
+      })
+    ));
+
+    const notices = [...container.querySelectorAll('[role="status"]')].map(
+      (notice) => notice.textContent ?? ''
+    );
+    expect(notices).toHaveLength(expectedNotices);
+    expect(notices.filter((notice) => notice.includes('worktree-scoped index'))).toHaveLength(1);
+    expect(notices.join(' ')).toContain('If the history list differs');
+    expect(notices.join(' ')).not.toContain('Restart this Codex session to use');
+    if (withCapabilities) {
+      expect(notices.filter((notice) => notice.includes('MCP and skill changes'))).toHaveLength(1);
+    }
+  });
+
+  it('does not show the tmux resume-index limitation for unrelated or non-native sessions', async () => {
+    const { SessionBar } = await import('../SessionBar');
+    const warning =
+      'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
+    const sessions = [
+      createRecoveredSession({
+        id: 'other-provider',
+        agentId: 'claude',
+        agentCommand: 'claude',
+        agentRuntimeWarnings: [warning],
+      }),
+      createRecoveredSession({
+        id: 'other-environment',
+        environment: 'happy',
+        agentRuntimeWarnings: [warning],
+      }),
+    ];
+    const mountedContainer = document.createElement('div');
+    document.body.appendChild(mountedContainer);
+    const mountedRoot = createRoot(mountedContainer);
+    ({ container, root } = { container: mountedContainer, root: mountedRoot });
+    for (const session of sessions) {
+      await act(async () => {
+        mountedRoot.render(
+          React.createElement(SessionBar, {
+            sessions,
+            activeSessionId: session.id,
+            repoPath: session.repoPath,
+            onSelectSession: vi.fn(),
+            onCloseSession: vi.fn(),
+            onNewSession: vi.fn(),
+            onRenameSession: vi.fn(),
+          })
+        );
+      });
+      expect(mountedContainer.querySelector('[role="status"]')).toBeNull();
+    }
+  });
+
+  it('does not show a wrapper warning on native Codex sessions', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'native',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('signals the wrapper limitation when the active session bar is collapsed', async () => {
+    localStorage.setItem(
+      'enso-session-bar',
+      JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+    );
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('button[aria-label]')?.getAttribute('aria-label')).toContain(
+      'Codex resume history is not isolated'
+    );
+  });
+
+  it('exposes the tmux resume-index and capability limits through the collapsed control label and title', async () => {
+    localStorage.setItem(
+      'enso-session-bar',
+      JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+    );
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        agentRuntimeWarnings: [
+          'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.',
+        ],
+        agentCapabilityWarnings: [
+          'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.',
+        ],
+      })
+    ));
+
+    const collapsedButton = container.querySelector('button[aria-label]');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain('worktree-scoped index');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain('If the history list differs');
+    expect(collapsedButton?.getAttribute('aria-label')).not.toContain(
+      'Restart this Codex session to use'
+    );
+    expect(collapsedButton?.getAttribute('aria-label')).toContain('MCP and skill changes');
+    expect(collapsedButton?.getAttribute('title')).toContain('worktree-scoped index');
+    expect(collapsedButton?.getAttribute('title')).toContain('MCP and skill changes');
+    expect(collapsedButton?.querySelector('svg')?.getAttribute('class')).toContain('text-warning');
+  });
+
+  it.each([
+    false,
+    true,
+  ])('removes stale resume-index feedback after a new Codex process opens (collapsed: %s)', async (collapsed) => {
+    if (collapsed) {
+      localStorage.setItem(
+        'enso-session-bar',
+        JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+      );
+    }
+    const warning =
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+    const session = createRecoveredSession({ agentRuntimeWarnings: [warning] });
+    ({ container, root } = await renderSessionBar(session));
+    if (collapsed) {
+      expect(container.querySelector('button[aria-label]')?.getAttribute('title')).toContain(
+        'worktree-scoped index'
+      );
+    } else {
+      expect(container.querySelector('[role="status"]')?.textContent).toContain(
+        'worktree-scoped index'
+      );
+    }
+
+    const { SessionBar } = await import('../SessionBar');
+    await act(async () => {
+      root?.render(
+        React.createElement(SessionBar, {
+          sessions: [{ ...session, agentRuntimeWarnings: [] }],
+          activeSessionId: session.id,
+          repoPath: session.repoPath,
+          onSelectSession: vi.fn(),
+          onCloseSession: vi.fn(),
+          onNewSession: vi.fn(),
+          onRenameSession: vi.fn(),
+        })
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    if (collapsed) {
+      const collapsedControl = container.querySelector('button[aria-label]');
+      expect(collapsedControl?.getAttribute('aria-label')).not.toContain('worktree-scoped index');
+      expect(collapsedControl?.getAttribute('title')).not.toContain('worktree-scoped index');
+      expect(collapsedControl?.querySelector('svg')?.getAttribute('class')).not.toContain(
+        'text-warning'
+      );
+    }
+  });
+
+  it('exposes both wrapper limitations in the collapsed button label and title', async () => {
+    localStorage.setItem(
+      'enso-session-bar',
+      JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+    );
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        agentCapabilityWarnings: [
+          'Codex MCP and skill settings were not applied for Hapi/Happy wrapper launches.',
+        ],
+        agentRuntimeWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.',
+        ],
+      })
+    ));
+
+    const collapsedButton = container.querySelector('button[aria-label]');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain(
+      'Codex resume history is not isolated'
+    );
+    expect(collapsedButton?.getAttribute('aria-label')).toContain(
+      'Codex MCP and skill settings were not applied'
+    );
+    expect(collapsedButton?.getAttribute('title')).toContain(
+      'Codex resume history is not isolated'
+    );
+    expect(collapsedButton?.getAttribute('title')).toContain(
+      'Codex MCP and skill settings were not applied'
+    );
+  });
 });

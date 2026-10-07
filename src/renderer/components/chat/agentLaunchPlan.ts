@@ -1,16 +1,16 @@
-import type { SessionHostSessionOptions } from '@shared/types';
-import { AGENT_TMUX_UNSET_ENV_KEYS, buildEnvUnsetPrefix } from '@shared/utils/agentEnvironment';
+import type { CodexLaunchDescriptor, SessionHostSessionOptions } from '@shared/types';
 import { supportsProviderSessionResume } from '@shared/utils/agentInputMode';
+import {
+  buildSanitizedAgentCommand,
+  buildTmuxAttachCommand,
+  quotePosixShell,
+} from '@shared/utils/codexNativeLaunch';
 import {
   type AppRuntimeChannel,
   buildPersistentAgentHostSessionKey,
   resolveTmuxServerNameForPersistentAgentHostSessionKey,
 } from '@shared/utils/runtimeIdentity';
 import { buildShellCommandFromExecutablePath } from '@shared/utils/shellCommand';
-import {
-  buildManagedTmuxSocketShellDir,
-  buildManagedTmuxSocketShellPath,
-} from '@shared/utils/tmux';
 
 export interface AgentLaunchCommand {
   shell: string;
@@ -48,6 +48,7 @@ export interface AgentLaunchPlan {
   initialCommand?: string;
   tmuxSessionName: string | null;
   hostSession?: SessionHostSessionOptions;
+  codexLaunch?: CodexLaunchDescriptor;
 }
 
 function buildSessionResumeArgs(params: {
@@ -109,10 +110,6 @@ function isExplicitProviderResumeId(params: {
       resumeSessionId !== terminalSessionId &&
       resumeSessionId !== persistentHostSessionKey
   );
-}
-
-function quotePosixShell(input: string): string {
-  return `'${input.replace(/'/g, "'\\''")}'`;
 }
 
 function buildInteractiveShellExecArgs(shellPath: string): string[] | null {
@@ -257,55 +254,6 @@ function escapeInitialPromptForUnix(input: string): string {
   return input.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
 }
 
-function buildTmuxSessionCommand(baseCommand: string): string {
-  return buildSanitizedAgentCommand(baseCommand);
-}
-
-function buildSanitizedAgentCommand(baseCommand: string): string {
-  return `env ${buildEnvUnsetPrefix(AGENT_TMUX_UNSET_ENV_KEYS)} ${baseCommand}`.trim();
-}
-
-function buildTmuxSessionEnvironmentArgs(variableNames: readonly string[]): string {
-  return variableNames.map((variableName) => `-e ${variableName}="\${${variableName}}"`).join(' ');
-}
-
-function buildTmuxAttachCommand(
-  baseCommand: string,
-  tmuxServerName: string,
-  tmuxSessionName: string,
-  options: {
-    createIfMissing: boolean;
-    sessionEnvironmentVariableNames: readonly string[];
-  }
-): string {
-  const tmuxSocketDir = buildManagedTmuxSocketShellDir();
-  const tmuxSocketPath = buildManagedTmuxSocketShellPath(tmuxServerName);
-  const quotedBaseCommand = quotePosixShell(buildTmuxSessionCommand(baseCommand));
-  const ensureSocketDirCommand = `mkdir -p "${tmuxSocketDir}"`;
-  const sessionEnvironmentArgs = buildTmuxSessionEnvironmentArgs(
-    options.sessionEnvironmentVariableNames
-  );
-  const createSessionArgs = ['-d', sessionEnvironmentArgs, '-s', tmuxSessionName]
-    .filter(Boolean)
-    .join(' ');
-  const createSessionCommand =
-    `env -u TMUX tmux -S "${tmuxSocketPath}" -f /dev/null new-session ${createSessionArgs} ` +
-    `${quotedBaseCommand} >/dev/null 2>&1 || true`;
-  const hideStatusCommand =
-    `env -u TMUX tmux -S "${tmuxSocketPath}" set-option -t ${tmuxSessionName} status off ` +
-    '>/dev/null 2>&1 || true';
-  const disableMouseCommand =
-    `env -u TMUX tmux -S "${tmuxSocketPath}" set-option -t ${tmuxSessionName} mouse off ` +
-    '>/dev/null 2>&1 || true';
-  const attachSessionCommand = `exec env -u TMUX tmux -S "${tmuxSocketPath}" attach-session -t ${tmuxSessionName}`;
-
-  if (!options.createIfMissing) {
-    return `${ensureSocketDirCommand}; ${hideStatusCommand}; ${disableMouseCommand}; ${attachSessionCommand}`;
-  }
-
-  return `${ensureSocketDirCommand}; ${createSessionCommand}; ${hideStatusCommand}; ${disableMouseCommand}; ${attachSessionCommand}`;
-}
-
 export function buildAgentLaunchPlan({
   agentCommand,
   customPath,
@@ -403,6 +351,34 @@ export function buildAgentLaunchPlan({
   let envVars: Record<string, string> | undefined;
   const joinedAgentArgs = agentArgs.join(' ');
   const commandShellPath = resolveCommandShellPath(resolvedShell, executionPlatform);
+  const codexExecutableName = effectiveCommand.replace(/\\/g, '/').split('/').at(-1)?.toLowerCase();
+  const unsafeShellExpression = /[;&|<>\x60\n\r]|\$\(/;
+  const canDescribeCodexLaunch =
+    agentCommand === 'codex' &&
+    ['codex', 'codex.exe', 'codex.cmd', 'codex.bat'].includes(codexExecutableName ?? '') &&
+    !unsafeShellExpression.test(customArgs ?? '') &&
+    !unsafeShellExpression.test(resumeSessionId ?? '') &&
+    (isRemoteExecution || !/sqlite_home\s*=/.test(customArgs ?? ''));
+  const describeCodexLaunch = (
+    layout: Extract<CodexLaunchDescriptor, { kind: 'native' }>['layout'],
+    shellArgsPrefix?: string[],
+    fallbackArgsPrefix?: string[]
+  ): CodexLaunchDescriptor | undefined =>
+    !canDescribeCodexLaunch
+      ? undefined
+      : environment === 'native'
+        ? {
+            kind: 'native',
+            executable: effectiveCommand,
+            shellPath: commandShellPath,
+            executionPlatform,
+            rawArgs: [...agentArgs],
+            ...(initialPrompt ? { initialPromptArg: agentArgs.at(-1) } : {}),
+            layout,
+            ...(shellArgsPrefix ? { shellArgsPrefix } : {}),
+            ...(fallbackArgsPrefix ? { fallbackArgsPrefix } : {}),
+          }
+        : undefined;
   const buildCommandWithCustomPath = (rawArgs: string[]) =>
     buildShellCommandFromExecutablePath({
       shellPath: commandShellPath,
@@ -471,8 +447,12 @@ export function buildAgentLaunchPlan({
     finalCommand = buildTmuxAttachCommand(baseCommand, tmuxServerName, tmuxSessionName, {
       createIfMissing: !attachExistingTmuxSession,
       sessionEnvironmentVariableNames:
-        agentCommand === 'codex'
-          ? ['CODEX_HOME', 'INFILUX_MANAGED_CODEX_RUNTIME_HOME']
+        agentCommand === 'codex' && !isRemoteExecution
+          ? [
+              'CODEX_HOME',
+              ...(environment === 'native' ? ['CODEX_SQLITE_HOME'] : []),
+              'INFILUX_MANAGED_CODEX_RUNTIME_HOME',
+            ]
           : agentCommand === 'gemini'
             ? ['GEMINI_CLI_HOME', 'INFILUX_MANAGED_GEMINI_RUNTIME_HOME']
             : [],
@@ -485,6 +465,9 @@ export function buildAgentLaunchPlan({
       env: envVars,
       initialCommand: finalCommand,
       tmuxSessionName,
+      ...(environment === 'native' && canDescribeCodexLaunch
+        ? { codexLaunch: describeCodexLaunch('remote') }
+        : {}),
       ...(hostSession ? { hostSession } : {}),
     };
   }
@@ -515,15 +498,29 @@ export function buildAgentLaunchPlan({
   }
 
   if (shellName.includes('powershell') || shellName.includes('pwsh')) {
+    const powershellArgs = [...resolvedShell.execArgs, `& { ${finalCommand} }`];
+    const nativeCodexLaunch = describeCodexLaunch('powershell', resolvedShell.execArgs);
     return {
       command: {
         shell: resolvedShell.shell,
-        args: [...resolvedShell.execArgs, `& { ${finalCommand} }`],
+        args: powershellArgs,
       },
       fallbackCommand: undefined,
       env: envVars,
       initialCommand: undefined,
       tmuxSessionName,
+      ...(nativeCodexLaunch
+        ? { codexLaunch: nativeCodexLaunch }
+        : canDescribeCodexLaunch && environment !== 'native'
+          ? {
+              codexLaunch: {
+                kind: 'wrapper' as const,
+                environment,
+                originalShell: resolvedShell.shell,
+                originalArgs: powershellArgs,
+              },
+            }
+          : {}),
       ...(hostSession ? { hostSession } : {}),
     };
   }
@@ -538,6 +535,10 @@ export function buildAgentLaunchPlan({
       initialPrompt,
     })
   ) {
+    const fallbackArgsPrefix = ensureLocalUnixShellCommandArgs(
+      resolvedShell.shell,
+      resolvedShell.execArgs
+    );
     return {
       command: {
         shell: effectiveCommand,
@@ -545,25 +546,29 @@ export function buildAgentLaunchPlan({
       },
       fallbackCommand: {
         shell: resolvedShell.shell,
-        args: [
-          ...ensureLocalUnixShellCommandArgs(resolvedShell.shell, resolvedShell.execArgs),
-          finalCommand,
-        ],
+        args: [...fallbackArgsPrefix, finalCommand],
       },
       env: envVars,
       initialCommand: undefined,
       tmuxSessionName,
+      ...(describeCodexLaunch('direct', undefined, fallbackArgsPrefix)
+        ? { codexLaunch: describeCodexLaunch('direct', undefined, fallbackArgsPrefix) }
+        : {}),
       ...(hostSession ? { hostSession } : {}),
     };
   }
 
   if (agentCommand === 'codex' && environment === 'native' && !isRemoteExecution && !isWindows) {
+    const nativeCodexLaunch = describeCodexLaunch(
+      tmuxSessionName ? (attachExistingTmuxSession ? 'tmux-attach' : 'tmux') : 'initial'
+    );
     return {
       command: undefined,
       fallbackCommand: undefined,
       env: envVars,
       initialCommand: buildSanitizedAgentCommand(finalCommand),
       tmuxSessionName,
+      ...(nativeCodexLaunch ? { codexLaunch: nativeCodexLaunch } : {}),
       ...(hostSession ? { hostSession } : {}),
     };
   }
@@ -577,17 +582,29 @@ export function buildAgentLaunchPlan({
     hapiGlobalInstalled,
   });
 
+  const wrappedCommand = wrapWithLocalUnixFallback({
+    finalCommand,
+    shellPath: resolvedShell.shell,
+    shellExecArgs: resolvedShell.execArgs,
+    probeCommands,
+  });
   return {
-    command: wrapWithLocalUnixFallback({
-      finalCommand,
-      shellPath: resolvedShell.shell,
-      shellExecArgs: resolvedShell.execArgs,
-      probeCommands,
-    }),
+    command: wrappedCommand,
     fallbackCommand: undefined,
     env: envVars,
     initialCommand: undefined,
     tmuxSessionName,
+    ...(canDescribeCodexLaunch && environment !== 'native'
+      ? {
+          codexLaunch: {
+            kind: 'wrapper' as const,
+            environment,
+            originalShell: wrappedCommand.shell,
+            originalArgs: wrappedCommand.args,
+            ...(hostSession ? { originalHostSession: hostSession } : {}),
+          },
+        }
+      : {}),
     ...(hostSession ? { hostSession } : {}),
   };
 }

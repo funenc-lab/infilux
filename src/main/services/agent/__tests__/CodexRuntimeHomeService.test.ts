@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -12,12 +13,16 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import log from '../../../utils/logger';
 import { AgentRuntimeHomeService } from '../AgentRuntimeHomeService';
 import type {
   CodexWorkspaceHistoryMigrationOperation,
   CodexWorkspaceHistoryMigrationScheduler,
 } from '../CodexWorkspaceHistoryMigrationCoordinator';
-import { resolveCodexWorkspaceSessionHistoryPath } from '../CodexWorkspaceSessionHistory';
+import {
+  resolveCodexWorkspaceSessionHistoryPath,
+  resolveCodexWorkspaceSqliteHomePath,
+} from '../CodexWorkspaceSessionHistory';
 
 vi.mock('electron', () => ({
   app: {
@@ -29,6 +34,7 @@ vi.mock('electron', () => ({
 vi.mock('../../../utils/logger', () => ({
   default: {
     error: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
@@ -107,6 +113,7 @@ describe('CodexRuntimeHomeService', () => {
     expect(result).toEqual({
       homePath: path.join(runtimeRoot, 'session-with-spaces'),
       sourceHomePath: sourceHome,
+      sqliteHomePath: path.join(path.dirname(workspaceSessionsPath), 'sqlite'),
     });
     expect(existsSync(path.join(result.homePath, '.infilux-managed-runtime-home-v1'))).toBe(true);
     expect(readlinkSync(path.join(result.homePath, 'auth.json'))).toBe(
@@ -120,6 +127,111 @@ describe('CodexRuntimeHomeService', () => {
     );
     expect(readlinkSync(path.join(result.homePath, 'sessions'))).toBe(workspaceSessionsPath);
     expect(existsSync(path.join(workspaceSessionsPath, 'global-history.jsonl'))).toBe(false);
+  });
+
+  it('rejects a pre-existing symlink to a sibling worktree SQLite directory before launch', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const siblingSqlitePath = path.join(createTempRoot(), 'sqlite');
+    mkdirSync(siblingSqlitePath, { recursive: true });
+    symlinkSync(
+      siblingSqlitePath,
+      path.join(path.dirname(workspaceSessionsPath), 'sqlite'),
+      process.platform === 'win32' ? 'junction' : undefined
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    await expect(
+      service.prepareRuntimeHome('ui-session', {
+        sessionHistoryPath: workspaceSessionsPath,
+        sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+      })
+    ).rejects.toThrow('Codex worktree SQLite directory must not be a symlink');
+    expect(existsSync(path.join(siblingSqlitePath, 'state_5.sqlite'))).toBe(false);
+  });
+
+  it('rejects a workspace-parent symlink before creating sibling sessions or SQLite', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const historyRoot = createTempRoot();
+    const siblingWorkspace = createTempRoot();
+    const workspaceParent = path.join(historyRoot, 'workspace-current');
+    symlinkSync(
+      siblingWorkspace,
+      workspaceParent,
+      process.platform === 'win32' ? 'junction' : undefined
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    await expect(
+      service.prepareRuntimeHome('ui-session', {
+        sessionHistoryPath: path.join(workspaceParent, 'sessions'),
+        sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+      })
+    ).rejects.toThrow('Codex workspace history parent must not be a symlink');
+    expect(existsSync(path.join(siblingWorkspace, 'sessions'))).toBe(false);
+    expect(existsSync(path.join(siblingWorkspace, 'sqlite'))).toBe(false);
+  });
+
+  it('rejects a workspace parent replaced by a sibling symlink during runtime setup', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const historyRoot = createTempRoot();
+    const siblingWorkspace = createTempRoot();
+    const workspaceParent = path.join(historyRoot, 'workspace-current');
+    mkdirSync(workspaceParent);
+    const originalPrepareRuntimeHome = AgentRuntimeHomeService.prototype.prepareRuntimeHome;
+    const prepareSpy = vi
+      .spyOn(AgentRuntimeHomeService.prototype, 'prepareRuntimeHome')
+      .mockImplementation(function (this: AgentRuntimeHomeService, runtimeKey) {
+        const result = originalPrepareRuntimeHome.call(this, runtimeKey);
+        renameSync(workspaceParent, `${workspaceParent}-moved`);
+        symlinkSync(
+          siblingWorkspace,
+          workspaceParent,
+          process.platform === 'win32' ? 'junction' : undefined
+        );
+        return result;
+      });
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    try {
+      await expect(
+        service.prepareRuntimeHome('ui-session', {
+          sessionHistoryPath: path.join(workspaceParent, 'sessions'),
+          sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+        })
+      ).rejects.toThrow('Codex workspace history parent');
+      expect(existsSync(path.join(siblingWorkspace, 'sessions'))).toBe(false);
+      expect(existsSync(path.join(siblingWorkspace, 'sqlite'))).toBe(false);
+    } finally {
+      prepareSpy.mockRestore();
+    }
+  });
+
+  it('rejects a sessions symlink before touching a sibling worktree history', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceParent = createTempRoot();
+    const siblingWorkspace = createTempRoot();
+    symlinkSync(
+      siblingWorkspace,
+      path.join(workspaceParent, 'sessions'),
+      process.platform === 'win32' ? 'junction' : undefined
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    await expect(
+      service.prepareRuntimeHome('ui-session', {
+        sessionHistoryPath: path.join(workspaceParent, 'sessions'),
+        sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+      })
+    ).rejects.toThrow('Codex workspace session history must not be a symlink');
+    expect(existsSync(path.join(workspaceParent, 'sqlite'))).toBe(false);
+    expect(existsSync(path.join(siblingWorkspace, '.codex-external-import-lock.sqlite'))).toBe(
+      false
+    );
   });
 
   it('imports only matching user-global session history into an Infilux runtime home', async () => {
@@ -136,15 +248,15 @@ describe('CodexRuntimeHomeService', () => {
       path.join(sourceHome, 'sessions', relativeSessionPath),
       `${JSON.stringify({
         type: 'session_meta',
-        payload: { id: 'global-session', cwd: '/repo/worktree-a' },
-      })}\n`
+        payload: { id: 'fe9d211b-272a-4ee7-a08c-2e23349542c2', cwd: '/repo/worktree-a' },
+      })}\n${JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Hi' } })}\n`
     );
     writeFileSync(
       path.join(sourceHome, 'sessions', siblingSessionPath),
       `${JSON.stringify({
         type: 'session_meta',
-        payload: { id: 'sibling-session', cwd: '/repo/worktree-b' },
-      })}\n`
+        payload: { id: 'f164724d-c72b-4e9d-86f1-a4ba931c7c36', cwd: '/repo/worktree-b' },
+      })}\n${JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Sibling' } })}\n`
     );
     const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migration.coordinator);
 
@@ -156,6 +268,84 @@ describe('CodexRuntimeHomeService', () => {
 
     expect(existsSync(path.join(workspaceSessionsPath, relativeSessionPath))).toBe(true);
     expect(existsSync(path.join(workspaceSessionsPath, siblingSessionPath))).toBe(false);
+  });
+
+  it('imports a newly completed post-marker external transcript before returning', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const migration = createControlledMigrationCoordinator();
+    const relativeSessionPath = path.join('2026', '10', '07', 'rollout-new-external.jsonl');
+    const sourceFile = path.join(sourceHome, 'sessions', relativeSessionPath);
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    const bytes = `${JSON.stringify({
+      type: 'session_meta',
+      payload: { id: 'fe9d211b-272a-4ee7-a08c-2e23349542c2', cwd: '/repo/worktree-a' },
+    })}\n${JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Hi' } })}\n`;
+    writeFileSync(sourceFile, bytes);
+    mkdirSync(path.dirname(workspaceSessionsPath), { recursive: true });
+    writeFileSync(
+      path.join(path.dirname(workspaceSessionsPath), '.legacy-session-history-migrated-v2'),
+      'completed'
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migration.coordinator);
+
+    const result = await service.prepareRuntimeHome('fresh-ui-session', {
+      sessionHistoryPath: workspaceSessionsPath,
+      sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+    });
+
+    expect(readFileSync(path.join(workspaceSessionsPath, relativeSessionPath), 'utf8')).toBe(bytes);
+    expect(result.sqliteHomePath).toBe(path.join(path.dirname(workspaceSessionsPath), 'sqlite'));
+  });
+
+  it('does not let deferred legacy migration publish an unfinished external transcript', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const migration = createControlledMigrationCoordinator();
+    const relativeSessionPath = path.join('2026', '10', '07', 'unfinished-external.jsonl');
+    const sourceFile = path.join(sourceHome, 'sessions', relativeSessionPath);
+    mkdirSync(path.dirname(sourceFile), { recursive: true });
+    writeFileSync(
+      sourceFile,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: { id: 'fe9d211b-272a-4ee7-a08c-2e23349542c2', cwd: '/repo/worktree-a' },
+      })}\n{"type":"event_msg","payload":{"message":"unfinished"` // No final newline.
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot, migration.coordinator);
+    vi.mocked(log.warn).mockClear();
+
+    await service.prepareRuntimeHome('new-ui-session', {
+      sessionHistoryPath: workspaceSessionsPath,
+      sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+    });
+    await migration.flush();
+
+    expect(existsSync(path.join(workspaceSessionsPath, relativeSessionPath))).toBe(false);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('initial resume list may be incomplete')
+    );
+    expect(JSON.stringify(vi.mocked(log.warn).mock.calls)).not.toContain(sourceFile);
+  });
+
+  it('skips importing when the external sessions symlink resolves inside this worktree history', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    mkdirSync(workspaceSessionsPath, { recursive: true });
+    symlinkSync(workspaceSessionsPath, path.join(sourceHome, 'sessions'));
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    await expect(
+      service.prepareRuntimeHome('symlink-source-session', {
+        sessionHistoryPath: workspaceSessionsPath,
+        sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+      })
+    ).resolves.toMatchObject({
+      sqliteHomePath: path.join(path.dirname(workspaceSessionsPath), 'sqlite'),
+    });
   });
 
   it('resolves the scoped Codex home when the application config is initialized after module loading', async () => {
@@ -420,6 +610,37 @@ describe('CodexRuntimeHomeService', () => {
     );
   });
 
+  it('keeps SQLite stable across UI runtime homes while separating sibling worktrees', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const historyRoot = path.join(createTempRoot(), 'history with spaces');
+    const scope = { historyRoot, worktreePath: '/repo/worktree with spaces' };
+    const siblingScope = { historyRoot, worktreePath: '/repo/sibling-worktree' };
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    const [first, second, sibling] = await Promise.all([
+      service.prepareRuntimeHome('ui-session-one', {
+        sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath(scope),
+        sessionHistoryScope: scope,
+      }),
+      service.prepareRuntimeHome('ui-session-two', {
+        sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath(scope),
+        sessionHistoryScope: scope,
+      }),
+      service.prepareRuntimeHome('ui-session-three', {
+        sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath(siblingScope),
+        sessionHistoryScope: siblingScope,
+      }),
+    ]);
+
+    expect(first.homePath).not.toBe(second.homePath);
+    expect(first.sqliteHomePath).toBe(resolveCodexWorkspaceSqliteHomePath(scope));
+    expect(first.sqliteHomePath).toBe(second.sqliteHomePath);
+    expect(first.sqliteHomePath).not.toBe(sibling.sqliteHomePath);
+    expect(existsSync(first.sqliteHomePath)).toBe(true);
+    expect(existsSync(sibling.sqliteHomePath)).toBe(true);
+  });
+
   it('prunes old orphaned Codex runtime homes while retaining active and recent homes', () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();
@@ -511,6 +732,8 @@ describe('CodexRuntimeHomeService', () => {
     mkdirSync(path.dirname(historyPath), { recursive: true });
     writeFileSync(historyPath, 'worktree-history');
     writeFileSync(path.join(runtimeHome.homePath, 'state_5.sqlite'), 'runtime-state');
+    const stableSqlitePath = path.join(runtimeHome.sqliteHomePath, 'state_5.sqlite');
+    writeFileSync(stableSqlitePath, 'persistent-worktree-state');
 
     const releaseRuntimeHome = Reflect.get(service, 'releaseRuntimeHome') as
       | ((homePath: string) => Promise<boolean>)
@@ -520,6 +743,32 @@ describe('CodexRuntimeHomeService', () => {
     await expect(releaseRuntimeHome?.call(service, runtimeHome.homePath)).resolves.toBe(true);
     expect(existsSync(runtimeHome.homePath)).toBe(false);
     expect(readFileSync(historyPath, 'utf8')).toBe('worktree-history');
+    expect(readFileSync(stableSqlitePath, 'utf8')).toBe('persistent-worktree-state');
+  });
+
+  it('retains the worktree SQLite directory after pruning an orphaned UI runtime home', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+    const runtimeHome = await service.prepareRuntimeHome('old-session', {
+      sessionHistoryPath: workspaceSessionsPath,
+      sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+    });
+    const stableSqlitePath = path.join(runtimeHome.sqliteHomePath, 'state_5.sqlite');
+    writeFileSync(stableSqlitePath, 'persistent-worktree-state');
+    const oldTimestamp = new Date('2026-01-01T00:00:00.000Z');
+    utimesSync(runtimeHome.homePath, oldTimestamp, oldTimestamp);
+
+    const pruneResult = service.pruneOrphanedRuntimeHomes({
+      retainedRuntimeKeys: [],
+      minAgeMs: 30 * 24 * 60 * 60 * 1_000,
+      now: Date.parse('2026-04-10T00:00:00.000Z'),
+    });
+
+    expect(pruneResult.prunedHomePaths).toEqual([runtimeHome.homePath]);
+    expect(existsSync(runtimeHome.homePath)).toBe(false);
+    expect(readFileSync(stableSqlitePath, 'utf8')).toBe('persistent-worktree-state');
   });
 
   it('refuses to release paths outside the managed runtime root', async () => {

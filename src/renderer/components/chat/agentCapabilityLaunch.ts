@@ -55,6 +55,21 @@ export interface ExtractedAgentCapabilitySessionMetadata {
   warnings: string[];
 }
 
+export function extractCodexRuntimeSessionWarnings(
+  metadata: Record<string, unknown> | undefined
+): string[] {
+  const warnings = metadata?.codexRuntimeWarnings;
+  return Array.isArray(warnings)
+    ? [
+        ...new Set(
+          warnings.filter(
+            (warning): warning is string => typeof warning === 'string' && warning.length > 0
+          )
+        ),
+      ]
+    : [];
+}
+
 function isAgentCapabilityProvider(value: unknown): value is AgentCapabilityProvider {
   return value === 'claude' || value === 'codex' || value === 'gemini';
 }

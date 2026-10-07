@@ -4,7 +4,9 @@ import type {
   ResolvedClaudePolicy,
   SessionCreateOptions,
 } from '@shared/types';
+import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { describe, expect, it, vi } from 'vitest';
+import { buildAgentLaunchPlan } from '../../../../renderer/components/chat/agentLaunchPlan';
 import type { CapabilityMcpConfigSet } from '../../claude/CapabilityMcpConfigService';
 import {
   buildCodexSessionProjection,
@@ -106,16 +108,201 @@ function createCapabilities(
   return capabilities;
 }
 
+function createNativeShellPlan() {
+  return buildAgentLaunchPlan({
+    agentCommand: 'codex',
+    customArgs: '--profile fast',
+    environment: 'native',
+    hapiGlobalInstalled: null,
+    isRemoteExecution: false,
+    executionPlatform: 'darwin',
+    resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+  });
+}
+
 describe('CodexCapabilityProviderAdapter', () => {
+  it.each([
+    'hapi',
+    'happy',
+  ] as const)('reports that configured MCP and skills are not applied to %s wrapper sessions', (environment) => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+        codexLaunch: plan.codexLaunch,
+      },
+      createCapabilities(),
+      createResolvedPolicy({
+        allowedCapabilityIds: ['legacy-skill:ship'],
+        allowedSharedMcpIds: ['shared-project'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(false);
+    expect(projection.sessionOverrides).toBeUndefined();
+    expect(projection.warnings).toContainEqual(
+      expect.stringContaining('Codex MCP and skill settings were not applied for Hapi/Happy')
+    );
+  });
+
+  it('does not report unapplied wrapper capabilities when no MCP or skills were configured', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'hapi',
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+        codexLaunch: plan.codexLaunch,
+      },
+      [],
+      createResolvedPolicy(),
+      { sharedById: {}, personalById: {} }
+    );
+
+    expect(projection.applied).toBe(false);
+    expect(projection.warnings).toEqual([]);
+  });
+
+  it('reports pending capability assignments on attach-existing tmux instead of claiming application', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-1',
+      persistentHostSessionKey: 'infilux-ui-1',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        hostSession: plan.hostSession,
+        codexLaunch: plan.codexLaunch,
+      },
+      createCapabilities(),
+      createResolvedPolicy({ allowedSharedMcpIds: ['shared-project'] }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(false);
+    expect(projection.sessionOverrides).toBeUndefined();
+    expect(projection.warnings).toContainEqual(expect.stringContaining('Restart'));
+  });
+
+  it('preserves remote native Codex capability assignments without a local SQLite override', () => {
+    const executable = "/opt/O'Brien's tools/codex";
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: executable,
+      customArgs: '--profile codex',
+      initialPrompt: 'review codex logs',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: true,
+      executionPlatform: 'linux',
+      resolvedShell: null,
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a'),
+        kind: 'agent',
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      },
+      createCapabilities(),
+      createResolvedPolicy({
+        allowedSharedMcpIds: ['shared-project'],
+        allowedCapabilityIds: ['legacy-skill:ship'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.initialCommand).toContain(
+      `'${executable.replace(/'/g, "'\\''")}' -c `
+    );
+    expect(projection.sessionOverrides?.initialCommand).toContain('mcp_servers.shared-project');
+    expect(projection.sessionOverrides?.initialCommand).toContain('skills.config=');
+    expect(projection.sessionOverrides?.initialCommand).toContain('--profile codex');
+    expect(projection.sessionOverrides?.initialCommand).not.toContain('sqlite_home');
+  });
+
+  it('applies capability assignments at the renderer native Codex executable despite profile and prompt words', () => {
+    const executable = "/opt/OpenAI's Codex tools/codex";
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: executable,
+      customArgs: '--profile codex',
+      initialPrompt: 'inspect codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      },
+      [],
+      createResolvedPolicy({ allowedSharedMcpIds: ['shared-project'] }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.initialCommand).toContain(
+      `'${executable.replace(/'/g, "'\\''")}' -c `
+    );
+    expect(projection.sessionOverrides?.initialCommand).toContain(' --profile codex ');
+    expect(projection.sessionOverrides?.codexLaunch?.kind).toBe('native');
+  });
+
   it('injects MCP and skill runtime configuration into direct codex launches', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'codex-session-1',
+      initialized: true,
+      terminalSessionId: 'ui-direct-session',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
         kind: 'agent',
-        shell: 'codex',
-        args: ['resume', 'codex-session-1'],
-        fallbackShell: '/bin/zsh',
-        fallbackArgs: ['-l', '-c', 'codex resume codex-session-1'],
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+        fallbackShell: plan.fallbackCommand?.shell,
+        fallbackArgs: plan.fallbackCommand?.args,
+        codexLaunch: plan.codexLaunch,
       },
       createCapabilities(),
       createResolvedPolicy({
@@ -384,12 +571,14 @@ describe('CodexCapabilityProviderAdapter', () => {
   });
 
   it('warns and prefers the personal configuration when the same MCP id exists in both scopes', () => {
+    const plan = createNativeShellPlan();
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
         kind: 'agent',
-        initialCommand: 'codex',
+        initialCommand: plan.initialCommand,
         shellConfig: { shellType: 'zsh' },
+        codexLaunch: plan.codexLaunch,
       },
       [],
       createResolvedPolicy({
@@ -475,16 +664,25 @@ describe('CodexCapabilityProviderAdapter', () => {
   });
 
   it('injects runtime config into PowerShell custom executable launches', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: 'C:\\Program Files\\OpenAI\\codex.exe',
+      resumeSessionId: 'codex-session-9',
+      terminalSessionId: 'ui-powershell',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: { shell: 'pwsh.exe', execArgs: ['-NoLogo', '-Command'] },
+    });
     const projection = buildCodexSessionProjection(
       {
         cwd: 'C:\\repo\\worktrees\\feat-a',
         kind: 'agent',
         shell: 'pwsh.exe',
-        args: [
-          '-NoLogo',
-          '-Command',
-          "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume codex-session-9 }",
-        ],
+        args: plan.command?.args,
+        codexLaunch: plan.codexLaunch,
       },
       createCapabilities(),
       createResolvedPolicy({
@@ -505,12 +703,14 @@ describe('CodexCapabilityProviderAdapter', () => {
   });
 
   it('ignores unsupported command and subagent entries when building Codex runtime skill config', () => {
+    const plan = createNativeShellPlan();
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
         kind: 'agent',
-        initialCommand: 'codex',
+        initialCommand: plan.initialCommand,
         shellConfig: { shellType: 'zsh' },
+        codexLaunch: plan.codexLaunch,
       },
       createCapabilities({ includeCommand: true }),
       createResolvedPolicy({
@@ -542,6 +742,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       prepareRuntimeHome: vi.fn().mockResolvedValue({
         homePath: '/runtime/codex/ui-session-1',
         sourceHomePath: '/Users/test/.codex',
+        sqliteHomePath: '/history/worktree-a/sqlite',
       }),
     };
     const adapter = createCodexCapabilityProviderAdapter({
@@ -550,11 +751,13 @@ describe('CodexCapabilityProviderAdapter', () => {
       resolveCapabilityMcpConfigEntries: resolveCapabilityMcpConfigEntriesFn,
       codexRuntimeHomeService,
     });
+    const plan = createNativeShellPlan();
     const sessionOptions: SessionCreateOptions = {
       cwd: '/repo/worktrees/feat-a',
       kind: 'agent',
-      initialCommand: 'codex',
+      initialCommand: plan.initialCommand,
       shellConfig: { shellType: 'zsh' },
+      codexLaunch: plan.codexLaunch,
       metadata: {
         uiSessionId: 'ui-session-1',
       },
@@ -609,6 +812,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       },
       env: {
         CODEX_HOME: '/runtime/codex/ui-session-1',
+        CODEX_SQLITE_HOME: '/history/worktree-a/sqlite',
         INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/ui-session-1',
       },
     });
@@ -617,6 +821,192 @@ describe('CodexCapabilityProviderAdapter', () => {
     );
     expect(result.sessionOverrides?.initialCommand).toContain(
       'skills.config=[{enabled = true, path = \\"/repo/.codex/skills/ship/SKILL.md\\"}]'
+    );
+  });
+
+  it('retains a user-owned CODEX_HOME when a Codex capability launch was requested', async () => {
+    const runtime = { prepareRuntimeHome: vi.fn() };
+    const adapter = createCodexCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(createResolvedPolicy()),
+      resolveCapabilityMcpConfigEntries: vi
+        .fn()
+        .mockResolvedValue({ sharedById: {}, personalById: {} }),
+      codexRuntimeHomeService: runtime,
+    });
+
+    const prepared = await adapter.prepareLaunch(createRequest(), {
+      cwd: '/repo/worktrees/feat-a',
+      kind: 'agent',
+      shell: 'codex',
+      env: { CODEX_HOME: '/custom/codex-home' },
+    });
+
+    expect(runtime.prepareRuntimeHome).not.toHaveBeenCalled();
+    expect(prepared?.sessionOverrides?.env?.CODEX_HOME).toBeUndefined();
+    expect(prepared?.sessionOverrides?.env?.CODEX_SQLITE_HOME).toBeUndefined();
+  });
+
+  it.each([
+    'hapi',
+    'happy',
+  ] as const)('warns when %s wrapper cannot guarantee the managed SQLite index', async (environment) => {
+    const adapter = createCodexCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(createResolvedPolicy()),
+      resolveCapabilityMcpConfigEntries: vi
+        .fn()
+        .mockResolvedValue({ sharedById: {}, personalById: {} }),
+      codexRuntimeHomeService: {
+        prepareRuntimeHome: vi.fn().mockResolvedValue({
+          homePath: '/runtime/codex/ui-session-1',
+          sourceHomePath: '/Users/test/.codex',
+          sqliteHomePath: '/history/worktree-a/sqlite',
+        }),
+      },
+    });
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-1',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    const result = await adapter.prepareLaunch(createRequest(), {
+      cwd: '/repo/worktrees/feat-a',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
+      metadata: { uiSessionId: 'ui-session-1' },
+    });
+
+    expect(result?.sessionOverrides?.env?.CODEX_HOME).toBe('/runtime/codex/ui-session-1');
+    expect(result?.sessionOverrides?.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(result?.launchResult.warnings).toContainEqual(
+      expect.stringContaining('SQLite index isolation')
+    );
+  });
+
+  it('does not forward the local managed SQLite path to a remote capability launch', async () => {
+    const adapter = createCodexCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(createResolvedPolicy()),
+      resolveCapabilityMcpConfigEntries: vi
+        .fn()
+        .mockResolvedValue({ sharedById: {}, personalById: {} }),
+      codexRuntimeHomeService: {
+        prepareRuntimeHome: vi.fn().mockResolvedValue({
+          homePath: '/runtime/codex/ui-session-1',
+          sourceHomePath: '/Users/test/.codex',
+          sqliteHomePath: '/history/worktree-a/sqlite',
+        }),
+      },
+    });
+    const remotePath = toRemoteVirtualPath('connection-1', '/repo/worktrees/feat-a');
+
+    const result = await adapter.prepareLaunch(
+      { ...createRequest(), worktreePath: remotePath },
+      {
+        cwd: remotePath,
+        kind: 'agent',
+        initialCommand: 'codex',
+        metadata: { uiSessionId: 'ui-session-1' },
+      }
+    );
+
+    expect(result?.sessionOverrides?.env?.CODEX_HOME).toBe('/runtime/codex/ui-session-1');
+    expect(result?.sessionOverrides?.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+  });
+
+  it('uses the actual remote cwd when the capability request has a stale local worktree path', async () => {
+    const adapter = createCodexCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(createResolvedPolicy()),
+      resolveCapabilityMcpConfigEntries: vi
+        .fn()
+        .mockResolvedValue({ sharedById: {}, personalById: {} }),
+      codexRuntimeHomeService: {
+        prepareRuntimeHome: vi.fn().mockResolvedValue({
+          homePath: '/runtime/codex/ui-session-1',
+          sourceHomePath: '/Users/test/.codex',
+          sqliteHomePath: '/history/worktree-a/sqlite',
+        }),
+      },
+    });
+
+    const result = await adapter.prepareLaunch(createRequest(), {
+      cwd: toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a'),
+      kind: 'agent',
+      initialCommand: 'codex',
+      metadata: { uiSessionId: 'ui-session-1' },
+    });
+
+    expect(result?.sessionOverrides?.env?.CODEX_HOME).toBe('/runtime/codex/ui-session-1');
+    expect(result?.sessionOverrides?.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+  });
+
+  it('scopes managed native Codex SQLite history to the actual local cwd despite a stale remote request', async () => {
+    const runtimeHomeService = {
+      prepareRuntimeHome: vi.fn().mockResolvedValue({
+        homePath: '/runtime/codex/ui-session-1',
+        sourceHomePath: '/Users/test/.codex',
+        sqliteHomePath: '/history/actual-local-worktree/sqlite',
+      }),
+    };
+    const adapter = createCodexCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(createResolvedPolicy()),
+      resolveCapabilityMcpConfigEntries: vi
+        .fn()
+        .mockResolvedValue({ sharedById: {}, personalById: {} }),
+      codexRuntimeHomeService: runtimeHomeService,
+    });
+    const localCwd = '/repo/worktrees/feat-a';
+    const staleRemotePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a');
+
+    const result = await adapter.prepareLaunch(
+      { ...createRequest(), worktreePath: staleRemotePath },
+      { cwd: localCwd, kind: 'agent', shell: 'codex', metadata: { uiSessionId: 'ui-session-1' } }
+    );
+
+    expect(runtimeHomeService.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-1', {
+      sessionHistoryPath: expect.stringContaining('codex-session-histories'),
+      sessionHistoryScope: { repoPath: '/repo', worktreePath: localCwd },
+    });
+    expect(result?.sessionOverrides?.env?.CODEX_HOME).toBe('/runtime/codex/ui-session-1');
+    expect(result?.sessionOverrides?.env?.CODEX_SQLITE_HOME).toBe(
+      '/history/actual-local-worktree/sqlite'
     );
   });
 });

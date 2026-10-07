@@ -1,5 +1,7 @@
-import { IPC_CHANNELS } from '@shared/types';
+import { IPC_CHANNELS, type SessionCreateOptions } from '@shared/types';
+import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildAgentLaunchPlan } from '../../../renderer/components/chat/agentLaunchPlan';
 
 type Handler = (...args: unknown[]) => unknown;
 type PreparedLaunchResult = {
@@ -124,6 +126,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     prepareRuntimeHome.mockResolvedValue({
       homePath: '/runtime/codex/session-1',
       sourceHomePath: '/Users/test/.codex',
+      sqliteHomePath: '/runtime/codex/worktree-shared/sqlite',
     });
 
     runExclusive.mockReset();
@@ -348,6 +351,15 @@ describe('session IPC handlers', () => {
 
   it('preserves shell-config launch options and scopes plain Codex history to its worktree', async () => {
     const event = createEvent();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '--dangerously-bypass-approvals-and-sandbox',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
 
     const { registerSessionHandlers } = await import('../session');
     registerSessionHandlers();
@@ -358,7 +370,8 @@ describe('session IPC handlers', () => {
       cwd: '/repo',
       kind: 'agent',
       shellConfig: { shellType: 'zsh' },
-      initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+      initialCommand: plan.initialCommand,
+      codexLaunch: plan.codexLaunch,
       persistOnDisconnect: true,
       metadata: {
         uiSessionId: 'ui-session-plain-codex',
@@ -380,10 +393,13 @@ describe('session IPC handlers', () => {
         cwd: '/repo',
         kind: 'agent',
         shellConfig: { shellType: 'zsh' },
-        initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+        initialCommand: expect.stringContaining(
+          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --dangerously-bypass-approvals-and-sandbox'
+        ),
         persistOnDisconnect: true,
         env: {
           CODEX_HOME: '/runtime/codex/session-1',
+          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
           INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({
@@ -397,6 +413,38 @@ describe('session IPC handlers', () => {
         }),
       })
     );
+  });
+
+  it('honors a renderer-generated native Codex launch with a quoted custom path and prompt', async () => {
+    const event = createEvent();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: "/opt/OpenAI's Codex tools/codex",
+      customArgs: '--profile codex',
+      initialPrompt: 'read codex logs',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: plan.initialCommand,
+      codexLaunch: plan.codexLaunch,
+      metadata: { uiSessionId: 'ui-native', agentId: 'codex', agentCommand: 'codex' },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.initialCommand).toContain("'/opt/OpenAI'\\''s Codex tools/codex' -c ");
+    expect(created.initialCommand).toContain('--profile codex');
+    expect(created.initialCommand).toContain('read codex logs');
+    expect(created.env?.CODEX_SQLITE_HOME).toBe('/runtime/codex/worktree-shared/sqlite');
   });
 
   it('uses the same worktree-scoped Codex history for explicit resume launches', async () => {
@@ -426,6 +474,579 @@ describe('session IPC handlers', () => {
         worktreePath: '/repo',
       },
     });
+    expect(sessionTestDoubles.create).toHaveBeenCalledWith(
+      event.sender,
+      expect.objectContaining({
+        args: [
+          '-c',
+          'sqlite_home="/runtime/codex/worktree-shared/sqlite"',
+          'resume',
+          'codex-session-1',
+        ],
+        env: expect.objectContaining({
+          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
+        }),
+      })
+    );
+  });
+
+  it('uses the same SQLite home across managed UI sessions and keeps sibling worktrees isolated', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    for (const [uiSessionId, worktree] of [
+      ['ui-a', '/repo/worktrees/a'],
+      ['ui-b', '/repo/worktrees/a'],
+      ['ui-c', '/repo/worktrees/b'],
+    ] as const) {
+      sessionTestDoubles.prepareRuntimeHome.mockResolvedValueOnce({
+        homePath: `/runtime/${uiSessionId}`,
+        sourceHomePath: '/Users/test/.codex',
+        sqliteHomePath: `/history/${worktree.endsWith('/a') ? 'a' : 'b'}/sqlite`,
+      });
+      await createHandler(event, {
+        cwd: worktree,
+        kind: 'agent',
+        shell: 'codex',
+        metadata: { agentId: 'codex', uiSessionId },
+      });
+    }
+
+    const created = sessionTestDoubles.create.mock.calls.map(
+      ([, options]) =>
+        options as {
+          env: Record<string, string>;
+        }
+    );
+    expect(created[0]?.env.CODEX_HOME).not.toBe(created[1]?.env.CODEX_HOME);
+    expect(created[0]?.env.CODEX_SQLITE_HOME).toBe(created[1]?.env.CODEX_SQLITE_HOME);
+    expect(created[0]?.env.CODEX_SQLITE_HOME).not.toBe(created[2]?.env.CODEX_SQLITE_HOME);
+  });
+
+  it.each([
+    { withCapabilities: false, withPriorWarning: false },
+    { withCapabilities: true, withPriorWarning: false },
+    { withCapabilities: true, withPriorWarning: true },
+  ])('warns when a managed native Codex tmux attach cannot change its SQLite index (capabilities: $withCapabilities, previous warning: $withPriorWarning)', async ({
+    withCapabilities,
+    withPriorWarning,
+  }) => {
+    const warning =
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+    const legacyWarning =
+      'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
+    const otherWarning = 'A separate runtime warning is still relevant.';
+    const event = createEvent();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-reconnected',
+      persistentHostSessionKey: 'infilux-ui-reconnected',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    expect(plan.codexLaunch).toEqual(expect.objectContaining({ layout: 'tmux-attach' }));
+    if (withCapabilities) {
+      sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+        launchResult: {
+          provider: 'codex',
+          hash: 'hash-1',
+          warnings: [
+            'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.',
+          ],
+          projected: { applied: false, warnings: [] },
+        },
+        sessionOverrides: undefined,
+      });
+    }
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: plan.initialCommand,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
+      metadata: {
+        uiSessionId: 'ui-reconnected',
+        agentId: 'codex',
+        agentCommand: 'codex',
+        ...(withPriorWarning
+          ? { codexRuntimeWarnings: [legacyWarning, otherWarning, warning] }
+          : {}),
+        ...(withCapabilities
+          ? {
+              agentCapabilityLaunch: {
+                provider: 'codex',
+                repoPath: '/repo',
+                worktreePath: '/repo/worktrees/a',
+              },
+            }
+          : {}),
+      },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.initialCommand).toBe(plan.initialCommand);
+    expect(created.args).toBeUndefined();
+    expect(created.hostSession).toEqual(plan.hostSession);
+    expect(created.env).toEqual(
+      expect.objectContaining({
+        CODEX_HOME: '/runtime/codex/session-1',
+        CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
+      })
+    );
+    expect(created.metadata?.codexRuntimeWarnings).toEqual(
+      withPriorWarning ? [otherWarning, warning] : [warning]
+    );
+    if (withCapabilities) {
+      expect(created.metadata?.agentCapability).toEqual(
+        expect.objectContaining({ warnings: [expect.stringContaining('MCP and skill changes')] })
+      );
+    } else {
+      expect(created.metadata?.agentCapability).toBeUndefined();
+    }
+  });
+
+  it('warns when an older managed Codex tmux attach lacks a launch descriptor', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: 'tmux attach-session -t infilux-ui-reconnected',
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'infilux-ui-reconnected',
+        mode: 'attach-existing',
+      },
+      metadata: { agentId: 'codex', agentCommand: 'codex' },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.initialCommand).toBe('tmux attach-session -t infilux-ui-reconnected');
+    expect(created.metadata?.codexRuntimeWarnings).toEqual([
+      expect.stringContaining('worktree-scoped index'),
+    ]);
+  });
+
+  it('does not apply local resume-index warnings to remote Codex or non-Codex tmux attaches', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    const hostSession = {
+      kind: 'tmux' as const,
+      serverName: 'infilux',
+      sessionName: 'infilux-ui-reconnected',
+      mode: 'attach-existing' as const,
+    };
+    await createHandler(event, {
+      cwd: toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a'),
+      kind: 'agent',
+      shell: '/bin/zsh',
+      hostSession,
+      metadata: { agentId: 'codex', agentCommand: 'codex' },
+    });
+    await createHandler(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: '/bin/zsh',
+      hostSession,
+      metadata: { agentId: 'claude', agentCommand: 'claude' },
+    });
+
+    const [remoteCodex, localClaude] = sessionTestDoubles.create.mock.calls.map(
+      ([, options]) => options as SessionCreateOptions
+    );
+    expect(remoteCodex?.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(remoteCodex?.metadata?.codexRuntimeWarnings).toBeUndefined();
+    expect(localClaude?.metadata?.codexRuntimeWarnings).toBeUndefined();
+    expect(sessionTestDoubles.prepareRuntimeHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not warn about a changed SQLite index for a new Codex tmux process or an explicit user-owned Codex home', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-new',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const attachPlan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-user-owned',
+      persistentHostSessionKey: 'infilux-ui-user-owned',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    await createHandler(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: plan.initialCommand,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
+      metadata: { agentId: 'codex', agentCommand: 'codex' },
+    });
+    await createHandler(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: attachPlan.initialCommand,
+      hostSession: attachPlan.hostSession,
+      codexLaunch: attachPlan.codexLaunch,
+      env: { CODEX_HOME: '/user/codex' },
+      metadata: { agentId: 'codex', agentCommand: 'codex' },
+    });
+
+    const [newProcess, userOwned] = sessionTestDoubles.create.mock.calls.map(
+      ([, options]) => options as SessionCreateOptions
+    );
+    expect(newProcess?.metadata?.codexRuntimeWarnings).toBeUndefined();
+    expect(userOwned?.metadata?.codexRuntimeWarnings).toBeUndefined();
+    expect(userOwned?.env?.CODEX_HOME).toBe('/user/codex');
+    expect(userOwned?.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+  });
+
+  it('preserves remote Codex home handling without forwarding a local SQLite path or CLI flag', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    const remotePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a');
+
+    await createHandler(event, {
+      cwd: remotePath,
+      kind: 'agent',
+      initialCommand: 'codex',
+      metadata: { agentId: 'codex', uiSessionId: 'ui-remote', worktreePath: remotePath },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(created.initialCommand).toBe('codex');
+    expect(created.metadata?.codexRuntimeWarnings).toBeUndefined();
+  });
+
+  it('drops a capability-projected local SQLite path when the actual session cwd is remote', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    const remotePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a');
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: { provider: 'codex', hash: 'hash-1', warnings: [], projected: null },
+      sessionOverrides: {
+        env: {
+          CODEX_HOME: '/runtime/codex/session-1',
+          CODEX_SQLITE_HOME: '/history/local/sqlite',
+          INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
+        },
+      },
+    });
+
+    await createHandler(event, {
+      cwd: remotePath,
+      kind: 'agent',
+      initialCommand: 'codex',
+      metadata: {
+        agentId: 'codex',
+        uiSessionId: 'ui-remote',
+        agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
+      },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(created.initialCommand).toBe('codex');
+  });
+
+  it.each([
+    'hapi',
+    'happy',
+  ] as const)('does not break the local %s Codex wrapper by injecting unverified SQLite flags', async (environment) => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: {
+        provider: 'codex',
+        hash: 'hash-1',
+        warnings: [],
+        projected: { warnings: [] },
+      },
+      sessionOverrides: undefined,
+    });
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    expect(plan.command?.shell).toBe('/bin/zsh');
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
+      metadata: {
+        agentId: 'codex',
+        agentCommand: 'codex',
+        ...(environment === 'happy' ? { environment } : {}),
+        uiSessionId: `ui-${environment}`,
+        agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
+      },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(created.args).toEqual(plan.command?.args);
+    expect(created.args?.join(' ')).not.toContain('sqlite_home');
+    expect(created.metadata?.agentCapability).toEqual(
+      expect.objectContaining({ warnings: [expect.stringContaining('SQLite index isolation')] })
+    );
+    expect(created.metadata?.codexRuntimeWarnings).toBeUndefined();
+  });
+
+  it.each([
+    { environment: 'hapi', hapiGlobalInstalled: true },
+    { environment: 'hapi', hapiGlobalInstalled: false },
+    { environment: 'happy', hapiGlobalInstalled: true },
+  ] as const)('starts a built-in local $environment Codex tmux plan without wrapper metadata (hapi global: $hapiGlobalInstalled)', async ({
+    environment,
+    hapiGlobalInstalled,
+  }) => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: {
+        provider: 'codex',
+        hash: 'hash-1',
+        warnings: [],
+        projected: { warnings: [] },
+      },
+      sessionOverrides: undefined,
+    });
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-1',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    expect(plan.hostSession?.mode).toBe('create-if-missing');
+    expect(plan.command?.shell).toBe('/bin/zsh');
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
+      metadata: {
+        agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
+      },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.args).toEqual(plan.command?.args);
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(created.metadata?.agentCapability).toEqual(
+      expect.objectContaining({ warnings: [expect.stringContaining('SQLite index isolation')] })
+    );
+  });
+
+  it.each([
+    { environment: 'hapi', hapiGlobalInstalled: true, customPath: '/opt/tools/codex' },
+    { environment: 'hapi', hapiGlobalInstalled: false, customPath: '/opt/tools/codex' },
+    { environment: 'happy', hapiGlobalInstalled: true, customPath: '/opt/tools with spaces/codex' },
+    { environment: 'happy', hapiGlobalInstalled: true, customPath: "/opt/quote's tools/codex" },
+  ] as const)('preserves built-in local $environment tmux wrapper launches with a custom Codex path', async ({
+    environment,
+    hapiGlobalInstalled,
+    customPath,
+  }) => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: {
+        provider: 'codex',
+        hash: 'hash-1',
+        warnings: [],
+        projected: { warnings: [] },
+      },
+      sessionOverrides: undefined,
+    });
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath,
+      environment,
+      hapiGlobalInstalled,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-custom-path',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    expect(plan.hostSession?.mode).toBe('create-if-missing');
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
+      metadata: {
+        agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
+      },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.args).toEqual(plan.command?.args);
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(created.metadata?.agentCapability).toEqual(
+      expect.objectContaining({ warnings: [expect.stringContaining('SQLite index isolation')] })
+    );
+  });
+
+  it.each([
+    'hapi',
+    'happy',
+  ] as const)('persists a visible %s Codex runtime warning without an agent capability launch request', async (environment) => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
+      metadata: { agentId: 'codex', agentCommand: 'codex', environment },
+    });
+
+    expect(sessionTestDoubles.prepareAgentCapabilityLaunch).not.toHaveBeenCalled();
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.metadata?.agentCapability).toBeUndefined();
+    expect(created.metadata?.codexRuntimeWarnings).toEqual([
+      expect.stringContaining('SQLite index isolation'),
+    ]);
+  });
+
+  it('recognizes an app-generated Happy Codex wrapper without capability or agent metadata', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'happy',
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.metadata?.codexRuntimeWarnings).toEqual([
+      expect.stringContaining('SQLite index isolation'),
+    ]);
+  });
+
+  it('applies the SQLite override once after a zero-assignment Codex capability projection', async () => {
+    const event = createEvent();
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: { provider: 'codex', hash: 'hash-1', warnings: [], projected: null },
+      sessionOverrides: {
+        env: {
+          CODEX_HOME: '/runtime/codex/session-1',
+          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
+          INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
+        },
+      },
+    });
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    await createHandler(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: 'codex',
+      args: ['resume', 'thread-id'],
+      metadata: {
+        agentCapabilityLaunch: {
+          provider: 'codex',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/a',
+        },
+      },
+    });
+
+    expect(sessionTestDoubles.prepareRuntimeHome).not.toHaveBeenCalled();
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.args).toEqual([
+      '-c',
+      'sqlite_home="/runtime/codex/worktree-shared/sqlite"',
+      'resume',
+      'thread-id',
+    ]);
   });
 
   it('serializes Codex agent creation by UI session id before starting the runtime process', async () => {
@@ -439,7 +1060,8 @@ describe('session IPC handlers', () => {
     await createHandler(event, {
       cwd: '/repo',
       kind: 'agent',
-      initialCommand: 'codex',
+      shell: 'codex',
+      args: [],
       metadata: {
         uiSessionId: 'ui-session-lock',
         agentId: 'codex',
@@ -465,6 +1087,7 @@ describe('session IPC handlers', () => {
     await createHandler(event, {
       cwd: '/repo/worktrees/feature-a',
       kind: 'agent',
+      shell: 'codex',
       metadata: {
         uiSessionId: 'ui-session-capability-lock',
         agentCapabilityLaunch: {
@@ -699,7 +1322,7 @@ describe('session IPC handlers', () => {
         env: {
           AGENT_CAPABILITY_PROFILE: 'strict',
         },
-        initialCommand: 'codex --profile strict',
+        initialCommand: 'claude --profile strict',
         spawnCwd: '/tmp/infilux/capability-session',
         metadata: {
           providerLaunchStrategy: 'provider-native',
@@ -718,7 +1341,7 @@ describe('session IPC handlers', () => {
       env: {
         BASE_ENV: '1',
       },
-      initialCommand: 'codex --profile default',
+      initialCommand: 'claude --profile default',
       metadata: {
         agentCapabilityLaunch: {
           provider: 'claude',
@@ -741,19 +1364,13 @@ describe('session IPC handlers', () => {
         cwd: '/repo/worktrees/feature-a',
         kind: 'agent',
         spawnCwd: '/tmp/infilux/capability-session',
-        initialCommand: 'codex --profile strict',
+        initialCommand: 'claude --profile strict',
         env: {
           BASE_ENV: '1',
           AGENT_CAPABILITY_PROFILE: 'strict',
-          CODEX_HOME: '/runtime/codex/session-1',
-          INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({
           providerLaunchStrategy: 'provider-native',
-          codexRuntimeHome: {
-            homePath: '/runtime/codex/session-1',
-            sourceHomePath: '/Users/test/.codex',
-          },
           agentCapability: expect.objectContaining({
             provider: 'claude',
             hash: 'hash-1',

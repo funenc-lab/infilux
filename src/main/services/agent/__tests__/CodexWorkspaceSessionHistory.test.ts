@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   migrateCodexWorkspaceSessionHistory,
   resolveCodexWorkspaceSessionHistoryPath,
+  resolveCodexWorkspaceSqliteHomePath,
 } from '../CodexWorkspaceSessionHistory';
 
 const tempDirectories: string[] = [];
@@ -43,6 +45,39 @@ afterEach(() => {
   for (const directory of tempDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+describe('resolveCodexWorkspaceSqliteHomePath', () => {
+  it('places SQLite beside the scoped session history for local worktrees with spaces', () => {
+    const historyRoot = path.join(createTempDirectory(), 'workspace histories');
+    const worktreePath = '/workspace/feature with spaces';
+    const scope = { historyRoot, worktreePath };
+    const siblingScope = { historyRoot, worktreePath: '/workspace/feature-b' };
+
+    expect(resolveCodexWorkspaceSqliteHomePath(scope)).toBe(
+      path.join(path.dirname(resolveCodexWorkspaceSessionHistoryPath(scope)), 'sqlite')
+    );
+    expect(resolveCodexWorkspaceSqliteHomePath(scope)).not.toBe(
+      resolveCodexWorkspaceSqliteHomePath(siblingScope)
+    );
+  });
+
+  it('hashes remote virtual worktrees without collapsing distinct connections', () => {
+    const historyRoot = createTempDirectory();
+    const worktreePath = toRemoteVirtualPath('remote-one', '/srv/repo/feature with spaces');
+    const scope = { historyRoot, worktreePath };
+    const otherConnection = {
+      historyRoot,
+      worktreePath: toRemoteVirtualPath('remote-two', '/srv/repo/feature with spaces'),
+    };
+
+    expect(resolveCodexWorkspaceSqliteHomePath(scope)).toBe(
+      path.join(path.dirname(resolveCodexWorkspaceSessionHistoryPath(scope)), 'sqlite')
+    );
+    expect(resolveCodexWorkspaceSqliteHomePath(scope)).not.toBe(
+      resolveCodexWorkspaceSqliteHomePath(otherConnection)
+    );
+  });
 });
 
 describe('resolveCodexWorkspaceSessionHistoryPath', () => {

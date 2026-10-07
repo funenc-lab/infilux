@@ -4,6 +4,7 @@ import type { SessionTranscriptPage } from '@shared/types';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildAgentLaunchPlan } from '../../components/chat/agentLaunchPlan';
 import { type UseXtermOptions, useXterm } from '../useXterm';
 import { XTERM_HIBERNATION_IDLE_MS } from '../xtermHibernateController';
 import {
@@ -133,6 +134,8 @@ const testState = vi.hoisted(() => ({
   terminalRenderer: 'dom' as 'dom' | 'webgl',
   terminalFontSize: 14,
   terminalFontFamily: 'monospace',
+  terminalKeybindings: {} as Record<string, never>,
+  terminalShellConfig: { shellType: 'zsh' as const },
   rendererPlatform: 'darwin' as 'darwin' | 'win32',
   backgroundImageEnabled: false,
   recreateWebglRenderer: null as (() => void) | null,
@@ -402,11 +405,11 @@ vi.mock('@/stores/settings', () => ({
       terminalFontWeightBold: 'bold',
       terminalScrollback: 1000,
       terminalOptionIsMeta: true,
-      xtermKeybindings: {},
+      xtermKeybindings: testState.terminalKeybindings,
       backgroundImageEnabled: testState.backgroundImageEnabled,
       terminalRenderer: testState.terminalRenderer,
       copyOnSelection: false,
-      shellConfig: { shellType: 'zsh' },
+      shellConfig: testState.terminalShellConfig,
     }),
 }));
 
@@ -540,6 +543,44 @@ function mountHookHarness(initialProps: Partial<UseXtermOptions> = {}) {
 async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function queueAnimationFrames() {
+  const pending = new Map<number, FrameRequestCallback>();
+  let nextId = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = ++nextId;
+    pending.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    pending.delete(id);
+  });
+
+  const flushNext = async () => {
+    const callbacks = [...pending.values()];
+    pending.clear();
+    for (const callback of callbacks) {
+      callback(0);
+    }
+    await flushMicrotasks();
+  };
+
+  return {
+    get pendingCount() {
+      return pending.size;
+    },
+    flushNext,
+    async flush() {
+      for (let index = 0; index < 12; index += 1) {
+        if (pending.size === 0) {
+          return;
+        }
+        await flushNext();
+      }
+      throw new Error('Queued animation frames never settled');
+    },
+  };
 }
 
 function getRegisteredCsiHandler(identifier: Record<string, string>) {
@@ -2511,6 +2552,330 @@ describe('useXterm startup loading state', () => {
     expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
     expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
 
+    await mounted.unmount();
+  });
+
+  it.each([
+    'descriptor only',
+    'command only',
+    'command and descriptor',
+  ] as const)('creates the latest Codex plan when %s changes after the deferred start is queued', async (change) => {
+    const frames = queueAnimationFrames();
+    const buildPlan = (resumeSessionId: string) =>
+      buildAgentLaunchPlan({
+        agentCommand: 'codex',
+        resumeSessionId,
+        terminalSessionId: 'ui-queued-start',
+        initialized: true,
+        environment: 'native',
+        hapiGlobalInstalled: null,
+        isRemoteExecution: false,
+        executionPlatform: 'darwin',
+        resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+      });
+    const firstPlan = buildPlan('thread-before');
+    const latestPlan = buildPlan('thread-after');
+    const firstCommand = {
+      shell: firstPlan.command?.shell ?? 'codex',
+      args: firstPlan.command?.args ?? [],
+      fallbackCommand: firstPlan.fallbackCommand,
+    };
+    const latestCommand = {
+      shell: latestPlan.command?.shell ?? 'codex',
+      args: latestPlan.command?.args ?? [],
+      fallbackCommand: latestPlan.fallbackCommand,
+    };
+    const mounted = mountHookHarness({
+      command: firstCommand,
+      codexLaunch: change === 'command and descriptor' ? firstPlan.codexLaunch : undefined,
+      deferSessionCreate: true,
+    });
+
+    await act(frames.flush);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({ deferSessionCreate: false });
+    expect(frames.pendingCount).toBeGreaterThan(0);
+    mounted.rerender({
+      ...(change !== 'descriptor only' ? { command: latestCommand } : {}),
+      ...(change !== 'command only'
+        ? {
+            codexLaunch:
+              change === 'descriptor only' ? firstPlan.codexLaunch : latestPlan.codexLaunch,
+          }
+        : {}),
+    });
+
+    await act(frames.flush);
+
+    const expectedCommand = change === 'descriptor only' ? firstCommand : latestCommand;
+    const expectedDescriptor =
+      change === 'command only'
+        ? undefined
+        : change === 'descriptor only'
+          ? firstPlan.codexLaunch
+          : latestPlan.codexLaunch;
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shell: expectedCommand.shell,
+        args: expectedCommand.args,
+        ...(expectedDescriptor ? { codexLaunch: expectedDescriptor } : {}),
+      })
+    );
+
+    await mounted.unmount();
+  });
+
+  it('uses a Codex descriptor supplied after the initial activation frame is queued', async () => {
+    const frames = queueAnimationFrames();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const mounted = mountHookHarness({
+      command: {
+        shell: plan.command?.shell ?? 'codex',
+        args: plan.command?.args ?? [],
+        fallbackCommand: plan.fallbackCommand,
+      },
+      codexLaunch: undefined,
+    });
+
+    expect(frames.pendingCount).toBeGreaterThan(0);
+    mounted.rerender({ codexLaunch: plan.codexLaunch });
+    await act(frames.flush);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ codexLaunch: plan.codexLaunch })
+    );
+    await mounted.unmount();
+  });
+
+  it('does not start a canceled deferred Codex session after unmount', async () => {
+    const frames = queueAnimationFrames();
+    const mounted = mountHookHarness({ deferSessionCreate: true });
+
+    await act(frames.flush);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({ deferSessionCreate: false });
+    expect(frames.pendingCount).toBeGreaterThan(0);
+    await mounted.unmount();
+    await act(frames.flush);
+
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('cancels the second deferred-start frame when session creation is deferred again', async () => {
+    const frames = queueAnimationFrames();
+    const mounted = mountHookHarness({ deferSessionCreate: true });
+
+    await act(frames.flush);
+    mounted.rerender({ deferSessionCreate: false });
+    await act(frames.flushNext);
+    expect(frames.pendingCount).toBeGreaterThan(0);
+
+    mounted.rerender({ deferSessionCreate: true });
+    await act(frames.flush);
+
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+    await mounted.unmount();
+  });
+
+  it('keeps the selected Codex hostless fallback paired with its queued primary launch', async () => {
+    const frames = queueAnimationFrames();
+    const buildPlan = (initialPrompt: string) => {
+      const options = {
+        agentCommand: 'codex',
+        initialPrompt,
+        environment: 'native' as const,
+        hapiGlobalInstalled: null,
+        isRemoteExecution: false,
+        executionPlatform: 'darwin',
+        terminalSessionId: 'ui-hosted-fallback',
+        resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+      };
+      const hosted = buildAgentLaunchPlan({ ...options, tmuxEnabled: true });
+      const hostless = buildAgentLaunchPlan({ ...options, tmuxEnabled: false });
+      return {
+        hosted,
+        fallback: {
+          initialCommand: hostless.initialCommand,
+          codexLaunch: hostless.codexLaunch,
+          hostSession: undefined,
+          command: undefined,
+          onRetry: vi.fn(),
+        },
+      };
+    };
+    const firstPlan = buildPlan('Inspect old host');
+    const latestPlan = buildPlan('Inspect latest host');
+    const mounted = mountHookHarness({
+      command: undefined,
+      initialCommand: firstPlan.hosted.initialCommand,
+      hostSession: firstPlan.hosted.hostSession,
+      codexLaunch: firstPlan.hosted.codexLaunch,
+      sessionCreateFallback: firstPlan.fallback,
+      persistOnDisconnect: true,
+      deferSessionCreate: true,
+      env: { CAPABILITY_VERSION: 'first' },
+      metadata: { uiSessionId: 'first' },
+    });
+
+    await act(frames.flush);
+    mounted.rerender({ deferSessionCreate: false });
+    mounted.rerender({
+      initialCommand: latestPlan.hosted.initialCommand,
+      hostSession: latestPlan.hosted.hostSession,
+      codexLaunch: latestPlan.hosted.codexLaunch,
+      sessionCreateFallback: latestPlan.fallback,
+      env: { CAPABILITY_VERSION: 'latest' },
+      metadata: { uiSessionId: 'latest' },
+    });
+    testState.sessionCreate.mockRejectedValueOnce(
+      new Error('Failed to recover tmux session: ui-hosted-fallback')
+    );
+
+    await act(frames.flush);
+    await act(flushMicrotasks);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(2);
+    expect(testState.sessionCreate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        initialCommand: latestPlan.hosted.initialCommand,
+        codexLaunch: latestPlan.hosted.codexLaunch,
+        hostSession: latestPlan.hosted.hostSession,
+        env: { CAPABILITY_VERSION: 'latest' },
+        metadata: { uiSessionId: 'latest' },
+      })
+    );
+    expect(testState.sessionCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        initialCommand: latestPlan.fallback.initialCommand,
+        codexLaunch: latestPlan.fallback.codexLaunch,
+        hostSession: undefined,
+        env: { CAPABILITY_VERSION: 'latest' },
+        metadata: { uiSessionId: 'latest' },
+      })
+    );
+    expect(latestPlan.fallback.onRetry).toHaveBeenCalledTimes(1);
+    await mounted.unmount();
+  });
+
+  it('uses the current Codex launch descriptor and command after a deferred-plan rerender', async () => {
+    const buildPlan = (initialPrompt: string) =>
+      buildAgentLaunchPlan({
+        agentCommand: 'codex',
+        initialPrompt,
+        environment: 'native',
+        hapiGlobalInstalled: null,
+        isRemoteExecution: false,
+        executionPlatform: 'darwin',
+        resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+      });
+    const firstPlan = buildPlan('Inspect the initial worktree');
+    const latestPlan = buildPlan('Inspect the selected worktree');
+    const mounted = mountHookHarness({
+      command: undefined,
+      initialCommand: firstPlan.initialCommand,
+      codexLaunch: firstPlan.codexLaunch,
+      deferSessionCreate: true,
+    });
+
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({
+      initialCommand: latestPlan.initialCommand,
+      codexLaunch: latestPlan.codexLaunch,
+    });
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({ deferSessionCreate: false });
+    await act(flushMicrotasks);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCommand: latestPlan.initialCommand,
+        codexLaunch: latestPlan.codexLaunch,
+      })
+    );
+
+    await mounted.unmount();
+  });
+
+  it('uses a Codex descriptor that becomes ready before a deferred command is created', async () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: 'Inspect this worktree',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const mounted = mountHookHarness({
+      command: undefined,
+      initialCommand: plan.initialCommand,
+      deferSessionCreate: true,
+    });
+
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({ codexLaunch: plan.codexLaunch });
+    mounted.rerender({ deferSessionCreate: false });
+    await act(flushMicrotasks);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      })
+    );
+
+    await mounted.unmount();
+  });
+
+  it('does not recreate an already running session when only its Codex descriptor changes', async () => {
+    const firstPlan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: 'Inspect current worktree',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const mounted = mountHookHarness({
+      command: undefined,
+      initialCommand: firstPlan.initialCommand,
+      codexLaunch: firstPlan.codexLaunch,
+    });
+
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+
+    mounted.rerender({
+      codexLaunch:
+        firstPlan.codexLaunch?.kind === 'native'
+          ? { ...firstPlan.codexLaunch, rawArgs: [...firstPlan.codexLaunch.rawArgs] }
+          : undefined,
+    });
+    await act(flushMicrotasks);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
     await mounted.unmount();
   });
 

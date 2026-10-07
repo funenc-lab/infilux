@@ -13,6 +13,7 @@ export interface AgentCapabilitySessionOverrides {
   fallbackArgs?: SessionCreateOptions['fallbackArgs'];
   env?: SessionCreateOptions['env'];
   initialCommand?: SessionCreateOptions['initialCommand'];
+  codexLaunch?: SessionCreateOptions['codexLaunch'];
   metadata?: Record<string, unknown>;
 }
 
