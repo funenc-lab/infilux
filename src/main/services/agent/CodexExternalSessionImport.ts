@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import {
   type FileHandle,
@@ -7,6 +7,7 @@ import {
   mkdir,
   open,
   realpath,
+  rename,
   stat,
   unlink,
 } from 'node:fs/promises';
@@ -24,6 +25,22 @@ const IMPORT_MUTEX_DATABASE_NAME = '.external-session-import.sqlite';
 const SOURCE_STREAM_CHUNK_BYTES = 128 * 1024;
 // A single record above 64 MiB is deferred; the total transcript size has no limit.
 const MAX_JSONL_RECORD_BYTES = 64 * 1024 * 1024;
+const PROVENANCE_SUFFIX = '.infilux-import.json';
+const MAX_PROVENANCE_BYTES = 4096;
+
+interface ImportedSessionProvenance {
+  version: 1;
+  sourceRoot: string;
+  relativePath: string;
+  threadId: string;
+  sourceHash: string;
+  sourceSize: number;
+  sourceDevice: number;
+  sourceInode: number;
+  sourceMtimeMs: number;
+  targetHash: string;
+  targetSize: number;
+}
 
 interface WorkspaceImportMutex {
   database: sqlite3.Database;
@@ -123,6 +140,114 @@ function sourceUnchanged(before: Stats, after: Stats): boolean {
 
 function hasSameIdentity(before: Stats, after: Stats): boolean {
   return before.dev === after.dev && before.ino === after.ino;
+}
+
+function isValidProvenance(value: unknown): value is ImportedSessionProvenance {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Partial<ImportedSessionProvenance>;
+  return (
+    record.version === 1 &&
+    typeof record.sourceRoot === 'string' &&
+    path.isAbsolute(record.sourceRoot) &&
+    typeof record.relativePath === 'string' &&
+    !!record.relativePath &&
+    !path.isAbsolute(record.relativePath) &&
+    record.relativePath.split(path.sep).every((segment) => segment !== '..' && segment !== '.') &&
+    typeof record.threadId === 'string' &&
+    UUID_PATTERN.test(record.threadId) &&
+    typeof record.sourceHash === 'string' &&
+    /^[0-9a-f]{64}$/.test(record.sourceHash) &&
+    typeof record.targetHash === 'string' &&
+    /^[0-9a-f]{64}$/.test(record.targetHash) &&
+    record.targetHash === record.sourceHash &&
+    typeof record.sourceSize === 'number' &&
+    Number.isSafeInteger(record.sourceSize) &&
+    record.sourceSize > 0 &&
+    typeof record.sourceDevice === 'number' &&
+    Number.isSafeInteger(record.sourceDevice) &&
+    typeof record.sourceInode === 'number' &&
+    Number.isSafeInteger(record.sourceInode) &&
+    typeof record.sourceMtimeMs === 'number' &&
+    Number.isFinite(record.sourceMtimeMs) &&
+    typeof record.targetSize === 'number' &&
+    record.targetSize === record.sourceSize
+  );
+}
+
+async function readOwnedProvenance(
+  targetPath: string
+): Promise<ImportedSessionProvenance | undefined> {
+  const provenancePath = `${targetPath}${PROVENANCE_SUFFIX}`;
+  try {
+    const state = await lstat(provenancePath);
+    if (!state.isFile() || state.isSymbolicLink() || state.size > MAX_PROVENANCE_BYTES) {
+      return undefined;
+    }
+    const handle = await open(provenancePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || !sourceUnchanged(state, opened)) {
+        return undefined;
+      }
+      const buffer = Buffer.alloc(MAX_PROVENANCE_BYTES + 1);
+      let size = 0;
+      while (size < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, size, buffer.length - size, size);
+        if (bytesRead === 0) {
+          break;
+        }
+        size += bytesRead;
+      }
+      const after = await handle.stat();
+      if (size !== state.size || !sourceUnchanged(state, after)) {
+        return undefined;
+      }
+      const parsed: unknown = JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, size))
+      );
+      return isValidProvenance(parsed) ? parsed : undefined;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+async function verifyUnchangedTarget(
+  targetPath: string,
+  expected: ImportedSessionProvenance
+): Promise<Stats | undefined> {
+  const before = await lstat(targetPath);
+  if (!before.isFile() || before.isSymbolicLink() || before.size !== expected.targetSize) {
+    return undefined;
+  }
+  const handle = await open(targetPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const actual = await handle.stat();
+    if (!sourceUnchanged(before, actual)) {
+      return undefined;
+    }
+    const hash = createHash('sha256');
+    for await (const chunk of handle.createReadStream({
+      autoClose: false,
+      highWaterMark: SOURCE_STREAM_CHUNK_BYTES,
+    })) {
+      hash.update(chunk);
+    }
+    if (hash.digest('hex') !== expected.targetHash) {
+      return undefined;
+    }
+    const after = await handle.stat();
+    const namedAfter = await lstat(targetPath);
+    return sourceUnchanged(before, after) && sourceUnchanged(before, namedAfter)
+      ? namedAfter
+      : undefined;
+  } finally {
+    await handle.close();
+  }
 }
 
 async function inspectMutexDatabase(databasePath: string): Promise<Stats | undefined> {
@@ -234,11 +359,14 @@ async function releaseWorkspaceImportMutex(mutex: WorkspaceImportMutex): Promise
 
 async function copyValidatedSource(
   sourcePath: string,
-  destination: FileHandle
-): Promise<{ copiedBytes: number; complete: boolean }> {
+  destination: FileHandle,
+  previousSize = 0
+): Promise<{ copiedBytes: number; complete: boolean; digest: string; previousDigest: string }> {
   const source = await open(sourcePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const decoder = new TextDecoder('utf-8', { fatal: true });
+    const digest = createHash('sha256');
+    const previousDigest = createHash('sha256');
     let currentLine = '';
     let currentLineBytes = 0;
     let currentLineTooLarge = false;
@@ -286,6 +414,11 @@ async function copyValidatedSource(
       highWaterMark: SOURCE_STREAM_CHUNK_BYTES,
     })) {
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      digest.update(bytes);
+      const previousBytes = Math.max(0, Math.min(bytes.length, previousSize - copiedBytes));
+      if (previousBytes > 0) {
+        previousDigest.update(bytes.subarray(0, previousBytes));
+      }
       copiedBytes += bytes.length;
       terminatedByNewline = bytes[bytes.length - 1] === 0x0a;
       collectLines(decoder.decode(bytes, { stream: true }));
@@ -293,17 +426,22 @@ async function copyValidatedSource(
     }
     collectLines(decoder.decode());
 
+    const hashes = {
+      copiedBytes,
+      digest: digest.digest('hex'),
+      previousDigest: previousDigest.digest('hex'),
+    };
     if (!terminatedByNewline || !lastRecord || lastRecordTooLarge || oversizedRecordSeen) {
-      return { copiedBytes, complete: false };
+      return { ...hashes, complete: false };
     }
     try {
       const parsed: unknown = JSON.parse(lastRecord);
       return {
-        copiedBytes,
+        ...hashes,
         complete: typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed),
       };
     } catch {
-      return { copiedBytes, complete: false };
+      return { ...hashes, complete: false };
     }
   } finally {
     await source.close();
@@ -378,14 +516,20 @@ export async function importCodexExternalSessions({
       retry();
       return result;
     }
-    const existingIds = new Set<string>();
+    const existingIds = new Map<string, string | undefined>();
     for (const file of existingSessions.files) {
       const metadata = await readSessionWorktreePath(file);
       if (metadata.kind !== 'found' || !metadata.threadId?.trim()) {
         retry();
         return result;
       }
-      existingIds.add(metadata.threadId);
+      existingIds.set(
+        metadata.threadId,
+        existingIds.has(metadata.threadId) ||
+          normalizeWorktreePath(metadata.worktreePath) !== normalizedWorktree
+          ? undefined
+          : file
+      );
     }
 
     const sourceSessions = await collectSessionFiles(sourceRoot);
@@ -398,8 +542,9 @@ export async function importCodexExternalSessions({
       }
 
       const relativePath = path.relative(sourceRoot, sourceFile);
-      const targetFile = path.join(targetRoot, relativePath);
+      let targetFile = path.join(targetRoot, relativePath);
       let temporaryFile: string | undefined;
+      let temporaryProvenance: string | undefined;
       let targetDirectories: TargetDirectoryIdentity[] | undefined;
 
       try {
@@ -420,18 +565,57 @@ export async function importCodexExternalSessions({
         if (normalizeWorktreePath(metadata.worktreePath) !== normalizedWorktree) {
           continue;
         }
-        if (existingIds.has(metadata.threadId)) {
+        const knownThread = existingIds.has(metadata.threadId);
+        const ownedTarget = existingIds.get(metadata.threadId);
+        if (knownThread && !ownedTarget) {
           continue;
+        }
+        if (ownedTarget) {
+          targetFile = ownedTarget;
         }
 
         const targetParent = path.dirname(targetFile);
         targetDirectories = await checkTargetDirectories(targetRoot, targetParent);
-        try {
-          await lstat(targetFile);
-          continue;
-        } catch (error) {
-          if (!hasCode(error, 'ENOENT')) {
-            throw error;
+        let provenance: ImportedSessionProvenance | undefined;
+        let originalTarget: Stats | undefined;
+        if (ownedTarget) {
+          provenance = await readOwnedProvenance(targetFile);
+          if (
+            !provenance ||
+            provenance.sourceRoot !== sourceRoot ||
+            provenance.threadId !== metadata.threadId
+          ) {
+            continue;
+          }
+          if (
+            provenance.relativePath === relativePath &&
+            provenance.sourceSize === before.size &&
+            provenance.sourceDevice === before.dev &&
+            provenance.sourceInode === before.ino &&
+            provenance.sourceMtimeMs === before.mtimeMs
+          ) {
+            continue;
+          }
+          originalTarget = await verifyUnchangedTarget(targetFile, provenance);
+          if (!originalTarget) {
+            continue;
+          }
+        } else {
+          try {
+            await lstat(targetFile);
+            continue;
+          } catch (error) {
+            if (!hasCode(error, 'ENOENT')) {
+              throw error;
+            }
+          }
+          try {
+            await lstat(`${targetFile}${PROVENANCE_SUFFIX}`);
+            continue;
+          } catch (error) {
+            if (!hasCode(error, 'ENOENT')) {
+              throw error;
+            }
           }
         }
 
@@ -443,7 +627,11 @@ export async function importCodexExternalSessions({
         const temporaryHandle = await open(temporaryFile, 'wx', 0o600);
         let copyResult: Awaited<ReturnType<typeof copyValidatedSource>>;
         try {
-          copyResult = await copyValidatedSource(sourceFile, temporaryHandle);
+          copyResult = await copyValidatedSource(
+            sourceFile,
+            temporaryHandle,
+            provenance?.sourceSize
+          );
         } finally {
           await temporaryHandle.close();
         }
@@ -459,30 +647,101 @@ export async function importCodexExternalSessions({
           continue;
         }
 
+        if (provenance) {
+          if (
+            copyResult.copiedBytes === provenance.sourceSize &&
+            copyResult.digest === provenance.sourceHash
+          ) {
+            continue;
+          }
+          if (
+            copyResult.copiedBytes <= provenance.sourceSize ||
+            copyResult.previousDigest !== provenance.sourceHash
+          ) {
+            if (provenance.relativePath === relativePath) {
+              retry();
+            }
+            continue;
+          }
+        }
+
+        const nextProvenance: ImportedSessionProvenance = {
+          version: 1,
+          sourceRoot,
+          relativePath,
+          threadId: metadata.threadId,
+          sourceHash: copyResult.digest,
+          sourceSize: copyResult.copiedBytes,
+          sourceDevice: after.dev,
+          sourceInode: after.ino,
+          sourceMtimeMs: after.mtimeMs,
+          targetHash: copyResult.digest,
+          targetSize: copyResult.copiedBytes,
+        };
+        temporaryProvenance = path.join(
+          targetParent,
+          `.${path.basename(targetFile)}.${randomUUID()}.provenance.tmp`
+        );
+        const provenanceHandle = await open(temporaryProvenance, 'wx', 0o600);
+        try {
+          await provenanceHandle.writeFile(JSON.stringify(nextProvenance));
+        } finally {
+          await provenanceHandle.close();
+        }
+
         await checkTargetDirectories(targetRoot, targetParent, targetDirectories);
         await assertWorkspaceImportMutex(workspaceMutex);
-        try {
-          await link(temporaryFile, targetFile);
-          result.imported += 1;
-          existingIds.add(metadata.threadId);
-        } catch (error) {
-          if (!hasCode(error, 'EEXIST')) {
-            throw error;
+        if (provenance) {
+          const currentProvenance = await readOwnedProvenance(targetFile);
+          const currentTarget = await verifyUnchangedTarget(targetFile, provenance);
+          if (
+            !currentProvenance ||
+            JSON.stringify(currentProvenance) !== JSON.stringify(provenance) ||
+            !currentTarget ||
+            !originalTarget ||
+            !sourceUnchanged(originalTarget, currentTarget)
+          ) {
+            retry();
+            continue;
           }
+          await checkTargetDirectories(targetRoot, targetParent, targetDirectories);
+          await rename(temporaryFile, targetFile);
+          temporaryFile = undefined;
+          await rename(temporaryProvenance, `${targetFile}${PROVENANCE_SUFFIX}`);
+          temporaryProvenance = undefined;
+          result.refreshed += 1;
+        } else {
+          try {
+            await link(temporaryFile, targetFile);
+          } catch (error) {
+            if (!hasCode(error, 'EEXIST')) {
+              throw error;
+            }
+            existingIds.set(metadata.threadId, undefined);
+            continue;
+          }
+          existingIds.set(metadata.threadId, undefined);
+          await checkTargetDirectories(targetRoot, targetParent, targetDirectories);
+          // An exclusive link leaves any concurrently created user sidecar untouched.
+          await link(temporaryProvenance, `${targetFile}${PROVENANCE_SUFFIX}`);
+          existingIds.set(metadata.threadId, targetFile);
+          result.imported += 1;
         }
       } catch {
         retry();
       } finally {
-        if (temporaryFile && targetDirectories) {
-          try {
-            await checkTargetDirectories(
-              targetRoot,
-              path.dirname(temporaryFile),
-              targetDirectories
-            );
-            await unlink(temporaryFile);
-          } catch {
-            // An unverified path may now point outside the workspace history.
+        for (const ownTemporary of [temporaryFile, temporaryProvenance]) {
+          if (ownTemporary && targetDirectories) {
+            try {
+              await checkTargetDirectories(
+                targetRoot,
+                path.dirname(ownTemporary),
+                targetDirectories
+              );
+              await unlink(ownTemporary);
+            } catch {
+              // An unverified path may now point outside the workspace history.
+            }
           }
         }
       }

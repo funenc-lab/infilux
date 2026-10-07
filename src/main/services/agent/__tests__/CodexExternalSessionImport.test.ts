@@ -4,6 +4,7 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -12,6 +13,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
   writeSync,
@@ -41,6 +43,14 @@ const tempDirectories: string[] = [];
 const worktreePath = '/workspace/project/feature-a';
 const firstThreadId = 'fe9d211b-272a-4ee7-a08c-2e23349542c2';
 const secondThreadId = 'f164724d-c72b-4e9d-86f1-a4ba931c7c36';
+const provenanceSuffix = '.infilux-import.json';
+
+function appendTranscriptLine(target: string, message: string): void {
+  appendFileSync(
+    target,
+    `${JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message } })}\n`
+  );
+}
 
 function createFixture(): { sourceSessionsPath: string; sessionHistoryPath: string } {
   const root = mkdtempSync(path.join(os.tmpdir(), 'infilux-codex-external-import-'));
@@ -171,6 +181,368 @@ describe('importCodexExternalSessions', () => {
     expect(second).toEqual({ imported: 0, refreshed: 0, retryableFailures: 0 });
     expect(readFileSync(path.join(fixture.sessionHistoryPath, firstPath))).toEqual(bytes);
     expect(existsSync(path.join(fixture.sessionHistoryPath, duplicatePath))).toBe(false);
+  });
+
+  it('records versioned per-target provenance and refreshes an unchanged import after a complete source append', async () => {
+    const fixture = createFixture();
+    const relativePath = '2026/10/07/growing.jsonl';
+    const original = writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const source = path.join(fixture.sourceSessionsPath, relativePath);
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+
+    expect((await importCodexExternalSessions({ ...fixture, worktreePath })).imported).toBe(1);
+    const marker = JSON.parse(readFileSync(`${target}${provenanceSuffix}`, 'utf8')) as {
+      version: number;
+      sourceRoot: string;
+      relativePath: string;
+      threadId: string;
+      sourceHash: string;
+      targetHash: string;
+    };
+    expect(marker.version).toBe(1);
+    expect(marker.sourceRoot).toBe(realpathSync(fixture.sourceSessionsPath));
+    expect(marker.relativePath).toBe(relativePath);
+    expect(marker.threadId).toBe(firstThreadId);
+    expect(marker.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(marker.targetHash).toBe(marker.sourceHash);
+    expect(readFileSync(target)).toEqual(original);
+
+    appendTranscriptLine(source, 'Completed later');
+    const second = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(second).toEqual({ imported: 0, refreshed: 1, retryableFailures: 0 });
+    expect(readFileSync(target)).toEqual(readFileSync(source));
+    const nextMarker = JSON.parse(readFileSync(`${target}${provenanceSuffix}`, 'utf8')) as {
+      sourceHash: string;
+      targetHash: string;
+    };
+    expect(nextMarker.sourceHash).not.toBe(marker.sourceHash);
+    expect(nextMarker.targetHash).toBe(nextMarker.sourceHash);
+  });
+
+  it('skips copying a previously imported source with unchanged filesystem identity', async () => {
+    const fixture = createFixture();
+    const relativePath = 'unchanged-import.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    const probe = await open(path.join(fixture.sessionHistoryPath, 'prototype-probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as {
+      writeFile(data: string | Buffer): Promise<void>;
+    };
+    await probe.close();
+    const originalWrite = prototype.writeFile;
+    let transcriptCopies = 0;
+    vi.spyOn(prototype, 'writeFile').mockImplementation(function (this: FileHandle, data) {
+      if (Buffer.isBuffer(data) && data.includes(Buffer.from('"type":"session_meta"'))) {
+        transcriptCopies += 1;
+      }
+      return originalWrite.call(this, data);
+    });
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result).toEqual({ imported: 0, refreshed: 0, retryableFailures: 0 });
+    expect(transcriptCopies).toBe(0);
+    expect(existsSync(`${target}${provenanceSuffix}`)).toBe(true);
+  });
+
+  it('refreshes the owned thread when a longer source with the same ID appears at a new filename', async () => {
+    const fixture = createFixture();
+    const firstPath = '2026/10/07/a-original.jsonl';
+    const alternatePath = '2026/10/08/z-alternate.jsonl';
+    const initial = writeTranscript({
+      directory: fixture.sourceSessionsPath,
+      relativePath: firstPath,
+    });
+    const target = path.join(fixture.sessionHistoryPath, firstPath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    mkdirSync(path.dirname(path.join(fixture.sourceSessionsPath, alternatePath)), {
+      recursive: true,
+    });
+    writeFileSync(path.join(fixture.sourceSessionsPath, alternatePath), initial);
+    appendTranscriptLine(
+      path.join(fixture.sourceSessionsPath, alternatePath),
+      'More from new path'
+    );
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result).toEqual({ imported: 0, refreshed: 1, retryableFailures: 0 });
+    expect(readFileSync(target)).toEqual(
+      readFileSync(path.join(fixture.sourceSessionsPath, alternatePath))
+    );
+    expect(existsSync(path.join(fixture.sessionHistoryPath, alternatePath))).toBe(false);
+    const marker = JSON.parse(readFileSync(`${target}${provenanceSuffix}`, 'utf8')) as {
+      relativePath: string;
+    };
+    expect(marker.relativePath).toBe(alternatePath);
+    expect(await importCodexExternalSessions({ ...fixture, worktreePath })).toEqual({
+      imported: 0,
+      refreshed: 0,
+      retryableFailures: 0,
+    });
+  });
+
+  it('does not refresh an imported target after a local append', async () => {
+    const fixture = createFixture();
+    const relativePath = 'locally-resumed.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const source = path.join(fixture.sourceSessionsPath, relativePath);
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    appendTranscriptLine(target, 'Local resume');
+    const localBytes = readFileSync(target);
+    appendTranscriptLine(source, 'External resume');
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.refreshed).toBe(0);
+    expect(readFileSync(target)).toEqual(localBytes);
+  });
+
+  it('never refreshes a pre-existing target without provenance even when source ID and filename match', async () => {
+    const fixture = createFixture();
+    const relativePath = 'unowned.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const original = writeTranscript({ directory: fixture.sessionHistoryPath, relativePath });
+    appendTranscriptLine(path.join(fixture.sourceSessionsPath, relativePath), 'External addition');
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.refreshed).toBe(0);
+    expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath))).toEqual(original);
+    expect(
+      existsSync(path.join(fixture.sessionHistoryPath, `${relativePath}${provenanceSuffix}`))
+    ).toBe(false);
+  });
+
+  it('defers an incomplete external append without losing the last valid imported target', async () => {
+    const fixture = createFixture();
+    const relativePath = 'partial-append.jsonl';
+    const original = writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    appendFileSync(path.join(fixture.sourceSessionsPath, relativePath), '{"type":"event_msg"');
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.refreshed).toBe(0);
+    expect(result.retryableFailures).toBeGreaterThan(0);
+    expect(readFileSync(target)).toEqual(original);
+  });
+
+  it('retries a failed sidecar write before publishing without leaving a target behind', async () => {
+    const fixture = createFixture();
+    const relativePath = 'before-sidecar.jsonl';
+    const original = writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    const probe = await open(path.join(fixture.sessionHistoryPath, 'prototype-probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as {
+      writeFile(data: string | Buffer): Promise<void>;
+    };
+    await probe.close();
+    const originalWrite = prototype.writeFile;
+    const failingWrite = vi.spyOn(prototype, 'writeFile').mockImplementation(function (
+      this: FileHandle,
+      data
+    ) {
+      if (typeof data === 'string' && data.includes('"sourceHash"')) {
+        throw new Error('Simulated sidecar write failure');
+      }
+      return originalWrite.call(this, data);
+    });
+
+    const first = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(first.imported).toBe(0);
+    expect(first.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(target)).toBe(false);
+    expect(existsSync(`${target}${provenanceSuffix}`)).toBe(false);
+    failingWrite.mockRestore();
+
+    const second = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(second.imported).toBe(1);
+    expect(readFileSync(target)).toEqual(original);
+  });
+
+  it('preserves a published target when sidecar publication fails and never claims it on retry', async () => {
+    const fixture = createFixture();
+    const relativePath = 'after-publication.jsonl';
+    const original = writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    const probe = await open(path.join(fixture.sessionHistoryPath, 'prototype-probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as {
+      writeFile(data: string | Buffer): Promise<void>;
+    };
+    await probe.close();
+    const originalWrite = prototype.writeFile;
+    const sidecarConflict = vi.spyOn(prototype, 'writeFile').mockImplementation(function (
+      this: FileHandle,
+      data
+    ) {
+      if (typeof data === 'string' && data.includes('"sourceHash"')) {
+        mkdirSync(`${target}${provenanceSuffix}`);
+      }
+      return originalWrite.call(this, data);
+    });
+
+    const first = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(readFileSync(target)).toEqual(original);
+    expect(first.retryableFailures).toBeGreaterThan(0);
+    sidecarConflict.mockRestore();
+    rmSync(`${target}${provenanceSuffix}`, { recursive: true });
+    appendTranscriptLine(path.join(fixture.sourceSessionsPath, relativePath), 'Later');
+
+    const second = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(second.refreshed).toBe(0);
+    expect(readFileSync(target)).toEqual(original);
+    expect(existsSync(`${target}${provenanceSuffix}`)).toBe(false);
+
+    writeTranscript({
+      directory: fixture.sourceSessionsPath,
+      relativePath: 'another-session.jsonl',
+      threadId: secondThreadId,
+    });
+    const independent = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(independent.imported).toBe(1);
+    expect(readFileSync(target)).toEqual(original);
+  });
+
+  it('ignores a malformed or symlinked provenance marker instead of overwriting the target', async () => {
+    const fixture = createFixture();
+    const relativePath = 'suspicious-sidecar.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const source = path.join(fixture.sourceSessionsPath, relativePath);
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    writeFileSync(`${target}${provenanceSuffix}`, '{broken-json');
+    const original = readFileSync(target);
+    appendTranscriptLine(source, 'Untrusted external append');
+
+    const first = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(first.refreshed).toBe(0);
+    expect(readFileSync(target)).toEqual(original);
+
+    rmSync(`${target}${provenanceSuffix}`);
+    const unrelated = path.join(path.dirname(target), 'do-not-touch.json');
+    writeFileSync(unrelated, '{"external":"unchanged"}');
+    symlinkSync(unrelated, `${target}${provenanceSuffix}`);
+    const second = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(second.refreshed).toBe(0);
+    expect(readFileSync(target)).toEqual(original);
+    expect(readFileSync(unrelated, 'utf8')).toBe('{"external":"unchanged"}');
+  });
+
+  it('does not replace an imported target that advances locally while a refresh is copied', async () => {
+    const fixture = createFixture();
+    const relativePath = 'raced-local-append.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    appendTranscriptLine(path.join(fixture.sourceSessionsPath, relativePath), 'External append');
+
+    const probe = await open(path.join(fixture.sessionHistoryPath, 'prototype-probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as {
+      writeFile(data: string | Buffer): Promise<void>;
+    };
+    await probe.close();
+    const originalWrite = prototype.writeFile;
+    let changed = false;
+    const changingWrite = vi.spyOn(prototype, 'writeFile').mockImplementation(function (
+      this: FileHandle,
+      data
+    ) {
+      if (!changed && Buffer.isBuffer(data) && data.includes(Buffer.from('External append'))) {
+        changed = true;
+        appendTranscriptLine(target, 'Local append during copy');
+      }
+      return originalWrite.call(this, data);
+    });
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(changed).toBe(true);
+    expect(result.refreshed).toBe(0);
+    expect(result.retryableFailures).toBeGreaterThan(0);
+    expect(readFileSync(target, 'utf8')).toContain('Local append during copy');
+    changingWrite.mockRestore();
+    expect((await importCodexExternalSessions({ ...fixture, worktreePath })).refreshed).toBe(0);
+  });
+
+  it('does not overwrite a locally replaced target path while hashing its old inode', async () => {
+    const fixture = createFixture();
+    const relativePath = 'replaced-during-hash.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const source = path.join(fixture.sourceSessionsPath, relativePath);
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    appendTranscriptLine(source, 'External append');
+    const originalIdentity = statSync(target);
+    const userBytes = Buffer.concat([
+      readFileSync(target),
+      Buffer.from(
+        `${JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'User replaced' } })}\n`
+      ),
+    ]);
+    const probe = await open(path.join(fixture.sessionHistoryPath, 'prototype-probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as Pick<FileHandle, 'createReadStream'>;
+    await probe.close();
+    const createReadStream = prototype.createReadStream;
+    let targetHashReads = 0;
+    vi.spyOn(prototype, 'createReadStream').mockImplementation(function (
+      this: FileHandle,
+      options
+    ) {
+      const opened = fstatSync(this.fd);
+      if (opened.dev === originalIdentity.dev && opened.ino === originalIdentity.ino) {
+        targetHashReads += 1;
+        if (targetHashReads === 2) {
+          renameSync(target, `${target}.old`);
+          writeFileSync(target, userBytes);
+        }
+      }
+      return createReadStream.call(this, options);
+    });
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(targetHashReads).toBe(2);
+    expect(result.refreshed).toBe(0);
+    expect(readFileSync(target)).toEqual(userBytes);
+  });
+
+  it('defers a refresh while another process holds the workspace import transaction', async () => {
+    const fixture = createFixture();
+    const relativePath = 'cross-process-refresh.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const source = path.join(fixture.sourceSessionsPath, relativePath);
+    const target = path.join(fixture.sessionHistoryPath, relativePath);
+    await importCodexExternalSessions({ ...fixture, worktreePath });
+    const original = readFileSync(target);
+    appendTranscriptLine(source, 'New source record');
+    const child = await startSqliteWriter(
+      path.join(path.dirname(fixture.sessionHistoryPath), '.external-session-import.sqlite')
+    );
+
+    try {
+      const deferred = await importCodexExternalSessions({ ...fixture, worktreePath });
+      expect(deferred.refreshed).toBe(0);
+      expect(deferred.retryableFailures).toBeGreaterThan(0);
+      expect(readFileSync(target)).toEqual(original);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const stopped = once(child, 'exit');
+        child.kill('SIGKILL');
+        await stopped;
+      }
+    }
+
+    const retry = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(retry.refreshed).toBe(1);
+    expect(readFileSync(target)).toEqual(readFileSync(source));
   });
 
   it('never overwrites an existing target with a different thread ID at the same relative path', async () => {
