@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   type CodexWorktreeHistoryScenario,
@@ -36,10 +36,12 @@ describe.sequential('electron Codex worktree history recovery', () => {
     await runCleanupTasks();
   });
 
-  it('keeps legacy worktree history available to /resume after an app restart', async () => {
+  it('includes post-migration external sessions on the first resume after restart without sharing another worktree', async () => {
     const scenario = await createCodexWorktreeHistoryScenario();
     cleanupTasks.push(scenario.cleanup);
     const firstLaunch = await launchCodexHistoryScenario(scenario);
+    let firstCodexHomePath = '';
+    let sessionHistoryPath = '';
 
     try {
       await prepareScenarioPage(firstLaunch.page, scenario);
@@ -50,10 +52,20 @@ describe.sequential('electron Codex worktree history recovery', () => {
         })
         .toBe(1);
       await expectStartedInWorktree(scenario, 1);
+      firstCodexHomePath = (await getActiveCodexSession(firstLaunch.page)).runtimeHomePath;
+      sessionHistoryPath = await realpath(join(firstCodexHomePath, 'sessions'));
+      await expect
+        .poll(
+          () =>
+            existsSync(join(dirname(sessionHistoryPath), '.legacy-session-history-migrated-v2')),
+          { timeout: 10000 }
+        )
+        .toBe(true);
     } finally {
       await quitElectronApplication(firstLaunch.app);
     }
 
+    await scenario.writePostMigrationExternalSessions();
     const secondLaunch = await launchCodexHistoryScenario(scenario);
     try {
       await prepareScenarioPage(secondLaunch.page, scenario);
@@ -64,6 +76,20 @@ describe.sequential('electron Codex worktree history recovery', () => {
         })
         .toBe(2);
       await expectStartedInWorktree(scenario, 2);
+      const starts = (await readFakeCodexInvocations(scenario.invocationLogPath)).filter(
+        (invocation) => invocation.type === 'start'
+      );
+      expect(starts).toHaveLength(2);
+      expect(starts[0].codexHome).toBe(firstCodexHomePath);
+      expect(starts[0].codexHome).not.toBe(starts[1].codexHome);
+      const sqliteHomePath = starts[0].sqliteHome;
+      if (!sqliteHomePath) {
+        throw new Error('Expected a shared Codex SQLite home on the first launch');
+      }
+      expect(starts[1].sqliteHome).toBe(sqliteHomePath);
+      expect(await realpath(sqliteHomePath)).toBe(
+        await realpath(join(dirname(sessionHistoryPath), 'sqlite'))
+      );
 
       const terminal = secondLaunch.page.locator('.xterm').last();
       await terminal.waitFor({ state: 'visible', timeout: 30000 });
@@ -73,17 +99,21 @@ describe.sequential('electron Codex worktree history recovery', () => {
 
       await expect
         .poll(async () => await readVisibleTerminalText(secondLaunch.page), { timeout: 10000 })
-        .toContain(`RESUME_SESSIONS:${scenario.legacySessionId}`);
+        .toContain('RESUME_SESSIONS:');
       await expect
         .poll(async () => await readLatestResumedSessionIds(scenario), { timeout: 10000 })
-        .toEqual([scenario.legacySessionId]);
+        .toEqual([scenario.legacySessionId, scenario.newExternalSessionId].sort());
       expect(await readVisibleTerminalText(secondLaunch.page)).not.toContain(
         scenario.siblingSessionId
       );
+      expect(await readVisibleTerminalText(secondLaunch.page)).not.toContain(
+        scenario.newSiblingSessionId
+      );
 
       const activeCodexSession = await getActiveCodexSession(secondLaunch.page);
-      const sessionHistoryPath = await realpath(
-        join(activeCodexSession.runtimeHomePath, 'sessions')
+      expect(activeCodexSession.runtimeHomePath).toBe(starts[1].codexHome);
+      expect(await realpath(join(activeCodexSession.runtimeHomePath, 'sessions'))).toBe(
+        sessionHistoryPath
       );
 
       await secondLaunch.page.evaluate(
@@ -94,12 +124,25 @@ describe.sequential('electron Codex worktree history recovery', () => {
       await expect
         .poll(() => existsSync(activeCodexSession.runtimeHomePath), { timeout: 10000 })
         .toBe(false);
+      expect(existsSync(sqliteHomePath)).toBe(true);
       await expect(
         readFile(
           join(sessionHistoryPath, '2026', '08', '20', `rollout-${scenario.legacySessionId}.jsonl`),
           'utf8'
         )
       ).resolves.toContain(scenario.legacySessionId);
+      await expect(
+        readFile(
+          join(
+            sessionHistoryPath,
+            '2026',
+            '10',
+            '07',
+            `rollout-${scenario.newExternalSessionId}.jsonl`
+          ),
+          'utf8'
+        )
+      ).resolves.toContain(scenario.newExternalSessionId);
     } catch (error) {
       throw new Error(
         [

@@ -15,6 +15,8 @@ export interface CodexWorktreeHistoryScenario {
   browserLocalStorage: Record<string, string>;
   homeDir: string;
   legacySessionId: string;
+  newExternalSessionId: string;
+  newSiblingSessionId: string;
   profileName: string;
   repoId: string;
   repoName: string;
@@ -23,17 +25,20 @@ export interface CodexWorktreeHistoryScenario {
   worktreeBranch: string;
   worktreePath: string;
   invocationLogPath: string;
+  writePostMigrationExternalSessions: () => Promise<void>;
   cleanup: () => Promise<void>;
 }
 
 export type FakeCodexInvocation =
   | {
       codexHome: string | null;
+      sqliteHome: string | null;
       cwd: string;
       type: 'start';
     }
   | {
       codexHome: string | null;
+      sqliteHome: string | null;
       cwd: string;
       sessionIds: string[];
       type: 'resume';
@@ -47,6 +52,11 @@ function resolveWorkspacePlatform(): 'darwin' | 'linux' | 'win32' {
     return 'win32';
   }
   return 'linux';
+}
+
+function runtimeProfileRoot(homeDir: string, profileName: string): string {
+  const effectiveProfileName = sanitizeRuntimeProfileName(profileName) || 'e2e';
+  return join(homeDir, `${RUNTIME_STATE_DIRNAME}-dev`, effectiveProfileName);
 }
 
 function runCommand(command: string, args: string[], options: CommandOptions = {}): string {
@@ -156,7 +166,7 @@ async function installFakeCodex(rootPath: string): Promise<string> {
     '  process.exit(0)',
     '}',
     '',
-    "writeEvent({ type: 'start', cwd: process.cwd(), codexHome: process.env.CODEX_HOME || null })",
+    "writeEvent({ type: 'start', cwd: process.cwd(), codexHome: process.env.CODEX_HOME || null, sqliteHome: process.env.CODEX_SQLITE_HOME || null })",
     "process.stdout.write('Fake Codex ready\\n')",
     "let inputBuffer = ''",
     "process.stdin.on('data', (chunk) => {",
@@ -169,7 +179,7 @@ async function installFakeCodex(rootPath: string): Promise<string> {
     "    if (command === '/resume') {",
     '      const codexHome = process.env.CODEX_HOME || null',
     "      const sessionIds = readSessionIds(codexHome ? require('node:path').join(codexHome, 'sessions') : null)",
-    "      writeEvent({ type: 'resume', cwd: process.cwd(), codexHome, sessionIds })",
+    "      writeEvent({ type: 'resume', cwd: process.cwd(), codexHome, sqliteHome: process.env.CODEX_SQLITE_HOME || null, sessionIds })",
     `      process.stdout.write(\`\\r\\nRESUME_SESSIONS:\${sessionIds.join(',')}\\r\\n\`)`,
     '    }',
     "    newlineIndex = inputBuffer.indexOf('\\n')",
@@ -188,8 +198,7 @@ async function writeSettingsDocument(
   profileName: string,
   fakeCodexPath: string
 ): Promise<void> {
-  const effectiveProfileName = sanitizeRuntimeProfileName(profileName) || 'e2e';
-  const runtimeRoot = join(homeDir, `${RUNTIME_STATE_DIRNAME}-dev`, effectiveProfileName);
+  const runtimeRoot = runtimeProfileRoot(homeDir, profileName);
   await writeTextFile(
     join(runtimeRoot, SETTINGS_FILENAME),
     `${JSON.stringify(
@@ -254,6 +263,8 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
   const profileName = `e2e-codex-history-${randomUUID()}`;
   const legacySessionId = 'legacy-worktree-session';
   const siblingSessionId = 'legacy-sibling-session';
+  const newExternalSessionId = randomUUID();
+  const newSiblingSessionId = randomUUID();
   const invocationLogPath = join(rootPath, 'fake-codex.log');
   const repoId = buildRepositoryId('local', repoPath, { platform: resolveWorkspacePlatform() });
 
@@ -264,12 +275,22 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
   await writeSettingsDocument(homeDir, profileName, fakeCodexPath);
   await writeTextFile(join(homeDir, '.codex', 'config.toml'), 'model = "gpt-5"\n');
   await writeLegacySession({
-    rootPath: join(homeDir, '.codex', 'sessions'),
+    rootPath: join(
+      runtimeProfileRoot(homeDir, profileName),
+      'codex-session-histories',
+      'workspace-old-legacy',
+      'sessions'
+    ),
     threadId: legacySessionId,
     cwd: worktreePath,
   });
   await writeLegacySession({
-    rootPath: join(homeDir, '.codex', 'sessions'),
+    rootPath: join(
+      runtimeProfileRoot(homeDir, profileName),
+      'codex-session-histories',
+      'workspace-old-legacy',
+      'sessions'
+    ),
     threadId: siblingSessionId,
     cwd: join(workspaceRoot, 'repo-sibling-worktree'),
   });
@@ -284,6 +305,8 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
     }),
     homeDir,
     legacySessionId,
+    newExternalSessionId,
+    newSiblingSessionId,
     profileName,
     repoId,
     repoName,
@@ -292,6 +315,31 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
     worktreeBranch,
     worktreePath,
     invocationLogPath,
+    writePostMigrationExternalSessions: async () => {
+      const externalSessionsPath = join(homeDir, '.codex', 'sessions');
+      for (const [threadId, cwd] of [
+        [newExternalSessionId, worktreePath],
+        [newSiblingSessionId, join(workspaceRoot, 'repo-sibling-worktree')],
+      ]) {
+        const targetPath = join(
+          externalSessionsPath,
+          '2026',
+          '10',
+          '07',
+          `rollout-${threadId}.jsonl`
+        );
+        await writeTextFile(
+          targetPath,
+          `${JSON.stringify({
+            type: 'session_meta',
+            payload: { id: threadId, cwd },
+          })}\n${JSON.stringify({
+            type: 'event_msg',
+            payload: { type: 'user_message', message: 'Isolated E2E resume history fixture.' },
+          })}\n`
+        );
+      }
+    },
     cleanup: async () => {
       await rm(rootPath, { recursive: true, force: true });
     },

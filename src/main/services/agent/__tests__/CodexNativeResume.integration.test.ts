@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   copyFileSync,
@@ -8,17 +9,20 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { spawn as spawnPty } from 'node-pty';
 import { describe, expect, it } from 'vitest';
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const PROCESS_EXIT_TIMEOUT_MS = 5_000;
-const TEST_TIMEOUT_MS = 220_000;
-// Three handshakes, two starts, two shell calls, and four list requests.
-const REQUEST_COUNT = 11;
+const TEST_TIMEOUT_MS = 280_000;
+const PICKER_TIMEOUT_MS = 15_000;
+// Three handshakes, two starts, two shell calls, and seven list requests.
+const REQUEST_COUNT = 14;
 const SHELL_COMPLETION_COUNT = 2;
 const SERVER_COUNT = 3;
 const CLI_COMMAND = process.platform === 'win32' ? 'codex.exe' : 'codex';
@@ -71,6 +75,25 @@ function createCodexEnvironment(
   }
 
   return environment;
+}
+
+function configureIsolatedCodexProvider(codexHome: string, sqliteHomeOverride?: string): void {
+  // A no-auth, unreachable provider allows inspection of the TUI picker without credentials.
+  // No prompt is submitted, so the loopback URL cannot receive an inference request.
+  writeFileSync(
+    path.join(codexHome, 'config.toml'),
+    [
+      'model_provider = "isolated_test"',
+      'check_for_update_on_startup = false',
+      ...(sqliteHomeOverride ? [`sqlite_home = ${JSON.stringify(sqliteHomeOverride)}`] : []),
+      '[model_providers.isolated_test]',
+      'name = "isolated test"',
+      'base_url = "http://127.0.0.1:1/v1"',
+      'requires_openai_auth = false',
+      '',
+    ].join('\n'),
+    'utf8'
+  );
 }
 
 function probeInstalledCodex() {
@@ -312,6 +335,122 @@ async function cleanupNativeFixture(
   }
 }
 
+function createSyntheticCliTranscript(
+  originalFile: string,
+  sourceSessionsPath: string,
+  label: string
+): { id: string; path: string; title: string } {
+  const original = readFileSync(originalFile, 'utf8');
+  const lines = original.trimEnd().split('\n');
+  const metadata = JSON.parse(lines[0]) as {
+    type: string;
+    payload: { id: string; source: string; cwd: string };
+  };
+  if (metadata.type !== 'session_meta' || !metadata.payload.id) {
+    throw new Error('Expected Codex-generated session metadata');
+  }
+  const id = randomUUID();
+  const title = `Infilux isolated picker ${label} ${id.slice(0, 8)}`;
+  const relativePath = path.relative(sourceSessionsPath, originalFile);
+  const destination = path.join(
+    path.dirname(originalFile),
+    path.basename(relativePath).replace(metadata.payload.id, id)
+  );
+  if (destination === originalFile) {
+    throw new Error('Codex-generated rollout filename does not contain the thread ID');
+  }
+  metadata.payload.id = id;
+  metadata.payload.source = 'cli';
+  lines[0] = JSON.stringify(metadata);
+  let replacedFirstMessage = false;
+  for (let index = 1; index < lines.length; index += 1) {
+    const record = JSON.parse(lines[index]) as {
+      type?: string;
+      payload?: { type?: string; message?: string };
+    };
+    if (record.type === 'event_msg' && record.payload?.type === 'user_message') {
+      record.payload.message = title;
+      lines[index] = JSON.stringify(record);
+      replacedFirstMessage = true;
+      break;
+    }
+  }
+  if (!replacedFirstMessage) {
+    throw new Error('Codex-generated transcript contains no user message to label');
+  }
+  writeFileSync(destination, `${lines.join('\n')}\n`, 'utf8');
+  return { id, path: destination, title };
+}
+
+async function captureNativeResumePicker(options: {
+  home: string;
+  codexHome: string;
+  sqliteHome: string;
+  cwd: string;
+  matchingTitle: string;
+  siblingTitle: string;
+}): Promise<void> {
+  const terminal = spawnPty(
+    CLI_COMMAND,
+    [
+      'resume',
+      '--no-alt-screen',
+      '--no-daemon',
+      '-c',
+      `sqlite_home=${JSON.stringify(options.sqliteHome)}`,
+    ],
+    {
+      cwd: options.cwd,
+      cols: 160,
+      rows: 50,
+      name: 'xterm-256color',
+      env: {
+        ...createCodexEnvironment(options.home, options.codexHome, options.sqliteHome),
+        TERM: 'xterm-256color',
+      },
+    }
+  );
+  let output = '';
+  let exited = false;
+  const processExited = new Promise<void>((resolve) => {
+    terminal.onExit(() => {
+      exited = true;
+      resolve();
+    });
+  });
+  try {
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        terminal.onData((chunk) => {
+          output += chunk;
+          if (output.length > 512_000) {
+            reject(new Error('Codex resume picker exceeded its bounded output limit'));
+          } else if (output.includes(options.matchingTitle)) {
+            resolve();
+          }
+        });
+        terminal.onExit(() => reject(new Error('Codex resume picker exited before listing')));
+      }),
+      PICKER_TIMEOUT_MS,
+      'Codex resume picker listing'
+    ).catch((error: unknown) => {
+      const pageCount = output.match(/\b\d+ \/ \d+\b/g)?.at(-1) ?? 'unknown';
+      throw new Error(
+        `${String(error)}; pickerVisible=${output.includes('Resume a previous session')}; ` +
+          `authRequired=${output.includes('Welcome to Codex')}; pageCount=${pageCount}; ` +
+          `matchingVisible=${output.includes(options.matchingTitle)}; ` +
+          `siblingVisible=${output.includes(options.siblingTitle)}`
+      );
+    });
+    expect(output).not.toContain(options.siblingTitle);
+  } finally {
+    if (!exited) {
+      terminal.kill();
+      await withTimeout(processExited, PROCESS_EXIT_TIMEOUT_MS, 'Codex resume picker cleanup');
+    }
+  }
+}
+
 describe('real Codex app-server transcript discovery', () => {
   it('isolates the CLI version probe from the user Codex home and credentials', () => {
     expect(cliProbeEnvironment.HOME).toBeTruthy();
@@ -406,6 +545,8 @@ describe('real Codex app-server transcript discovery', () => {
       (REQUEST_COUNT + SHELL_COMPLETION_COUNT) * REQUEST_TIMEOUT_MS +
       SERVER_COUNT * PROCESS_EXIT_TIMEOUT_MS +
       SERVER_COUNT * (2 * PROCESS_EXIT_TIMEOUT_MS) +
+      PROCESS_EXIT_TIMEOUT_MS +
+      PICKER_TIMEOUT_MS +
       PROCESS_EXIT_TIMEOUT_MS;
     expect(TEST_TIMEOUT_MS).toBeGreaterThan(maximumDuration);
   });
@@ -416,7 +557,7 @@ describe('real Codex app-server transcript discovery', () => {
   }
 
   it(
-    'reindexes native rollouts with a synthetic user event',
+    'indexes native rollouts and displays an imported CLI-like session in the real resume picker',
     async () => {
       if (cliProbe.error || cliProbe.status !== 0) {
         throw new Error('installed codex --version did not complete successfully');
@@ -449,6 +590,9 @@ describe('real Codex app-server transcript discovery', () => {
             mkdirSync(path.join(home, relativePath), { recursive: true });
           }
         }
+        configureIsolatedCodexProvider(sourceHome);
+        const conflictingSqliteHome = path.join(temporaryRoot, 'unwanted-sqlite');
+        configureIsolatedCodexProvider(targetHome, conflictingSqliteHome);
 
         const source = new IsolatedCodexAppServer(home, sourceHome, sourceSqliteHome, worktree);
         servers.push(source);
@@ -518,6 +662,31 @@ describe('real Codex app-server transcript discovery', () => {
           copyFileSync(filePath, destinationPath);
         }
 
+        const externalSessionsPath = path.join(temporaryRoot, 'external', 'sessions');
+        const importedCliThreads = originalFiles.map((filePath) => {
+          const identity = readThreadIdentity(filePath);
+          if (!identity) throw new Error('Codex-generated transcript has no identity');
+          const label = identity.id === matchingId ? 'matching' : 'sibling';
+          const externalFile = path.join(
+            externalSessionsPath,
+            path.relative(path.join(sourceHome, 'sessions'), filePath)
+          );
+          mkdirSync(path.dirname(externalFile), { recursive: true });
+          copyFileSync(filePath, externalFile);
+          const cliThread = createSyntheticCliTranscript(externalFile, externalSessionsPath, label);
+          const destinationPath = path.join(
+            targetHome,
+            'sessions',
+            path.relative(externalSessionsPath, cliThread.path)
+          );
+          mkdirSync(path.dirname(destinationPath), { recursive: true });
+          copyFileSync(cliThread.path, destinationPath);
+          return { ...cliThread, cwd: identity.cwd };
+        });
+        const cliMatching = importedCliThreads.find((thread) => thread.cwd === worktree);
+        const cliSibling = importedCliThreads.find((thread) => thread.cwd === sibling);
+        if (!cliMatching || !cliSibling) throw new Error('Missing synthetic CLI worktree controls');
+
         const target = new IsolatedCodexAppServer(home, targetHome, targetSqliteHome, worktree);
         servers.push(target);
         await target.initialize();
@@ -537,10 +706,47 @@ describe('real Codex app-server transcript discovery', () => {
 
         // App-server's interactive default is cli/vscode; this does not test the CLI TUI picker.
         const defaultResult = await target.request('thread/list', { cwd: worktree });
+        expect(threadIds(defaultResult)).toContain(cliMatching.id);
+        expect(threadIds(defaultResult)).not.toContain(cliSibling.id);
         expect(threadIds(defaultResult).includes(matchingId)).toBe(
           sourceKind === 'cli' || sourceKind === 'vscode'
         );
+        const otherProviderFiltered = await target.request('thread/list', {
+          cwd: worktree,
+          modelProviders: ['openai'],
+          useStateDbOnly: true,
+        });
+        const pickerFiltered = await target.request('thread/list', {
+          cwd: worktree,
+          modelProviders: ['isolated_test'],
+          useStateDbOnly: true,
+        });
+        const fallbackFiltered = await target.request('thread/list', {
+          cwd: worktree,
+          modelProviders: ['isolated_test'],
+          useStateDbOnly: false,
+        });
+        expect({
+          defaultHasMatching: threadIds(defaultResult).includes(cliMatching.id),
+          otherProviderHasMatching: threadIds(otherProviderFiltered).includes(cliMatching.id),
+          pickerHasMatching: threadIds(pickerFiltered).includes(cliMatching.id),
+          fallbackHasMatching: threadIds(fallbackFiltered).includes(cliMatching.id),
+        }).toEqual({
+          defaultHasMatching: true,
+          otherProviderHasMatching: false,
+          pickerHasMatching: true,
+          fallbackHasMatching: true,
+        });
         await target.close();
+        await captureNativeResumePicker({
+          home,
+          codexHome: targetHome,
+          sqliteHome: targetSqliteHome,
+          cwd: worktree,
+          matchingTitle: cliMatching.title,
+          siblingTitle: cliSibling.title,
+        });
+        expect(existsSync(conflictingSqliteHome)).toBe(false);
       } finally {
         await cleanupNativeFixture(servers, temporaryRoot);
       }
