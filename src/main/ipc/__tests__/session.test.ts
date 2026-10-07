@@ -628,6 +628,7 @@ describe('session IPC handlers', () => {
     expect(created.metadata?.agentCapability).toEqual(
       expect.objectContaining({ warnings: [expect.stringContaining('SQLite index isolation')] })
     );
+    expect(created.metadata?.codexRuntimeWarnings).toBeUndefined();
   });
 
   it.each([
@@ -740,6 +741,67 @@ describe('session IPC handlers', () => {
     expect(created.metadata?.agentCapability).toEqual(
       expect.objectContaining({ warnings: [expect.stringContaining('SQLite index isolation')] })
     );
+  });
+
+  it.each([
+    'hapi',
+    'happy',
+  ] as const)('persists a visible %s Codex runtime warning without an agent capability launch request', async (environment) => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
+      metadata: { agentId: 'codex', agentCommand: 'codex', environment },
+    });
+
+    expect(sessionTestDoubles.prepareAgentCapabilityLaunch).not.toHaveBeenCalled();
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.metadata?.agentCapability).toBeUndefined();
+    expect(created.metadata?.codexRuntimeWarnings).toEqual([
+      expect.stringContaining('SQLite index isolation'),
+    ]);
+  });
+
+  it('recognizes an app-generated Happy Codex wrapper without capability or agent metadata', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'happy',
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.metadata?.codexRuntimeWarnings).toEqual([
+      expect.stringContaining('SQLite index isolation'),
+    ]);
   });
 
   it('applies the SQLite override once after a zero-assignment Codex capability projection', async () => {

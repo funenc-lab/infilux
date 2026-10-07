@@ -232,6 +232,37 @@ describe('applyCodexSqliteLaunchOptions', () => {
     }
   });
 
+  it.each([
+    false,
+    true,
+  ])('preserves ordinary sqlite_home text in native initial prompts (tmux: %s)', (tmuxEnabled) => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: 'Explain why sqlite_home="not a config" is text',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled,
+      terminalSessionId: 'ui-prompt',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const updated = apply({
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: plan.initialCommand,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
+    });
+
+    expect(updated.initialCommand).toContain('sqlite_home=');
+    expect(updated.initialCommand).toContain('Explain why');
+    expect(updated.initialCommand).toContain('codex -c "sqlite_home=');
+    if (!tmuxEnabled) {
+      expect(updated.initialCommand).toContain(`-c "${assignment.replace(/["\\$\x60]/g, '\\$&')}"`);
+    }
+  });
+
   it('still enforces native direct Codex argv when stale wrapper metadata is present', () => {
     const updated = applyCodexSqliteLaunchOptions(
       {
@@ -319,6 +350,54 @@ describe('applyCodexSqliteLaunchOptions', () => {
   it('rejects a conflicting sqlite_home inside a custom shell command', () => {
     expect(() =>
       apply({ kind: 'agent', shell: '/bin/zsh', initialCommand: 'codex -c sqlite_home="/other"' })
+    ).toThrow('unsupported custom launcher');
+  });
+
+  it('still rejects a custom sqlite_home argument when an ordinary initial prompt is present', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '-c sqlite_home="/another-worktree"',
+      initialPrompt: 'This is ordinary text',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    expect(plan.codexLaunch).toBeUndefined();
+    expect(() =>
+      apply({ kind: 'agent', shell: '/bin/zsh', initialCommand: plan.initialCommand })
+    ).toThrow('unsupported custom launcher');
+  });
+
+  it('does not accept a custom sqlite_home config arg disguised as a renderer prompt', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '-c sqlite_home="/another-worktree"',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const customArg = '-c sqlite_home="/another-worktree"';
+
+    expect(() =>
+      apply({
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        codexLaunch: {
+          kind: 'native',
+          executable: 'codex',
+          shellPath: '/bin/zsh',
+          executionPlatform: 'darwin',
+          rawArgs: [customArg],
+          initialPromptArg: customArg,
+          layout: 'initial',
+        },
+      })
     ).toThrow('unsupported custom launcher');
   });
 

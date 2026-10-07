@@ -121,6 +121,37 @@ function createNativeShellPlan() {
 }
 
 describe('CodexCapabilityProviderAdapter', () => {
+  it('reports pending capability assignments on attach-existing tmux instead of claiming application', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-1',
+      persistentHostSessionKey: 'infilux-ui-1',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        hostSession: plan.hostSession,
+        codexLaunch: plan.codexLaunch,
+      },
+      createCapabilities(),
+      createResolvedPolicy({ allowedSharedMcpIds: ['shared-project'] }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(false);
+    expect(projection.sessionOverrides).toBeUndefined();
+    expect(projection.warnings).toContainEqual(expect.stringContaining('Restart'));
+  });
+
   it('preserves remote native Codex capability assignments without a local SQLite override', () => {
     const executable = "/opt/O'Brien's tools/codex";
     const plan = buildAgentLaunchPlan({

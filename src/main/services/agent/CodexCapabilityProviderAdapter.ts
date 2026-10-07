@@ -347,6 +347,16 @@ export function buildCodexSessionProjection(
     };
   }
 
+  if (
+    sessionOptions.codexLaunch?.kind === 'native' &&
+    sessionOptions.codexLaunch.layout === 'tmux-attach'
+  ) {
+    allWarnings.push(
+      'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.'
+    );
+    return { warnings: allWarnings, applied: false };
+  }
+
   const cliArgs = buildCodexCliArgs(assignments);
   const sessionOverrides: AgentCapabilitySessionOverrides = {
     metadata: {

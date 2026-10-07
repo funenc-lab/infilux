@@ -125,6 +125,7 @@ function isCodexAgentSession(options: SessionCreateOptions): boolean {
     (agentId === 'codex' ||
       agentCommand === 'codex' ||
       isCodexCapabilityLaunch(metadata) ||
+      isCodexThirdPartyWrapperLaunch(options) ||
       isCodexLaunchCommand(options.initialCommand) ||
       isCodexLaunchCommand(options.shell))
   );
@@ -239,7 +240,18 @@ async function prepareAgentSessionOptions(
         },
       };
     }
-    return prepared;
+    const existingRuntimeWarnings = Array.isArray(prepared.metadata?.codexRuntimeWarnings)
+      ? prepared.metadata.codexRuntimeWarnings.filter(
+          (warning): warning is string => typeof warning === 'string'
+        )
+      : [];
+    const runtimeWarnings = [
+      ...new Set([...existingRuntimeWarnings, CODEX_WRAPPER_SQLITE_WARNING]),
+    ];
+    return {
+      ...prepared,
+      metadata: { ...prepared.metadata, codexRuntimeWarnings: runtimeWarnings },
+    };
   }
   const sqliteHomePath = prepared.env?.CODEX_SQLITE_HOME;
   const managedHomePath = prepared.env?.[MANAGED_CODEX_RUNTIME_HOME_ENV_KEY];

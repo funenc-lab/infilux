@@ -217,6 +217,7 @@ vi.mock('../AgentTerminal', () => ({
     onMerge?: () => void;
     onTerminalTitleChange?: (title: string) => void;
     onProviderSessionTitle?: (title: string) => void;
+    onAgentRuntimeWarningsChange?: (warnings: string[]) => void;
     onRuntimeStateChange?: (state: 'live' | 'reconnecting' | 'dead') => void;
   }) => {
     React.useEffect(() => {
@@ -272,6 +273,18 @@ vi.mock('../AgentTerminal', () => ({
           onClick: () => props.onTerminalTitleChange?.('Investigate terminal recovery'),
         },
         'emit-terminal-title'
+      ),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': `emit-runtime-warning-${props.id ?? ''}`,
+          onClick: () =>
+            props.onAgentRuntimeWarningsChange?.([
+              'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.',
+            ]),
+        },
+        'emit-runtime-warning'
       ),
       React.createElement(
         'button',
@@ -1642,6 +1655,38 @@ describe('AgentPanel integration', () => {
         ?.getAttribute('data-session-id')
     ).toBe('session-b');
 
+    await mounted.unmount();
+  });
+
+  it('persists a wrapper runtime warning reported by AgentTerminal without fabricating a capability hash', async () => {
+    const session = createSession({
+      id: 'wrapper-codex-session',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      environment: 'happy',
+    });
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: { '/repo/worktree': session.id },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [{ id: 'group-1', sessionIds: [session.id], activeSessionId: session.id }],
+          activeGroupId: 'group-1',
+          flexPercents: [100],
+        },
+      },
+    });
+    const mounted = await mountAgentPanel();
+
+    await clickByTestId(mounted.container, `emit-runtime-warning-${session.id}`);
+
+    const updated = useAgentSessionsStore
+      .getState()
+      .sessions.find((item) => item.id === session.id);
+    expect(updated?.agentCapabilityHash).toBeUndefined();
+    expect(updated?.agentRuntimeWarnings).toEqual([
+      'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.',
+    ]);
     await mounted.unmount();
   });
 

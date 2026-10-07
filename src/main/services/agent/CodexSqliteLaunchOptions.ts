@@ -63,6 +63,18 @@ function matchesNativeCodexLaunch(
     typeof descriptor.shellPath !== 'string' ||
     !NATIVE_CODEX_LAUNCH_LAYOUTS.has(descriptor.layout) ||
     !isStringList(descriptor.rawArgs) ||
+    (descriptor.initialPromptArg !== undefined &&
+      (typeof descriptor.initialPromptArg !== 'string' ||
+        descriptor.initialPromptArg !== descriptor.rawArgs.at(-1) ||
+        (descriptor.executionPlatform === 'win32'
+          ? !(
+              descriptor.initialPromptArg.startsWith('"') &&
+              descriptor.initialPromptArg.endsWith('"')
+            )
+          : !(
+              descriptor.initialPromptArg.startsWith("$'") &&
+              descriptor.initialPromptArg.endsWith("'")
+            )))) ||
     (descriptor.shellArgsPrefix !== undefined && !isStringList(descriptor.shellArgsPrefix)) ||
     (descriptor.fallbackArgsPrefix !== undefined && !isStringList(descriptor.fallbackArgsPrefix)) ||
     (descriptor.appliedAssignments !== undefined && !isStringList(descriptor.appliedAssignments)) ||
@@ -83,7 +95,11 @@ function matchesNativeCodexLaunch(
   }
   if (
     (descriptor.layout !== 'remote' &&
-      descriptor.rawArgs.some((arg) => /sqlite_home\s*=/.test(arg))) ||
+      descriptor.rawArgs.some(
+        (arg, index) =>
+          (index !== descriptor.rawArgs.length - 1 || descriptor.initialPromptArg === undefined) &&
+          /sqlite_home\s*=/.test(arg)
+      )) ||
     (descriptor.layout === 'remote' && !isRemoteVirtualPath(options.cwd ?? '')) ||
     (descriptor.layout === 'direct' && options.shell !== descriptor.executable) ||
     (descriptor.layout === 'powershell' && options.shell !== descriptor.shellPath) ||

@@ -236,6 +236,49 @@ describe('SessionBar recovery render', () => {
     );
   });
 
+  it.each([
+    false,
+    true,
+  ])('shows the wrapper limitation without capability metadata and without duplicates (previous warning: %s)', async (previousWarning) => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        ...(previousWarning
+          ? {
+              agentCapabilityWarnings: [
+                'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+              ],
+            }
+          : {}),
+        agentRuntimeWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Codex resume history is not isolated'
+    );
+  });
+
+  it('shows a restart notice when Codex MCP changes were not applied to an existing tmux session', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'native',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Restart this Codex session'
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('MCP and skill');
+  });
+
   it('does not show a wrapper warning on native Codex sessions', async () => {
     ({ container, root } = await renderSessionBar(
       createRecoveredSession({

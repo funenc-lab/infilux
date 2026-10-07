@@ -363,6 +363,7 @@ export function buildAgentLaunchPlan({
             shellPath: commandShellPath,
             executionPlatform,
             rawArgs: [...agentArgs],
+            ...(initialPrompt ? { initialPromptArg: agentArgs.at(-1) } : {}),
             layout,
             ...(shellArgsPrefix ? { shellArgsPrefix } : {}),
             ...(fallbackArgsPrefix ? { fallbackArgsPrefix } : {}),

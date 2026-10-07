@@ -73,6 +73,7 @@ import { AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE } from './agentCanvasInteractionP
 import {
   buildAgentCapabilityLaunchMetadata,
   extractAgentCapabilitySessionMetadata,
+  extractCodexRuntimeSessionWarnings,
 } from './agentCapabilityLaunch';
 import { resolveFallbackCommandShell } from './agentCommandShellFallback';
 import {
@@ -179,6 +180,7 @@ interface AgentTerminalProps {
     hash: string;
     warnings: string[];
   }) => void;
+  onAgentRuntimeWarningsChange?: (warnings: string[]) => void;
   readOnlyTranscript?: AgentTerminalReadOnlyTranscript | null;
   replaySnapshot?: string;
 }
@@ -429,6 +431,7 @@ export function AgentTerminal({
   onReplaySnapshotChange,
   onRuntimeStateChange,
   onClaudePolicyStateChange,
+  onAgentRuntimeWarningsChange,
   readOnlyTranscript = null,
   replaySnapshot,
 }: AgentTerminalProps) {
@@ -1931,6 +1934,10 @@ export function AgentTerminal({
     onTitleChange: handleTitleChange,
     onSessionIdChange: handleBackendSessionIdChange,
     onSessionOpen: (session) => {
+      const runtimeWarnings = extractCodexRuntimeSessionWarnings(session.metadata);
+      if (runtimeWarnings.length > 0) {
+        onAgentRuntimeWarningsChange?.(runtimeWarnings);
+      }
       const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);
       if (capabilityState) {
         onClaudePolicyStateChange?.(capabilityState);

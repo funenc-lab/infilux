@@ -23,6 +23,7 @@ export type CodexLaunchDescriptor =
       shellPath: string;
       executionPlatform?: string;
       rawArgs: string[];
+      initialPromptArg?: string;
       layout: 'direct' | 'initial' | 'tmux' | 'tmux-attach' | 'powershell' | 'remote';
       shellArgsPrefix?: string[];
       fallbackArgsPrefix?: string[];
