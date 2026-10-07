@@ -38,10 +38,10 @@ describe('resolveAgentTerminalLaunchPlan', () => {
     expect(result.sessionCreateFallback?.hostSession).toBeUndefined();
     expect(result.sessionCreateFallback?.command).toEqual({
       shell: 'codex',
-      args: ['resume', 'provider-session-1'],
+      args: ['--no-daemon', 'resume', 'provider-session-1'],
       fallbackCommand: {
         shell: '/bin/zsh',
-        args: ['-lc', 'codex resume provider-session-1'],
+        args: ['-lc', 'codex --no-daemon resume provider-session-1'],
       },
     });
   });
@@ -63,10 +63,10 @@ describe('resolveAgentTerminalLaunchPlan', () => {
     expect(result.sessionCreateFallback?.hostSession).toBeUndefined();
     expect(result.sessionCreateFallback?.command).toEqual({
       shell: 'codex',
-      args: [],
+      args: ['--no-daemon'],
       fallbackCommand: {
         shell: '/bin/zsh',
-        args: ['-lc', 'codex'],
+        args: ['-lc', 'codex --no-daemon'],
       },
     });
   });

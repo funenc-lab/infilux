@@ -263,11 +263,11 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.command).toEqual({
       shell: 'codex',
-      args: [],
+      args: ['--no-daemon'],
     });
     expect(plan.fallbackCommand).toEqual({
       shell: '/bin/zsh',
-      args: ['-l', '-c', 'codex'],
+      args: ['-l', '-c', 'codex --no-daemon'],
     });
   });
 
@@ -288,11 +288,11 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.command).toEqual({
       shell: 'codex',
-      args: ['resume', 'codex-session-9'],
+      args: ['--no-daemon', 'resume', 'codex-session-9'],
     });
     expect(plan.fallbackCommand).toEqual({
       shell: '/bin/zsh',
-      args: ['-l', '-c', 'codex resume codex-session-9'],
+      args: ['-l', '-c', 'codex --no-daemon resume codex-session-9'],
     });
   });
 
@@ -314,11 +314,11 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.command).toEqual({
       shell: 'codex',
-      args: [],
+      args: ['--no-daemon'],
     });
     expect(plan.fallbackCommand).toEqual({
       shell: '/bin/zsh',
-      args: ['-l', '-c', 'codex'],
+      args: ['-l', '-c', 'codex --no-daemon'],
     });
   });
 
@@ -339,11 +339,11 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.command).toEqual({
       shell: 'codex',
-      args: [],
+      args: ['--no-daemon'],
     });
     expect(plan.fallbackCommand).toEqual({
       shell: '/bin/zsh',
-      args: ['-l', '-c', 'codex'],
+      args: ['-l', '-c', 'codex --no-daemon'],
     });
   });
 
@@ -375,7 +375,7 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.initialCommand).toContain(
       `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -e CODEX_HOME="\${CODEX_HOME}" -e INFILUX_MANAGED_CODEX_RUNTIME_HOME="\${INFILUX_MANAGED_CODEX_RUNTIME_HOME}" -s infilux-ui-session-11`
     );
-    expect(plan.initialCommand).toContain(`${agentTmuxUnsetPrefix} codex`);
+    expect(plan.initialCommand).toContain(`${agentTmuxUnsetPrefix} codex --no-daemon`);
     expect(plan.initialCommand).toContain('-u MallocStackLogging');
     expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
   });
@@ -420,11 +420,11 @@ describe('buildAgentLaunchPlan', () => {
 
     expect(plan.command).toEqual({
       shell: 'codex',
-      args: ['resume', 'codex-session-12'],
+      args: ['--no-daemon', 'resume', 'codex-session-12'],
     });
     expect(plan.fallbackCommand).toEqual({
       shell: '/bin/zsh',
-      args: ['-l', '-c', 'codex resume codex-session-12'],
+      args: ['-l', '-c', 'codex --no-daemon resume codex-session-12'],
     });
     expect(plan.hostSession).toBeUndefined();
   });
@@ -493,8 +493,52 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.command).toBeUndefined();
     expect(plan.fallbackCommand).toBeUndefined();
     expect(plan.initialCommand).toBe(
-      `env ${agentTmuxUnsetPrefix} codex --dangerously-bypass-approvals-and-sandbox`
+      `env ${agentTmuxUnsetPrefix} codex --no-daemon --dangerously-bypass-approvals-and-sandbox`
     );
+  });
+
+  it('does not add daemon flags to custom, remote, or wrapped Codex launches', () => {
+    const nativeOptions = {
+      agentCommand: 'codex',
+      environment: 'native' as const,
+      hapiGlobalInstalled: true,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-lc'] },
+    };
+
+    const custom = buildAgentLaunchPlan({
+      ...nativeOptions,
+      customPath: '/opt/tools/codex',
+      isRemoteExecution: false,
+    });
+    const remote = buildAgentLaunchPlan({
+      ...nativeOptions,
+      isRemoteExecution: true,
+    });
+    const wrapped = buildAgentLaunchPlan({
+      ...nativeOptions,
+      environment: 'hapi',
+      isRemoteExecution: false,
+    });
+
+    expect(custom.command?.args).toEqual([]);
+    expect(remote.initialCommand).toBe('codex');
+    expect(wrapped.command?.args.at(-1)).toContain('hapi codex');
+    expect(wrapped.command?.args.at(-1)).not.toContain('--no-daemon');
+  });
+
+  it('does not duplicate an explicit Codex no-daemon argument', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '--no-daemon --dangerously-bypass-approvals-and-sandbox',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-lc'] },
+    });
+
+    expect(plan.initialCommand?.match(/--no-daemon/g)).toHaveLength(1);
   });
 
   it('returns an empty plan when hapi availability is still unknown', () => {

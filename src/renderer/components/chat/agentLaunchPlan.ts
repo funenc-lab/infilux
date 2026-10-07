@@ -374,6 +374,16 @@ export function buildAgentLaunchPlan({
     useTmuxHostSession,
   });
 
+  if (
+    agentCommand === 'codex' &&
+    environment === 'native' &&
+    !isRemoteExecution &&
+    !customPath &&
+    !/(^|\s)--no-daemon(?=\s|$)/.test(customArgs ?? '')
+  ) {
+    agentArgs.unshift('--no-daemon');
+  }
+
   if (supportIde) {
     agentArgs.push('--ide');
   }

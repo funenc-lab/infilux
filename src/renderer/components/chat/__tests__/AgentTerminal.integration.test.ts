@@ -1337,10 +1337,10 @@ describe('AgentTerminal integration', () => {
     expect(lastUseXtermCall?.sessionCreateFallback?.hostSession).toBeUndefined();
     expect(lastUseXtermCall?.sessionCreateFallback?.command).toEqual({
       shell: 'codex',
-      args: ['resume', 'provider-session-1'],
+      args: ['--no-daemon', 'resume', 'provider-session-1'],
       fallbackCommand: {
         shell: '/bin/zsh',
-        args: ['-lc', 'codex resume provider-session-1'],
+        args: ['-lc', 'codex --no-daemon resume provider-session-1'],
       },
     });
 
