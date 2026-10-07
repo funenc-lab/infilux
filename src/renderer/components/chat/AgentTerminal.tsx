@@ -1935,9 +1935,7 @@ export function AgentTerminal({
     onSessionIdChange: handleBackendSessionIdChange,
     onSessionOpen: (session) => {
       const runtimeWarnings = extractCodexRuntimeSessionWarnings(session.metadata);
-      if (runtimeWarnings.length > 0) {
-        onAgentRuntimeWarningsChange?.(runtimeWarnings);
-      }
+      onAgentRuntimeWarningsChange?.(runtimeWarnings);
       const capabilityState = extractAgentCapabilitySessionMetadata(session.metadata);
       if (capabilityState) {
         onClaudePolicyStateChange?.(capabilityState);

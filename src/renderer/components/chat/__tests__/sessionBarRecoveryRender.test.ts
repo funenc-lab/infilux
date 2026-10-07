@@ -325,7 +325,7 @@ describe('SessionBar recovery render', () => {
     expectedNotices,
   }) => {
     const sqliteWarning =
-      'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
     ({ container, root } = await renderSessionBar(
       createRecoveredSession({
         environment: 'native',
@@ -344,9 +344,9 @@ describe('SessionBar recovery render', () => {
       (notice) => notice.textContent ?? ''
     );
     expect(notices).toHaveLength(expectedNotices);
-    expect(
-      notices.filter((notice) => notice.includes('worktree-scoped resume index'))
-    ).toHaveLength(1);
+    expect(notices.filter((notice) => notice.includes('worktree-scoped index'))).toHaveLength(1);
+    expect(notices.join(' ')).toContain('If the history list differs');
+    expect(notices.join(' ')).not.toContain('Restart this Codex session to use');
     if (withCapabilities) {
       expect(notices.filter((notice) => notice.includes('MCP and skill changes'))).toHaveLength(1);
     }
@@ -442,11 +442,65 @@ describe('SessionBar recovery render', () => {
     ));
 
     const collapsedButton = container.querySelector('button[aria-label]');
-    expect(collapsedButton?.getAttribute('aria-label')).toContain('worktree-scoped resume index');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain('worktree-scoped index');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain('If the history list differs');
+    expect(collapsedButton?.getAttribute('aria-label')).not.toContain(
+      'Restart this Codex session to use'
+    );
     expect(collapsedButton?.getAttribute('aria-label')).toContain('MCP and skill changes');
-    expect(collapsedButton?.getAttribute('title')).toContain('worktree-scoped resume index');
+    expect(collapsedButton?.getAttribute('title')).toContain('worktree-scoped index');
     expect(collapsedButton?.getAttribute('title')).toContain('MCP and skill changes');
     expect(collapsedButton?.querySelector('svg')?.getAttribute('class')).toContain('text-warning');
+  });
+
+  it.each([
+    false,
+    true,
+  ])('removes stale resume-index feedback after a new Codex process opens (collapsed: %s)', async (collapsed) => {
+    if (collapsed) {
+      localStorage.setItem(
+        'enso-session-bar',
+        JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+      );
+    }
+    const warning =
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+    const session = createRecoveredSession({ agentRuntimeWarnings: [warning] });
+    ({ container, root } = await renderSessionBar(session));
+    if (collapsed) {
+      expect(container.querySelector('button[aria-label]')?.getAttribute('title')).toContain(
+        'worktree-scoped index'
+      );
+    } else {
+      expect(container.querySelector('[role="status"]')?.textContent).toContain(
+        'worktree-scoped index'
+      );
+    }
+
+    const { SessionBar } = await import('../SessionBar');
+    await act(async () => {
+      root?.render(
+        React.createElement(SessionBar, {
+          sessions: [{ ...session, agentRuntimeWarnings: [] }],
+          activeSessionId: session.id,
+          repoPath: session.repoPath,
+          onSelectSession: vi.fn(),
+          onCloseSession: vi.fn(),
+          onNewSession: vi.fn(),
+          onRenameSession: vi.fn(),
+        })
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    if (collapsed) {
+      const collapsedControl = container.querySelector('button[aria-label]');
+      expect(collapsedControl?.getAttribute('aria-label')).not.toContain('worktree-scoped index');
+      expect(collapsedControl?.getAttribute('title')).not.toContain('worktree-scoped index');
+      expect(collapsedControl?.querySelector('svg')?.getAttribute('class')).not.toContain(
+        'text-warning'
+      );
+    }
   });
 
   it('exposes both wrapper limitations in the collapsed button label and title', async () => {

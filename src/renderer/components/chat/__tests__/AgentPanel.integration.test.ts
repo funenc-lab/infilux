@@ -290,6 +290,15 @@ vi.mock('../AgentTerminal', () => ({
         'button',
         {
           type: 'button',
+          'data-testid': `clear-runtime-warning-${props.id ?? ''}`,
+          onClick: () => props.onAgentRuntimeWarningsChange?.([]),
+        },
+        'clear-runtime-warning'
+      ),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
           'data-testid': `emit-provider-title-${props.id ?? ''}`,
           onClick: () => props.onProviderSessionTitle?.('Recover title from provider transcript'),
         },
@@ -1687,6 +1696,50 @@ describe('AgentPanel integration', () => {
     expect(updated?.agentRuntimeWarnings).toEqual([
       'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.',
     ]);
+    await mounted.unmount();
+  });
+
+  it('clears stale Codex tmux-attach feedback once when a newly opened process reports no warnings', async () => {
+    const warning =
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+    const session = createSession({
+      id: 'tmux-codex-session',
+      agentId: 'codex',
+      agentCommand: 'codex',
+      agentRuntimeWarnings: [warning],
+    });
+    useAgentSessionsStore.setState({
+      sessions: [session],
+      activeIds: { '/repo/worktree': session.id },
+      groupStates: {
+        '/repo/worktree': {
+          groups: [{ id: 'group-1', sessionIds: [session.id], activeSessionId: session.id }],
+          activeGroupId: 'group-1',
+          flexPercents: [100],
+        },
+      },
+    });
+    const mounted = await mountAgentPanel();
+    let warningStateChanges = 0;
+    const unsubscribe = useAgentSessionsStore.subscribe((current, previous) => {
+      const currentWarning = current.sessions.find(
+        (item) => item.id === session.id
+      )?.agentRuntimeWarnings;
+      const previousWarning = previous.sessions.find(
+        (item) => item.id === session.id
+      )?.agentRuntimeWarnings;
+      if (currentWarning !== previousWarning) warningStateChanges += 1;
+    });
+
+    await clickByTestId(mounted.container, `clear-runtime-warning-${session.id}`);
+    await clickByTestId(mounted.container, `clear-runtime-warning-${session.id}`);
+
+    const updated = useAgentSessionsStore
+      .getState()
+      .sessions.find((item) => item.id === session.id);
+    expect(updated?.agentRuntimeWarnings).toEqual([]);
+    expect(warningStateChanges).toBe(1);
+    unsubscribe();
     await mounted.unmount();
   });
 

@@ -533,7 +533,10 @@ describe('session IPC handlers', () => {
     withPriorWarning,
   }) => {
     const warning =
+      'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+    const legacyWarning =
       'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
+    const otherWarning = 'A separate runtime warning is still relevant.';
     const event = createEvent();
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',
@@ -574,7 +577,9 @@ describe('session IPC handlers', () => {
         uiSessionId: 'ui-reconnected',
         agentId: 'codex',
         agentCommand: 'codex',
-        ...(withPriorWarning ? { codexRuntimeWarnings: [warning] } : {}),
+        ...(withPriorWarning
+          ? { codexRuntimeWarnings: [legacyWarning, otherWarning, warning] }
+          : {}),
         ...(withCapabilities
           ? {
               agentCapabilityLaunch: {
@@ -597,7 +602,9 @@ describe('session IPC handlers', () => {
         CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
       })
     );
-    expect(created.metadata?.codexRuntimeWarnings).toEqual([warning]);
+    expect(created.metadata?.codexRuntimeWarnings).toEqual(
+      withPriorWarning ? [otherWarning, warning] : [warning]
+    );
     if (withCapabilities) {
       expect(created.metadata?.agentCapability).toEqual(
         expect.objectContaining({ warnings: [expect.stringContaining('MCP and skill changes')] })
@@ -628,7 +635,7 @@ describe('session IPC handlers', () => {
     const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
     expect(created.initialCommand).toBe('tmux attach-session -t infilux-ui-reconnected');
     expect(created.metadata?.codexRuntimeWarnings).toEqual([
-      expect.stringContaining('worktree-scoped resume index'),
+      expect.stringContaining('worktree-scoped index'),
     ]);
   });
 

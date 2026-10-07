@@ -356,9 +356,11 @@ const CODEX_TMUX_ATTACH_CAPABILITY_WARNING_PREFIX =
 const CODEX_TMUX_ATTACH_CAPABILITY_NOTICE =
   'Codex MCP and skill changes were not applied to this existing session. Restart this Codex session to apply MCP and skill changes.';
 const CODEX_TMUX_ATTACH_SQLITE_WARNING_PREFIX =
+  'An existing Codex process keeps its original resume index.';
+const CODEX_TMUX_ATTACH_SQLITE_LEGACY_WARNING_PREFIX =
   'Restart this Codex session to use the worktree-scoped resume index;';
 const CODEX_TMUX_ATTACH_SQLITE_NOTICE =
-  'Restart this Codex session to use the worktree-scoped resume index; the existing tmux process cannot change it.';
+  'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
 
 /** Text that scrolls horizontally when overflowing */
 function MarqueeText({ children, className }: { children: string; className?: string }) {
@@ -628,8 +630,10 @@ export function SessionBar({
   const showCodexTmuxSqliteWarning = Boolean(
     activeSession?.agentCommand === 'codex' &&
       (!activeSession.environment || activeSession.environment === 'native') &&
-      activeSession.agentRuntimeWarnings?.some((warning) =>
-        warning.startsWith(CODEX_TMUX_ATTACH_SQLITE_WARNING_PREFIX)
+      activeSession.agentRuntimeWarnings?.some(
+        (warning) =>
+          warning.startsWith(CODEX_TMUX_ATTACH_SQLITE_WARNING_PREFIX) ||
+          warning.startsWith(CODEX_TMUX_ATTACH_SQLITE_LEGACY_WARNING_PREFIX)
       )
   );
   const codexNotices = [

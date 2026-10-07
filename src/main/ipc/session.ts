@@ -26,6 +26,8 @@ import log from '../utils/logger';
 
 const MANAGED_CODEX_RUNTIME_HOME_ENV_KEY = 'INFILUX_MANAGED_CODEX_RUNTIME_HOME';
 const CODEX_TMUX_ATTACH_SQLITE_WARNING =
+  'An existing Codex process keeps its original resume index. If the history list differs, restart this session to apply the worktree-scoped index.';
+const CODEX_TMUX_ATTACH_LEGACY_SQLITE_WARNING =
   'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
 
 function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCreateOptions {
@@ -277,7 +279,8 @@ async function prepareAgentSessionOptions(
 
   const existingWarnings = Array.isArray(launched.metadata?.codexRuntimeWarnings)
     ? launched.metadata.codexRuntimeWarnings.filter(
-        (warning): warning is string => typeof warning === 'string'
+        (warning): warning is string =>
+          typeof warning === 'string' && warning !== CODEX_TMUX_ATTACH_LEGACY_SQLITE_WARNING
       )
     : [];
   return {
