@@ -327,6 +327,7 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
         'GOOGLE_',
       ],
       set: {
+        CFFIXED_USER_HOME: homeDir,
         CODEX_HOME: join(homeDir, '.codex'),
         CODEX_HISTORY_E2E_LOG: invocationLogPath,
         APPDATA: join(homeDir, 'AppData', 'Roaming'),

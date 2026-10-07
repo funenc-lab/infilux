@@ -12,6 +12,7 @@ describe('scenario-specific Electron environment isolation', () => {
       PATH: '/fixture/bin',
       HOME: '/host/home',
       USERPROFILE: '/host/home',
+      CFFIXED_USER_HOME: '/host/home',
       CODEX_HOME: '/host/codex-home',
       CODEX_CONFIG_DIR: '/host/codex-config',
       CODEX_SQLITE_HOME: '/host/codex-sqlite',
@@ -45,6 +46,7 @@ describe('scenario-specific Electron environment isolation', () => {
       expect(environment.PATH).toBe('/fixture/bin');
       expect(environment.HOME).toBe(scenario.homeDir);
       expect(environment.USERPROFILE).toBe(scenario.homeDir);
+      expect(environment.CFFIXED_USER_HOME).toBe(scenario.homeDir);
       expect(environment.CODEX_HOME).toBe(join(scenario.homeDir, '.codex'));
       expect(environment.CODEX_HISTORY_E2E_LOG).toBe(scenario.invocationLogPath);
       expect(environment.APPDATA).toBe(join(scenario.homeDir, 'AppData', 'Roaming'));
@@ -83,6 +85,7 @@ describe('scenario-specific Electron environment isolation', () => {
       expect(ordinaryLaunch.CODEX_HOME).toBe(fakeHostEnvironment.CODEX_HOME);
       expect(ordinaryLaunch.OPENAI_API_KEY).toBeDefined();
       expect(ordinaryLaunch.APPDATA).toBe(fakeHostEnvironment.APPDATA);
+      expect(ordinaryLaunch.CFFIXED_USER_HOME).toBe(fakeHostEnvironment.CFFIXED_USER_HOME);
       expect(ordinaryLaunch.CLAUDE_CONFIG_DIR).toBe(fakeHostEnvironment.CLAUDE_CONFIG_DIR);
       expect(ordinaryLaunch.CURSOR_API_KEY).toBeDefined();
       expect(ordinaryLaunch.GEMINI_CLI_HOME).toBe(fakeHostEnvironment.GEMINI_CLI_HOME);

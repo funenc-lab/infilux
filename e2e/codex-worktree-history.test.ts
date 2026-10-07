@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   type CodexWorktreeHistoryScenario,
@@ -38,12 +38,20 @@ describe.sequential('electron Codex worktree history recovery', () => {
 
   it('includes post-migration external sessions on the first resume after restart without sharing another worktree', async () => {
     const scenario = await createCodexWorktreeHistoryScenario();
-    cleanupTasks.push(scenario.cleanup);
+    const userDataPaths: string[] = [];
+    cleanupTasks.push(async () => {
+      await scenario.cleanup();
+      expect(existsSync(scenario.homeDir)).toBe(false);
+      for (const userDataPath of userDataPaths) {
+        expect(existsSync(userDataPath)).toBe(false);
+      }
+    });
     const firstLaunch = await launchInfiluxForScenario(scenario);
     let firstCodexHomePath = '';
     let sessionHistoryPath = '';
 
     try {
+      userDataPaths.push(await assertElectronPathsInsideTemporaryHome(firstLaunch.app, scenario));
       await prepareScenarioPage(firstLaunch.page, scenario);
       await launchCodexFromEmptyState(firstLaunch.page);
       await expect
@@ -68,6 +76,7 @@ describe.sequential('electron Codex worktree history recovery', () => {
     await scenario.writePostMigrationExternalSessions();
     const secondLaunch = await launchInfiluxForScenario(scenario);
     try {
+      userDataPaths.push(await assertElectronPathsInsideTemporaryHome(secondLaunch.app, scenario));
       await prepareScenarioPage(secondLaunch.page, scenario);
       await launchCodexFromEmptyState(secondLaunch.page);
       await expect
@@ -158,6 +167,38 @@ describe.sequential('electron Codex worktree history recovery', () => {
     }
   });
 });
+
+async function assertElectronPathsInsideTemporaryHome(
+  app: Awaited<ReturnType<typeof launchInfiluxForScenario>>['app'],
+  scenario: CodexWorktreeHistoryScenario
+): Promise<string> {
+  const paths = await app.evaluate(({ app: electronApp }) => ({
+    appData: electronApp.getPath('appData'),
+    userData: electronApp.getPath('userData'),
+    sessionData: electronApp.getPath('sessionData'),
+    logs: electronApp.getPath('logs'),
+  }));
+  const canonicalHome = await realpath(scenario.homeDir);
+
+  for (const [name, directory] of Object.entries(paths)) {
+    let canonicalDirectory: string;
+    try {
+      canonicalDirectory = await realpath(directory);
+    } catch {
+      throw new Error(`Electron ${name} directory is missing`);
+    }
+
+    const childPath = relative(canonicalHome, canonicalDirectory);
+    const withinTemporaryHome =
+      childPath.length > 0 &&
+      childPath !== '..' &&
+      !childPath.startsWith(`..${sep}`) &&
+      !isAbsolute(childPath);
+    expect(withinTemporaryHome, `Electron ${name} escaped the temporary home`).toBe(true);
+  }
+
+  return paths.userData;
+}
 
 async function readStartedWorkingDirectories(
   scenario: CodexWorktreeHistoryScenario
