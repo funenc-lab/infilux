@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
   appendFileSync,
@@ -13,13 +13,13 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
-  utimesSync,
   writeFileSync,
   writeSync,
 } from 'node:fs';
 import { type FileHandle, open } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import sqlite3 from 'sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { importCodexExternalSessions } from '../CodexExternalSessionImport';
 
@@ -54,6 +54,40 @@ function createFixture(): { sourceSessionsPath: string; sessionHistoryPath: stri
     'done'
   );
   return { sourceSessionsPath, sessionHistoryPath };
+}
+
+async function startSqliteWriter(databasePath: string): Promise<ChildProcessWithoutNullStreams> {
+  const child = spawn(
+    process.execPath,
+    [
+      '-e',
+      [
+        "const sqlite3 = require('sqlite3');",
+        'const database = new sqlite3.Database(process.argv[1]);',
+        "database.configure('busyTimeout', 0);",
+        "database.exec('BEGIN IMMEDIATE', (error) => {",
+        '  if (error) { process.stderr.write(String(error)); process.exit(1); }',
+        "  process.stdout.write('locked\\n');",
+        '});',
+        "process.stdin.on('end', () => database.exec('ROLLBACK', () => database.close()));",
+        'process.stdin.resume();',
+      ].join('\n'),
+      databasePath,
+    ],
+    { stdio: ['pipe', 'pipe', 'pipe'] }
+  );
+  try {
+    await Promise.race([
+      once(child.stdout, 'data'),
+      once(child, 'exit').then(([code]) => {
+        throw new Error(`SQLite lock owner exited before readiness: ${code}`);
+      }),
+    ]);
+    return child;
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
 }
 
 function writeTranscript(options: {
@@ -258,7 +292,7 @@ describe('importCodexExternalSessions', () => {
     );
   });
 
-  it('defers a single JSONL record over the 64 MiB last-line memory budget', async () => {
+  it('defers a record over 64 MiB even when a valid later JSONL record follows', async () => {
     const fixture = createFixture();
     const relativePath = 'oversized-record.jsonl';
     const sourceFile = path.join(fixture.sourceSessionsPath, relativePath);
@@ -281,6 +315,12 @@ describe('importCodexExternalSessions', () => {
 
     expect(result.imported).toBe(0);
     expect(result.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+
+    appendFileSync(sourceFile, '{"type":"event_msg","payload":{"message":"later"}}\n');
+    const second = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(second.imported).toBe(0);
+    expect(second.retryableFailures).toBeGreaterThan(0);
     expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
   }, 20_000);
 
@@ -389,87 +429,109 @@ describe('importCodexExternalSessions', () => {
     expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
   });
 
-  it('defers when a different process holds the workspace import lock', async () => {
+  it('defers when a different process holds the workspace SQLite transaction', async () => {
     const fixture = createFixture();
     const relativePath = 'from-other-process.jsonl';
     writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
-    const lockPath = path.join(
+    const databasePath = path.join(
       path.dirname(fixture.sessionHistoryPath),
-      '.external-session-import.lock'
+      '.external-session-import.sqlite'
     );
-    const child = spawn(
-      process.execPath,
-      [
-        '-e',
-        [
-          "const fs = require('node:fs');",
-          'const lockPath = process.argv[1];',
-          "fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, token: 'other-process', createdAt: Date.now() }), { flag: 'wx' });",
-          "process.stdout.write('locked\\n');",
-          "process.stdin.on('end', () => fs.unlinkSync(lockPath));",
-          'process.stdin.resume();',
-        ].join('\n'),
-        lockPath,
-      ],
-      { stdio: ['pipe', 'pipe', 'pipe'] }
-    );
+    const child = await startSqliteWriter(databasePath);
 
     try {
-      await once(child.stdout, 'data');
       const result = await importCodexExternalSessions({ ...fixture, worktreePath });
       expect(result.imported).toBe(0);
       expect(result.retryableFailures).toBeGreaterThan(0);
       expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
     } finally {
-      child.stdin.end();
-      if (child.exitCode === null) {
-        await once(child, 'exit');
+      if (child.exitCode === null && child.signalCode === null) {
+        const stopped = once(child, 'exit');
+        child.kill('SIGKILL');
+        await stopped;
       }
     }
   });
 
-  it('recovers an old lock only when its owner is confirmed dead', async () => {
+  it('retries immediately after a killed SQLite owner releases its transaction', async () => {
     const fixture = createFixture();
     const relativePath = 'retry-after-crash.jsonl';
     writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
-    const lockPath = path.join(
+    const databasePath = path.join(
       path.dirname(fixture.sessionHistoryPath),
-      '.external-session-import.lock'
+      '.external-session-import.sqlite'
     );
-    const oldTimestamp = Date.now() - 20 * 60 * 1_000;
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ pid: 2_147_483_647, token: firstThreadId, createdAt: oldTimestamp })
-    );
-    utimesSync(lockPath, new Date(oldTimestamp), new Date(oldTimestamp));
+    const child = await startSqliteWriter(databasePath);
+    child.kill('SIGKILL');
+    if (child.exitCode === null && child.signalCode === null) {
+      await once(child, 'exit');
+    }
 
     const result = await importCodexExternalSessions({ ...fixture, worktreePath });
 
     expect(result.imported).toBe(1);
     expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(true);
-    expect(existsSync(lockPath)).toBe(false);
   });
 
-  it('does not steal an old import lock while its owner process is still alive', async () => {
+  it('fails closed when the workspace SQLite mutex database is corrupt', async () => {
     const fixture = createFixture();
-    const relativePath = 'alive-lock-owner.jsonl';
+    const relativePath = 'corrupt-mutex-db.jsonl';
     writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
-    const lockPath = path.join(
+    const databasePath = path.join(
       path.dirname(fixture.sessionHistoryPath),
-      '.external-session-import.lock'
+      '.external-session-import.sqlite'
     );
-    const oldTimestamp = Date.now() - 20 * 60 * 1_000;
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ pid: process.pid, token: firstThreadId, createdAt: oldTimestamp })
-    );
-    utimesSync(lockPath, new Date(oldTimestamp), new Date(oldTimestamp));
+    writeFileSync(databasePath, 'not a SQLite database');
 
     const result = await importCodexExternalSessions({ ...fixture, worktreePath });
 
     expect(result.imported).toBe(0);
     expect(result.retryableFailures).toBeGreaterThan(0);
-    expect(existsSync(lockPath)).toBe(true);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+  });
+
+  it('defers on a transient SQLite transaction error and succeeds on retry', async () => {
+    const fixture = createFixture();
+    const relativePath = 'retry-after-sqlite-error.jsonl';
+    const bytes = writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const exec = vi.spyOn(sqlite3.Database.prototype, 'exec').mockImplementationOnce(() => {
+      throw new Error('Transient SQLite transaction failure');
+    });
+
+    const first = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(first.imported).toBe(0);
+    expect(first.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+
+    exec.mockRestore();
+    const second = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(second.imported).toBe(1);
+    expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath))).toEqual(bytes);
+  });
+
+  it('rejects a symlinked workspace SQLite mutex database', async () => {
+    const fixture = createFixture();
+    const sibling = createFixture();
+    const relativePath = 'symlinked-mutex-db.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const databasePath = path.join(
+      path.dirname(fixture.sessionHistoryPath),
+      '.external-session-import.sqlite'
+    );
+    symlinkSync(
+      path.join(path.dirname(sibling.sessionHistoryPath), 'sibling-db.sqlite'),
+      databasePath
+    );
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.imported).toBe(0);
+    expect(result.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+    expect(
+      existsSync(path.join(path.dirname(sibling.sessionHistoryPath), 'sibling-db.sqlite'))
+    ).toBe(false);
   });
 
   it('serializes concurrent imports across the complete thread-ID scan and publication', async () => {

@@ -6,12 +6,12 @@ import {
   lstat,
   mkdir,
   open,
-  readFile,
   realpath,
   stat,
   unlink,
 } from 'node:fs/promises';
 import path from 'node:path';
+import sqlite3 from 'sqlite3';
 import {
   collectSessionFiles,
   normalizeWorktreePath,
@@ -20,16 +20,14 @@ import {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_RETRYABLE_FAILURES = 1_000;
-const IMPORT_LOCK_NAME = '.external-session-import.lock';
-const STALE_LOCK_AGE_MS = 15 * 60 * 1_000;
+const IMPORT_MUTEX_DATABASE_NAME = '.external-session-import.sqlite';
 const SOURCE_STREAM_CHUNK_BYTES = 128 * 1024;
 // A single record above 64 MiB is deferred; the total transcript size has no limit.
-const MAX_LAST_JSONL_RECORD_BYTES = 64 * 1024 * 1024;
+const MAX_JSONL_RECORD_BYTES = 64 * 1024 * 1024;
 
-interface WorkspaceImportLock {
-  handle: FileHandle;
+interface WorkspaceImportMutex {
+  database: sqlite3.Database;
   path: string;
-  token: string;
   identity: Stats;
   parentIdentity: readonly TargetDirectoryIdentity[];
 }
@@ -127,129 +125,110 @@ function hasSameIdentity(before: Stats, after: Stats): boolean {
   return before.dev === after.dev && before.ino === after.ino;
 }
 
-async function reclaimAbandonedLock(lockPath: string): Promise<boolean> {
-  let before: Stats;
-  let contents: string;
+async function inspectMutexDatabase(databasePath: string): Promise<Stats | undefined> {
   try {
-    before = await lstat(lockPath);
+    const state = await lstat(databasePath);
     if (
-      !before.isFile() ||
-      before.isSymbolicLink() ||
-      Date.now() - before.mtimeMs < STALE_LOCK_AGE_MS
+      !state.isFile() ||
+      state.isSymbolicLink() ||
+      (await realpath(databasePath)) !== databasePath
     ) {
-      return false;
+      throw new Error('Codex import mutex database must be a regular workspace file');
     }
-    contents = await readFile(lockPath, 'utf8');
-  } catch {
-    return false;
-  }
-
-  let owner: { pid?: unknown; token?: unknown; createdAt?: unknown };
-  try {
-    owner = JSON.parse(contents) as typeof owner;
-  } catch {
-    return false;
-  }
-  if (
-    !Number.isSafeInteger(owner.pid) ||
-    typeof owner.pid !== 'number' ||
-    owner.pid < 1 ||
-    typeof owner.token !== 'string' ||
-    !UUID_PATTERN.test(owner.token) ||
-    typeof owner.createdAt !== 'number' ||
-    Date.now() - owner.createdAt < STALE_LOCK_AGE_MS
-  ) {
-    return false;
-  }
-
-  try {
-    process.kill(owner.pid, 0);
-    return false;
+    return state;
   } catch (error) {
-    if (!hasCode(error, 'ESRCH')) {
-      return false;
+    if (hasCode(error, 'ENOENT')) {
+      return undefined;
     }
-  }
-
-  try {
-    const after = await lstat(lockPath);
-    if (!hasSameIdentity(before, after) || (await readFile(lockPath, 'utf8')) !== contents) {
-      return false;
-    }
-    await unlink(lockPath);
-    return true;
-  } catch {
-    return false;
+    throw error;
   }
 }
 
-async function acquireWorkspaceImportLock(
-  targetRoot: string
-): Promise<WorkspaceImportLock | undefined> {
+function execSqlite(database: sqlite3.Database, sql: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    database.exec(sql, (error: Error | null) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function closeSqlite(database: sqlite3.Database): Promise<void> {
+  return new Promise((resolve, reject) => {
+    database.close((error: Error | null) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function acquireWorkspaceImportMutex(targetRoot: string): Promise<WorkspaceImportMutex> {
   const parent = path.dirname(targetRoot);
   const parentIdentity = await checkTargetDirectories(parent, parent);
-  const lockPath = path.join(parent, IMPORT_LOCK_NAME);
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await checkTargetDirectories(parent, parent, parentIdentity);
-    let handle: FileHandle;
-    try {
-      handle = await open(lockPath, 'wx', 0o600);
-    } catch (error) {
-      if (attempt === 0 && hasCode(error, 'EEXIST') && (await reclaimAbandonedLock(lockPath))) {
-        continue;
-      }
-      if (hasCode(error, 'EEXIST')) {
-        return undefined;
-      }
-      throw error;
-    }
-
-    const identity = await handle.stat();
-    const token = randomUUID();
-    try {
-      await handle.writeFile(
-        Buffer.from(JSON.stringify({ pid: process.pid, token, createdAt: Date.now() }))
-      );
-    } catch (error) {
-      await handle.close();
-      try {
-        await checkTargetDirectories(parent, parent, parentIdentity);
-        if (hasSameIdentity(identity, await lstat(lockPath))) {
-          await unlink(lockPath);
+  const databasePath = path.join(parent, IMPORT_MUTEX_DATABASE_NAME);
+  const initialState = await inspectMutexDatabase(databasePath);
+  await checkTargetDirectories(parent, parent, parentIdentity);
+  const database = await new Promise<sqlite3.Database>((resolve, reject) => {
+    const instance = new sqlite3.Database(
+      databasePath,
+      sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
+      (error: Error | null) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(instance);
         }
-      } catch {
-        // Never remove a lock after its parent or file identity changes.
       }
-      throw error;
-    }
-    return { handle, path: lockPath, token, identity, parentIdentity };
-  }
+    );
+  });
 
-  return undefined;
+  let acquired = false;
+  try {
+    database.configure('busyTimeout', 0);
+    const identity = await inspectMutexDatabase(databasePath);
+    if (!identity || (initialState && !hasSameIdentity(initialState, identity))) {
+      throw new Error('Codex import mutex database changed while opening');
+    }
+    await checkTargetDirectories(parent, parent, parentIdentity);
+    await execSqlite(database, 'BEGIN IMMEDIATE');
+    acquired = true;
+    const mutex: WorkspaceImportMutex = {
+      database,
+      path: databasePath,
+      identity,
+      parentIdentity,
+    };
+    await assertWorkspaceImportMutex(mutex);
+    return mutex;
+  } catch (error) {
+    if (acquired) {
+      await execSqlite(database, 'ROLLBACK').catch(() => undefined);
+    }
+    await closeSqlite(database).catch(() => undefined);
+    throw error;
+  }
 }
 
-async function releaseWorkspaceImportLock(lock: WorkspaceImportLock): Promise<void> {
+async function assertWorkspaceImportMutex(mutex: WorkspaceImportMutex): Promise<void> {
+  const parent = path.dirname(mutex.path);
+  await checkTargetDirectories(parent, parent, mutex.parentIdentity);
+  const current = await inspectMutexDatabase(mutex.path);
+  if (!current || !hasSameIdentity(mutex.identity, current)) {
+    throw new Error('Codex import mutex database changed during import');
+  }
+}
+
+async function releaseWorkspaceImportMutex(mutex: WorkspaceImportMutex): Promise<void> {
   try {
-    const parent = path.dirname(lock.path);
-    await checkTargetDirectories(parent, parent, lock.parentIdentity);
-    if (!hasSameIdentity(lock.identity, await lstat(lock.path))) {
-      return;
-    }
-    const contents: unknown = JSON.parse(await readFile(lock.path, 'utf8'));
-    if (
-      typeof contents !== 'object' ||
-      contents === null ||
-      !('token' in contents) ||
-      contents.token !== lock.token
-    ) {
-      return;
-    }
-    await unlink(lock.path);
-  } catch {
-    // An unverified lock must not be removed by this import.
+    await execSqlite(mutex.database, 'ROLLBACK');
   } finally {
-    await lock.handle.close();
+    await closeSqlite(mutex.database);
   }
 }
 
@@ -265,6 +244,7 @@ async function copyValidatedSource(
     let currentLineTooLarge = false;
     let lastRecord = '';
     let lastRecordTooLarge = false;
+    let oversizedRecordSeen = false;
     let copiedBytes = 0;
     let terminatedByNewline = false;
 
@@ -273,7 +253,7 @@ async function copyValidatedSource(
         return;
       }
       currentLineBytes += Buffer.byteLength(segment, 'utf8');
-      if (currentLineBytes > MAX_LAST_JSONL_RECORD_BYTES) {
+      if (currentLineBytes > MAX_JSONL_RECORD_BYTES) {
         currentLine = '';
         currentLineTooLarge = true;
         return;
@@ -288,6 +268,7 @@ async function copyValidatedSource(
         newline = contents.indexOf('\n', offset)
       ) {
         appendSegment(contents.slice(offset, newline));
+        oversizedRecordSeen ||= currentLineTooLarge;
         if (currentLineTooLarge || currentLine.trim()) {
           lastRecord = currentLine;
           lastRecordTooLarge = currentLineTooLarge;
@@ -312,7 +293,7 @@ async function copyValidatedSource(
     }
     collectLines(decoder.decode());
 
-    if (!terminatedByNewline || !lastRecord || lastRecordTooLarge) {
+    if (!terminatedByNewline || !lastRecord || lastRecordTooLarge || oversizedRecordSeen) {
       return { copiedBytes, complete: false };
     }
     try {
@@ -382,19 +363,16 @@ export async function importCodexExternalSessions({
     return result;
   }
 
-  let workspaceLock: WorkspaceImportLock | undefined;
+  let workspaceMutex: WorkspaceImportMutex;
   try {
-    workspaceLock = await acquireWorkspaceImportLock(targetRoot);
+    workspaceMutex = await acquireWorkspaceImportMutex(targetRoot);
   } catch {
-    retry();
-    return result;
-  }
-  if (!workspaceLock) {
     retry();
     return result;
   }
 
   try {
+    await assertWorkspaceImportMutex(workspaceMutex);
     const existingSessions = await collectSessionFiles(targetRoot);
     if (!existingSessions.complete) {
       retry();
@@ -482,6 +460,7 @@ export async function importCodexExternalSessions({
         }
 
         await checkTargetDirectories(targetRoot, targetParent, targetDirectories);
+        await assertWorkspaceImportMutex(workspaceMutex);
         try {
           await link(temporaryFile, targetFile);
           result.imported += 1;
@@ -511,7 +490,7 @@ export async function importCodexExternalSessions({
 
     return result;
   } finally {
-    await releaseWorkspaceImportLock(workspaceLock);
+    await releaseWorkspaceImportMutex(workspaceMutex);
   }
 }
 
