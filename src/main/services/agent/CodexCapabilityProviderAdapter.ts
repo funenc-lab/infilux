@@ -1,4 +1,3 @@
-import * as path from 'node:path';
 import type {
   AgentCapabilityLaunchRequest,
   ClaudeCapabilityCatalogItem,
@@ -23,6 +22,14 @@ import type {
 } from './AgentCapabilityProviderAdapter';
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
+import {
+  injectCodexShellFragment,
+  isCodexShell,
+  isUnsupportedShellConfig,
+  patchTrailingCommandArg,
+  quoteCodexShellAssignment,
+  resolveShellFragmentStyle,
+} from './CodexSqliteLaunchOptions';
 import { resolveCodexWorkspaceSessionHistoryPath } from './CodexWorkspaceSessionHistory';
 
 export interface CodexCapabilityProviderAdapterDependencies {
@@ -53,13 +60,9 @@ interface CodexSessionProjectionResult {
 }
 
 const CODEX_BARE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
-const CODEX_EXECUTABLE_NAMES = new Set(['codex', 'codex.exe', 'codex.cmd', 'codex.bat']);
-const CODEX_TOKEN_PATTERN =
-  /(^|[\s&])((?:"[^"]*codex(?:\.(?:exe|cmd|bat))?"|'[^']*codex(?:\.(?:exe|cmd|bat))?'|[^\s'"`]+[\\/]codex(?:\.(?:exe|cmd|bat))?|codex(?:\.(?:exe|cmd|bat))?))(?=(?:[\s'"]|$))/i;
 const CHATGPT_NODE_REPL_COMMAND_SUFFIX = '/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl';
 const CHATGPT_CODEX_CLI_PATH_SUFFIX = '/ChatGPT.app/Contents/Resources/codex';
 type TomlLiteralValue = string | boolean | TomlLiteralValue[] | { [key: string]: TomlLiteralValue };
-type CodexShellFragmentStyle = 'posix' | 'powershell';
 
 function normalizeExecutablePath(value: string): string {
   return value.replace(/\\/g, '/');
@@ -118,14 +121,6 @@ function toTomlLiteral(value: TomlLiteralValue): string {
   return `{${entries
     .map(([key, entryValue]) => `${toTomlKey(key)} = ${toTomlLiteral(entryValue)}`)
     .join(', ')}}`;
-}
-
-function quotePosixDouble(input: string): string {
-  return `"${input.replace(/["\\$`]/g, '\\$&')}"`;
-}
-
-function quotePowerShellSingle(input: string): string {
-  return `'${input.replace(/'/g, "''")}'`;
 }
 
 function buildCodexAssignments(entries: CodexResolvedMcpEntry[]): {
@@ -195,78 +190,11 @@ function buildCodexCliArgs(assignments: string[]): string[] {
 
 function buildCodexShellFragment(
   assignments: string[],
-  style: CodexShellFragmentStyle = 'posix'
+  style: 'posix' | 'powershell' = 'posix'
 ): string {
-  const quote = style === 'powershell' ? quotePowerShellSingle : quotePosixDouble;
-  return assignments.map((assignment) => `-c ${quote(assignment)}`).join(' ');
-}
-
-function injectCodexShellFragment(command: string, shellFragment: string): string | null {
-  if (!command.trim()) {
-    return null;
-  }
-
-  let applied = false;
-  const updated = command.replace(CODEX_TOKEN_PATTERN, (_fullMatch, prefix, executable) => {
-    applied = true;
-    return `${prefix}${executable} ${shellFragment}`;
-  });
-
-  return applied ? updated : null;
-}
-
-function patchTrailingCommandArg(
-  args: string[] | undefined,
-  shellFragment: string
-): string[] | undefined {
-  if (!args || args.length === 0) {
-    return undefined;
-  }
-
-  const lastIndex = args.length - 1;
-  const updatedCommand = injectCodexShellFragment(args[lastIndex] ?? '', shellFragment);
-  if (!updatedCommand) {
-    return undefined;
-  }
-
-  const nextArgs = [...args];
-  nextArgs[lastIndex] = updatedCommand;
-  return nextArgs;
-}
-
-function isCodexShell(shell: string | undefined): boolean {
-  if (!shell) {
-    return false;
-  }
-
-  const normalizedShell = shell.replace(/\\/g, '/').replace(/^['"]|['"]$/g, '');
-  const fileName = path.posix.basename(normalizedShell).toLowerCase();
-  return CODEX_EXECUTABLE_NAMES.has(fileName);
-}
-
-function resolveShellFragmentStyle(shell: string | undefined): CodexShellFragmentStyle {
-  if (!shell) {
-    return 'posix';
-  }
-
-  const normalizedShell = shell.replace(/\\/g, '/').replace(/^['"]|['"]$/g, '');
-  const fileName = path.posix.basename(normalizedShell).toLowerCase();
-  return fileName === 'powershell' ||
-    fileName === 'powershell.exe' ||
-    fileName === 'pwsh' ||
-    fileName === 'pwsh.exe'
-    ? 'powershell'
-    : 'posix';
-}
-
-function isUnsupportedShellConfig(sessionOptions: SessionCreateOptions): boolean {
-  const shellType = sessionOptions.shellConfig?.shellType;
-  return (
-    shellType === 'powershell' ||
-    shellType === 'powershell7' ||
-    shellType === 'cmd' ||
-    shellType === 'wsl'
-  );
+  return assignments
+    .map((assignment) => `-c ${quoteCodexShellAssignment(assignment, style)}`)
+    .join(' ');
 }
 
 function chooseCodexConfigEntry(
@@ -545,32 +473,46 @@ export function createCodexCapabilityProviderAdapter(
         sessionOptions.metadata.uiSessionId.length > 0
           ? sessionOptions.metadata.uiSessionId
           : undefined;
-      const runtimeHome = await runtimeHomeService.prepareRuntimeHome(
-        uiSessionId ?? `${request.worktreePath}:${Date.now()}`,
-        {
-          sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath({
-            repoPath: request.repoPath,
-            worktreePath: request.worktreePath,
-          }),
-          sessionHistoryScope: {
-            repoPath: request.repoPath,
-            worktreePath: request.worktreePath,
-          },
-        }
-      );
+      const hasUserOwnedHome =
+        Boolean(sessionOptions.env?.CODEX_HOME) &&
+        sessionOptions.env?.CODEX_HOME !== sessionOptions.env?.INFILUX_MANAGED_CODEX_RUNTIME_HOME;
+      const runtimeHome = hasUserOwnedHome
+        ? null
+        : await runtimeHomeService.prepareRuntimeHome(
+            uiSessionId ?? `${request.worktreePath}:${Date.now()}`,
+            {
+              sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath({
+                repoPath: request.repoPath,
+                worktreePath: request.worktreePath,
+              }),
+              sessionHistoryScope: {
+                repoPath: request.repoPath,
+                worktreePath: request.worktreePath,
+              },
+            }
+          );
       const sessionOverrides: AgentCapabilitySessionOverrides = {
         ...(projection.sessionOverrides ?? {}),
         env: {
           ...(projection.sessionOverrides?.env ?? {}),
-          CODEX_HOME: runtimeHome.homePath,
-          INFILUX_MANAGED_CODEX_RUNTIME_HOME: runtimeHome.homePath,
+          ...(runtimeHome
+            ? {
+                CODEX_HOME: runtimeHome.homePath,
+                CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath,
+                INFILUX_MANAGED_CODEX_RUNTIME_HOME: runtimeHome.homePath,
+              }
+            : {}),
         },
         metadata: {
           ...(projection.sessionOverrides?.metadata ?? {}),
-          codexRuntimeHome: {
-            homePath: runtimeHome.homePath,
-            sourceHomePath: runtimeHome.sourceHomePath,
-          },
+          ...(runtimeHome
+            ? {
+                codexRuntimeHome: {
+                  homePath: runtimeHome.homePath,
+                  sourceHomePath: runtimeHome.sourceHomePath,
+                },
+              }
+            : {}),
         },
       };
 

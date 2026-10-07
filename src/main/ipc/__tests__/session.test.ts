@@ -1,4 +1,4 @@
-import { IPC_CHANNELS } from '@shared/types';
+import { IPC_CHANNELS, type SessionCreateOptions } from '@shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Handler = (...args: unknown[]) => unknown;
@@ -124,6 +124,7 @@ const sessionTestDoubles = vi.hoisted(() => {
     prepareRuntimeHome.mockResolvedValue({
       homePath: '/runtime/codex/session-1',
       sourceHomePath: '/Users/test/.codex',
+      sqliteHomePath: '/runtime/codex/worktree-shared/sqlite',
     });
 
     runExclusive.mockReset();
@@ -380,10 +381,12 @@ describe('session IPC handlers', () => {
         cwd: '/repo',
         kind: 'agent',
         shellConfig: { shellType: 'zsh' },
-        initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+        initialCommand:
+          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --dangerously-bypass-approvals-and-sandbox',
         persistOnDisconnect: true,
         env: {
           CODEX_HOME: '/runtime/codex/session-1',
+          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
           INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({
@@ -426,6 +429,93 @@ describe('session IPC handlers', () => {
         worktreePath: '/repo',
       },
     });
+    expect(sessionTestDoubles.create).toHaveBeenCalledWith(
+      event.sender,
+      expect.objectContaining({
+        args: [
+          '-c',
+          'sqlite_home="/runtime/codex/worktree-shared/sqlite"',
+          'resume',
+          'codex-session-1',
+        ],
+        env: expect.objectContaining({
+          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
+        }),
+      })
+    );
+  });
+
+  it('uses the same SQLite home across managed UI sessions and keeps sibling worktrees isolated', async () => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    for (const [uiSessionId, worktree] of [
+      ['ui-a', '/repo/worktrees/a'],
+      ['ui-b', '/repo/worktrees/a'],
+      ['ui-c', '/repo/worktrees/b'],
+    ] as const) {
+      sessionTestDoubles.prepareRuntimeHome.mockResolvedValueOnce({
+        homePath: `/runtime/${uiSessionId}`,
+        sourceHomePath: '/Users/test/.codex',
+        sqliteHomePath: `/history/${worktree.endsWith('/a') ? 'a' : 'b'}/sqlite`,
+      });
+      await createHandler(event, {
+        cwd: worktree,
+        kind: 'agent',
+        shell: 'codex',
+        metadata: { agentId: 'codex', uiSessionId },
+      });
+    }
+
+    const created = sessionTestDoubles.create.mock.calls.map(
+      ([, options]) =>
+        options as {
+          env: Record<string, string>;
+        }
+    );
+    expect(created[0]?.env.CODEX_HOME).not.toBe(created[1]?.env.CODEX_HOME);
+    expect(created[0]?.env.CODEX_SQLITE_HOME).toBe(created[1]?.env.CODEX_SQLITE_HOME);
+    expect(created[0]?.env.CODEX_SQLITE_HOME).not.toBe(created[2]?.env.CODEX_SQLITE_HOME);
+  });
+
+  it('applies the SQLite override once after a zero-assignment Codex capability projection', async () => {
+    const event = createEvent();
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: { provider: 'codex', hash: 'hash-1', warnings: [], projected: null },
+      sessionOverrides: {
+        env: {
+          CODEX_HOME: '/runtime/codex/session-1',
+          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
+          INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
+        },
+      },
+    });
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    await createHandler(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: 'codex',
+      args: ['resume', 'thread-id'],
+      metadata: {
+        agentCapabilityLaunch: {
+          provider: 'codex',
+          repoPath: '/repo',
+          worktreePath: '/repo/worktrees/a',
+        },
+      },
+    });
+
+    expect(sessionTestDoubles.prepareRuntimeHome).not.toHaveBeenCalled();
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.args).toEqual([
+      '-c',
+      'sqlite_home="/runtime/codex/worktree-shared/sqlite"',
+      'resume',
+      'thread-id',
+    ]);
   });
 
   it('serializes Codex agent creation by UI session id before starting the runtime process', async () => {
@@ -465,6 +555,7 @@ describe('session IPC handlers', () => {
     await createHandler(event, {
       cwd: '/repo/worktrees/feature-a',
       kind: 'agent',
+      shell: 'codex',
       metadata: {
         uiSessionId: 'ui-session-capability-lock',
         agentCapabilityLaunch: {
@@ -741,11 +832,13 @@ describe('session IPC handlers', () => {
         cwd: '/repo/worktrees/feature-a',
         kind: 'agent',
         spawnCwd: '/tmp/infilux/capability-session',
-        initialCommand: 'codex --profile strict',
+        initialCommand:
+          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --profile strict',
         env: {
           BASE_ENV: '1',
           AGENT_CAPABILITY_PROFILE: 'strict',
           CODEX_HOME: '/runtime/codex/session-1',
+          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
           INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({

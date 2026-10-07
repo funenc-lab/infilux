@@ -542,6 +542,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       prepareRuntimeHome: vi.fn().mockResolvedValue({
         homePath: '/runtime/codex/ui-session-1',
         sourceHomePath: '/Users/test/.codex',
+        sqliteHomePath: '/history/worktree-a/sqlite',
       }),
     };
     const adapter = createCodexCapabilityProviderAdapter({
@@ -609,6 +610,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       },
       env: {
         CODEX_HOME: '/runtime/codex/ui-session-1',
+        CODEX_SQLITE_HOME: '/history/worktree-a/sqlite',
         INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/ui-session-1',
       },
     });
@@ -618,5 +620,33 @@ describe('CodexCapabilityProviderAdapter', () => {
     expect(result.sessionOverrides?.initialCommand).toContain(
       'skills.config=[{enabled = true, path = \\"/repo/.codex/skills/ship/SKILL.md\\"}]'
     );
+  });
+
+  it('retains a user-owned CODEX_HOME when a Codex capability launch was requested', async () => {
+    const runtime = { prepareRuntimeHome: vi.fn() };
+    const adapter = createCodexCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(createResolvedPolicy()),
+      resolveCapabilityMcpConfigEntries: vi
+        .fn()
+        .mockResolvedValue({ sharedById: {}, personalById: {} }),
+      codexRuntimeHomeService: runtime,
+    });
+
+    const prepared = await adapter.prepareLaunch(createRequest(), {
+      cwd: '/repo/worktrees/feat-a',
+      kind: 'agent',
+      shell: 'codex',
+      env: { CODEX_HOME: '/custom/codex-home' },
+    });
+
+    expect(runtime.prepareRuntimeHome).not.toHaveBeenCalled();
+    expect(prepared?.sessionOverrides?.env?.CODEX_HOME).toBeUndefined();
+    expect(prepared?.sessionOverrides?.env?.CODEX_SQLITE_HOME).toBeUndefined();
   });
 });

@@ -14,6 +14,7 @@ import {
 } from '../services/agent/AgentCapabilityLaunchService';
 import type { PreparedAgentCapabilityLaunch } from '../services/agent/AgentCapabilityProviderAdapter';
 import { codexRuntimeHomeService } from '../services/agent/CodexRuntimeHomeService';
+import { applyCodexSqliteLaunchOptions } from '../services/agent/CodexSqliteLaunchOptions';
 import { resolveCodexWorkspaceSessionHistoryPath } from '../services/agent/CodexWorkspaceSessionHistory';
 import { sessionManager } from '../services/session/SessionManager';
 
@@ -154,6 +155,7 @@ async function ensureCodexRuntimeHome(
     env: {
       ...(options.env ?? {}),
       CODEX_HOME: runtimeHome.homePath,
+      CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath,
       [MANAGED_CODEX_RUNTIME_HOME_ENV_KEY]: runtimeHome.homePath,
     },
     metadata: {
@@ -183,16 +185,20 @@ async function prepareAgentSessionOptions(
   }
 
   const launchRequest = resolveAgentCapabilityLaunchRequest(options.metadata);
-  if (!launchRequest) {
-    return ensureCodexRuntimeHome(options);
-  }
-
-  const launchResult = await prepareAgentCapabilityLaunch(launchRequest, options);
-  if (!launchResult) {
-    return ensureCodexRuntimeHome(options);
-  }
-
-  return ensureCodexRuntimeHome(applyPreparedAgentCapabilityLaunch(options, launchResult));
+  const launchResult = launchRequest
+    ? await prepareAgentCapabilityLaunch(launchRequest, options)
+    : null;
+  const prepared = await ensureCodexRuntimeHome(
+    launchResult ? applyPreparedAgentCapabilityLaunch(options, launchResult) : options
+  );
+  const sqliteHomePath = prepared.env?.CODEX_SQLITE_HOME;
+  const managedHomePath = prepared.env?.[MANAGED_CODEX_RUNTIME_HOME_ENV_KEY];
+  return isCodexAgentSession(prepared) &&
+    sqliteHomePath &&
+    managedHomePath &&
+    managedHomePath === prepared.env?.CODEX_HOME
+    ? applyCodexSqliteLaunchOptions(prepared, sqliteHomePath)
+    : prepared;
 }
 
 function resolveSessionTarget(sender: WebContents): WebContents | number {

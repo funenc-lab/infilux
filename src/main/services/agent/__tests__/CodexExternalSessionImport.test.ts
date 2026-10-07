@@ -638,6 +638,49 @@ describe('importCodexExternalSessions', () => {
     expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath))).toEqual(bytes);
   });
 
+  it('waits briefly for a competing importer before publishing on the first launch', async () => {
+    const fixture = createFixture();
+    const relativePath = 'waited-for-import-lock.jsonl';
+    const bytes = writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const databasePath = path.join(
+      path.dirname(fixture.sessionHistoryPath),
+      '.external-session-import.sqlite'
+    );
+    const owner = await startSqliteWriter(databasePath);
+    const release = setTimeout(() => owner.stdin.end(), 300);
+    try {
+      const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+      expect(result.imported).toBe(1);
+      expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath))).toEqual(bytes);
+    } finally {
+      clearTimeout(release);
+      owner.stdin.end();
+      owner.kill();
+    }
+  }, 10_000);
+
+  it('stops waiting on a busy importer after a bounded timeout without publishing', async () => {
+    const fixture = createFixture();
+    const relativePath = 'busy-import-lock.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const databasePath = path.join(
+      path.dirname(fixture.sessionHistoryPath),
+      '.external-session-import.sqlite'
+    );
+    const owner = await startSqliteWriter(databasePath);
+    const started = Date.now();
+    try {
+      const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(2_500);
+      expect(result.imported).toBe(0);
+      expect(result.retryableFailures).toBeGreaterThan(0);
+      expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+    } finally {
+      owner.stdin.end();
+      owner.kill();
+    }
+  }, 10_000);
+
   it('rejects a symlinked workspace SQLite mutex database', async () => {
     const fixture = createFixture();
     const sibling = createFixture();

@@ -21,6 +21,7 @@ import {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_RETRYABLE_FAILURES = 1_000;
 const IMPORT_MUTEX_DATABASE_NAME = '.external-session-import.sqlite';
+const IMPORT_MUTEX_BUSY_TIMEOUT_MS = 3_000;
 const SOURCE_STREAM_CHUNK_BYTES = 128 * 1024;
 // A single record above 64 MiB is deferred; the total transcript size has no limit.
 const MAX_JSONL_RECORD_BYTES = 64 * 1024 * 1024;
@@ -190,7 +191,7 @@ async function acquireWorkspaceImportMutex(targetRoot: string): Promise<Workspac
 
   let acquired = false;
   try {
-    database.configure('busyTimeout', 0);
+    database.configure('busyTimeout', IMPORT_MUTEX_BUSY_TIMEOUT_MS);
     const identity = await inspectMutexDatabase(databasePath);
     if (!identity || (initialState && !hasSameIdentity(initialState, identity))) {
       throw new Error('Codex import mutex database changed while opening');

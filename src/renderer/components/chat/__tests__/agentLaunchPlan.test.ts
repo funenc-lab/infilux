@@ -373,11 +373,28 @@ describe('buildAgentLaunchPlan', () => {
       mode: 'create-if-missing',
     });
     expect(plan.initialCommand).toContain(
-      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -e CODEX_HOME="\${CODEX_HOME}" -e INFILUX_MANAGED_CODEX_RUNTIME_HOME="\${INFILUX_MANAGED_CODEX_RUNTIME_HOME}" -s infilux-ui-session-11`
+      `tmux -S "${infiluxTmuxSocket}" -f /dev/null new-session -d -e CODEX_HOME="\${CODEX_HOME}" -e CODEX_SQLITE_HOME="\${CODEX_SQLITE_HOME}" -e INFILUX_MANAGED_CODEX_RUNTIME_HOME="\${INFILUX_MANAGED_CODEX_RUNTIME_HOME}" -s infilux-ui-session-11`
     );
     expect(plan.initialCommand).toContain(`${agentTmuxUnsetPrefix} codex`);
     expect(plan.initialCommand).toContain('-u MallocStackLogging');
     expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
+  });
+
+  it('does not forward the managed local SQLite home into remote Codex launches', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: true,
+      executionPlatform: 'linux',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-remote',
+      resolvedShell: null,
+    });
+
+    expect(plan.initialCommand).toContain('codex');
+    expect(plan.initialCommand).not.toContain('CODEX_SQLITE_HOME');
+    expect(plan.tmuxSessionName).toBeNull();
   });
 
   it('passes Gemini runtime provenance to a new tmux host session', () => {
