@@ -526,8 +526,26 @@ export function useXterm({
   searchStateRef.current = searchState;
   const runtimeStateRef = useRef<SessionRuntimeState>('live');
   runtimeStateRef.current = runtimeState;
-  const initialCommandRef = useRef(initialCommand);
-  initialCommandRef.current = initialCommand;
+  const sessionLaunchRef = useRef({
+    cwd,
+    command,
+    env,
+    hostSession,
+    codexLaunch,
+    initialCommand,
+    metadata,
+    sessionCreateFallback,
+  });
+  sessionLaunchRef.current = {
+    cwd,
+    command,
+    env,
+    hostSession,
+    codexLaunch,
+    initialCommand,
+    metadata,
+    sessionCreateFallback,
+  };
   // Track if this terminal should respond to global shortcuts
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
@@ -2047,7 +2065,8 @@ export function useXterm({
       try {
         isSessionCreationPendingRef.current = true;
         const createRequestId = ++createRequestIdRef.current;
-        const baseCwd = cwd || getRendererEnvironment().HOME;
+        const launchSnapshot = sessionLaunchRef.current;
+        const baseCwd = launchSnapshot.cwd || getRendererEnvironment().HOME;
         const hasOwnOverride = <K extends keyof XtermSessionCreateFallbackOptions>(
           overrides: XtermSessionCreateFallbackOptions | undefined,
           key: K
@@ -2057,17 +2076,19 @@ export function useXterm({
         const buildCreateOptions = (
           overrides?: XtermSessionCreateFallbackOptions
         ): SessionCreateOptions => {
-          const nextCommand = hasOwnOverride(overrides, 'command') ? overrides.command : command;
-          const nextEnv = hasOwnOverride(overrides, 'env') ? overrides.env : env;
+          const nextCommand = hasOwnOverride(overrides, 'command')
+            ? overrides.command
+            : launchSnapshot.command;
+          const nextEnv = hasOwnOverride(overrides, 'env') ? overrides.env : launchSnapshot.env;
           const nextHostSession = hasOwnOverride(overrides, 'hostSession')
             ? overrides.hostSession
-            : hostSession;
+            : launchSnapshot.hostSession;
           const nextCodexLaunch = hasOwnOverride(overrides, 'codexLaunch')
             ? overrides.codexLaunch
-            : codexLaunch;
+            : launchSnapshot.codexLaunch;
           const nextInitialCommand = hasOwnOverride(overrides, 'initialCommand')
             ? overrides.initialCommand
-            : initialCommandRef.current;
+            : launchSnapshot.initialCommand;
 
           return {
             cwd: baseCwd,
@@ -2084,7 +2105,7 @@ export function useXterm({
             env: nextEnv,
             hostSession: nextHostSession,
             ...(nextCodexLaunch ? { codexLaunch: nextCodexLaunch } : {}),
-            metadata,
+            metadata: launchSnapshot.metadata,
             initialCommand: nextInitialCommand,
             kind,
             persistOnDisconnect,
@@ -2296,16 +2317,16 @@ export function useXterm({
                 error,
                 kind,
                 persistOnDisconnect,
-                hostSession,
-                hasFallback: Boolean(sessionCreateFallback),
+                hostSession: createOptions.hostSession,
+                hasFallback: Boolean(launchSnapshot.sessionCreateFallback),
               })
             ) {
               throw error;
             }
 
-            sessionCreateFallback?.onRetry?.();
+            launchSnapshot.sessionCreateFallback?.onRetry?.();
             return createAndAttachSessionWithOptions(
-              buildCreateOptions(sessionCreateFallback),
+              buildCreateOptions(launchSnapshot.sessionCreateFallback),
               'session-create-fallback'
             );
           }
@@ -2325,8 +2346,9 @@ export function useXterm({
           sessionBinding: {
             cwd: baseCwd,
             kind,
-            ...(typeof metadata?.uiSessionId === 'string' && metadata.uiSessionId.length > 0
-              ? { persistentUiSessionId: metadata.uiSessionId }
+            ...(typeof createOptions.metadata?.uiSessionId === 'string' &&
+            createOptions.metadata.uiSessionId.length > 0
+              ? { persistentUiSessionId: createOptions.metadata.uiSessionId }
               : {}),
           },
         });
@@ -2500,6 +2522,8 @@ export function useXterm({
       resolveLatestAgentTranscriptReplay,
     ]
   );
+  const latestInitTerminalRef = useRef(initTerminal);
+  latestInitTerminalRef.current = initTerminal;
 
   const clearHibernationTimer = useCallback(() => {
     if (!hibernateTimerRef.current) {
@@ -2617,16 +2641,11 @@ export function useXterm({
       hasBeenActivatedRef.current = true;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          initTerminal();
+          void latestInitTerminalRef.current();
         });
       });
     }
-  }, [
-    initTerminal,
-    shouldActivateFromInitialCommand,
-    shouldActivateFromVisibleSurface,
-    staticContent,
-  ]);
+  }, [shouldActivateFromInitialCommand, shouldActivateFromVisibleSurface, staticContent]);
 
   useEffect(() => {
     if (staticContent) {
@@ -2673,7 +2692,7 @@ export function useXterm({
     const firstFrameId = requestAnimationFrame(() => {
       const secondFrameId = requestAnimationFrame(() => {
         if (!deferSessionCreateRef.current) {
-          void initTerminal();
+          void latestInitTerminalRef.current();
         }
       });
 
@@ -2684,7 +2703,7 @@ export function useXterm({
       cancelAnimationFrame(firstFrameId);
       cancelSecondFrame?.();
     };
-  }, [deferSessionCreate, initTerminal, staticContent]);
+  }, [deferSessionCreate, staticContent]);
 
   useEffect(() => {
     if (staticContent) {
