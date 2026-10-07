@@ -262,6 +262,44 @@ describe('SessionBar recovery render', () => {
     );
   });
 
+  it('shows a separate persistent capability warning when Hapi/Happy cannot apply configured MCP and skills', async () => {
+    const sqliteWarning =
+      'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.';
+    const capabilityWarning =
+      'Codex MCP and skill settings were not applied for Hapi/Happy wrapper launches. Use native Codex to apply the configured capabilities.';
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'hapi',
+        agentCapabilityWarnings: [sqliteWarning, capabilityWarning],
+        agentRuntimeWarnings: [sqliteWarning, capabilityWarning],
+      })
+    ));
+
+    const notices = [...container.querySelectorAll('[role="status"]')].map(
+      (notice) => notice.textContent
+    );
+    expect(notices).toHaveLength(2);
+    expect(notices).toContainEqual(expect.stringContaining('Codex resume history is not isolated'));
+    expect(notices).toContainEqual(
+      expect.stringContaining('Codex MCP and skill settings were not applied')
+    );
+    expect(notices).toContainEqual(expect.stringContaining('Use the native Codex environment'));
+  });
+
+  it('does not claim configured MCP and skill settings were skipped without a capability warning', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        agentRuntimeWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.',
+        ],
+      })
+    ));
+
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.textContent).not.toContain('Codex MCP and skill settings were not applied');
+  });
+
   it('shows a restart notice when Codex MCP changes were not applied to an existing tmux session', async () => {
     ({ container, root } = await renderSessionBar(
       createRecoveredSession({
@@ -310,6 +348,38 @@ describe('SessionBar recovery render', () => {
 
     expect(container.querySelector('button[aria-label]')?.getAttribute('aria-label')).toContain(
       'Codex resume history is not isolated'
+    );
+  });
+
+  it('exposes both wrapper limitations in the collapsed button label and title', async () => {
+    localStorage.setItem(
+      'enso-session-bar',
+      JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+    );
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        agentCapabilityWarnings: [
+          'Codex MCP and skill settings were not applied for Hapi/Happy wrapper launches.',
+        ],
+        agentRuntimeWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.',
+        ],
+      })
+    ));
+
+    const collapsedButton = container.querySelector('button[aria-label]');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain(
+      'Codex resume history is not isolated'
+    );
+    expect(collapsedButton?.getAttribute('aria-label')).toContain(
+      'Codex MCP and skill settings were not applied'
+    );
+    expect(collapsedButton?.getAttribute('title')).toContain(
+      'Codex resume history is not isolated'
+    );
+    expect(collapsedButton?.getAttribute('title')).toContain(
+      'Codex MCP and skill settings were not applied'
     );
   });
 });

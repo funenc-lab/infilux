@@ -121,6 +121,65 @@ function createNativeShellPlan() {
 }
 
 describe('CodexCapabilityProviderAdapter', () => {
+  it.each([
+    'hapi',
+    'happy',
+  ] as const)('reports that configured MCP and skills are not applied to %s wrapper sessions', (environment) => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+        codexLaunch: plan.codexLaunch,
+      },
+      createCapabilities(),
+      createResolvedPolicy({
+        allowedCapabilityIds: ['legacy-skill:ship'],
+        allowedSharedMcpIds: ['shared-project'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(false);
+    expect(projection.sessionOverrides).toBeUndefined();
+    expect(projection.warnings).toContainEqual(
+      expect.stringContaining('Codex MCP and skill settings were not applied for Hapi/Happy')
+    );
+  });
+
+  it('does not report unapplied wrapper capabilities when no MCP or skills were configured', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'hapi',
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+        codexLaunch: plan.codexLaunch,
+      },
+      [],
+      createResolvedPolicy(),
+      { sharedById: {}, personalById: {} }
+    );
+
+    expect(projection.applied).toBe(false);
+    expect(projection.warnings).toEqual([]);
+  });
+
   it('reports pending capability assignments on attach-existing tmux instead of claiming application', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',

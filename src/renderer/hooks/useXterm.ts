@@ -2471,6 +2471,7 @@ export function useXterm({
       commandKey,
       env,
       hostSession,
+      codexLaunch,
       metadata,
       effectiveTerminalRenderer,
       kind,

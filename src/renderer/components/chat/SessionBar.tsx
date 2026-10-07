@@ -345,6 +345,12 @@ const CODEX_WRAPPER_SQLITE_WARNING_PREFIX =
   'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.';
 const CODEX_WRAPPER_SQLITE_NOTICE =
   'Codex resume history is not isolated for Hapi/Happy sessions. Use the native Codex environment for worktree-scoped history.';
+const CODEX_WRAPPER_CAPABILITY_WARNING_PREFIX =
+  'Codex MCP and skill settings were not applied for Hapi/Happy wrapper launches.';
+const CODEX_WRAPPER_CAPABILITY_LEGACY_WARNING_PREFIX =
+  'Codex runtime capability injection is unavailable for Hapi/Happy wrapper launches.';
+const CODEX_WRAPPER_CAPABILITY_NOTICE =
+  'Codex MCP and skill settings were not applied to this Hapi/Happy session. Use the native Codex environment to apply them.';
 const CODEX_TMUX_ATTACH_CAPABILITY_WARNING_PREFIX =
   'Codex capability configuration was not applied to an existing tmux session.';
 const CODEX_TMUX_ATTACH_CAPABILITY_NOTICE =
@@ -597,12 +603,29 @@ export function SessionBar({
         ...(activeSession.agentRuntimeWarnings ?? []),
       ].some((warning) => warning.startsWith(CODEX_WRAPPER_SQLITE_WARNING_PREFIX))
   );
+  const showCodexWrapperCapabilityWarning = Boolean(
+    activeSession?.agentCommand === 'codex' &&
+      (activeSession.environment === 'hapi' || activeSession.environment === 'happy') &&
+      [
+        ...(activeSession.agentCapabilityWarnings ?? []),
+        ...(activeSession.agentRuntimeWarnings ?? []),
+      ].some(
+        (warning) =>
+          warning.startsWith(CODEX_WRAPPER_CAPABILITY_WARNING_PREFIX) ||
+          warning.startsWith(CODEX_WRAPPER_CAPABILITY_LEGACY_WARNING_PREFIX)
+      )
+  );
   const showCodexTmuxCapabilityWarning = Boolean(
     activeSession?.agentCommand === 'codex' &&
       activeSession.agentCapabilityWarnings?.some((warning) =>
         warning.startsWith(CODEX_TMUX_ATTACH_CAPABILITY_WARNING_PREFIX)
       )
   );
+  const codexNotices = [
+    ...(showCodexWrapperSqliteWarning ? [t(CODEX_WRAPPER_SQLITE_NOTICE)] : []),
+    ...(showCodexWrapperCapabilityWarning ? [t(CODEX_WRAPPER_CAPABILITY_NOTICE)] : []),
+    ...(showCodexTmuxCapabilityWarning ? [t(CODEX_TMUX_ATTACH_CAPABILITY_NOTICE)] : []),
+  ];
   const activeSessionProviderId = useMemo(
     () => agentProviderProfileAdapter.getProviderIdForSession(activeSession),
     [activeSession]
@@ -1165,26 +1188,18 @@ export function SessionBar({
             type="button"
             onClick={handleExpand}
             aria-label={
-              showCodexWrapperSqliteWarning
-                ? `${t('Expand session controls')}. ${t(CODEX_WRAPPER_SQLITE_NOTICE)}`
-                : showCodexTmuxCapabilityWarning
-                  ? `${t('Expand session controls')}. ${t(CODEX_TMUX_ATTACH_CAPABILITY_NOTICE)}`
-                  : t('Expand session controls')
+              codexNotices.length > 0
+                ? `${t('Expand session controls')}. ${codexNotices.join(' ')}`
+                : t('Expand session controls')
             }
-            title={
-              showCodexWrapperSqliteWarning
-                ? t(CODEX_WRAPPER_SQLITE_NOTICE)
-                : showCodexTmuxCapabilityWarning
-                  ? t(CODEX_TMUX_ATTACH_CAPABILITY_NOTICE)
-                  : t('Expand session controls')
-            }
+            title={codexNotices.length > 0 ? codexNotices.join(' ') : t('Expand session controls')}
             className={cn(
               SESSION_BAR_COLLAPSED_BUTTON_CLASS_NAME,
               state.edge === 'left' && 'rounded-l-md',
               state.edge === 'right' && 'rounded-r-md'
             )}
           >
-            {showCodexWrapperSqliteWarning || showCodexTmuxCapabilityWarning ? (
+            {codexNotices.length > 0 ? (
               <AlertTriangle className="h-4 w-4 text-warning-foreground" aria-hidden="true" />
             ) : (
               <RectangleEllipsis className="h-4 w-4 text-muted-foreground" />
@@ -1211,6 +1226,17 @@ export function SessionBar({
               >
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <div className="min-w-0 flex-1 ui-type-meta">{t(CODEX_WRAPPER_SQLITE_NOTICE)}</div>
+              </div>
+            ) : null}
+            {showCodexWrapperCapabilityWarning ? (
+              <div
+                role="status"
+                className="flex w-full items-start gap-2 rounded-xl border border-warning/45 bg-warning/8 px-3 py-2 text-warning-foreground"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <div className="min-w-0 flex-1 ui-type-meta">
+                  {t(CODEX_WRAPPER_CAPABILITY_NOTICE)}
+                </div>
               </div>
             ) : null}
             {showCodexTmuxCapabilityWarning ? (

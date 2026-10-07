@@ -4,6 +4,7 @@ import type { SessionTranscriptPage } from '@shared/types';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildAgentLaunchPlan } from '../../components/chat/agentLaunchPlan';
 import { type UseXtermOptions, useXterm } from '../useXterm';
 import { XTERM_HIBERNATION_IDLE_MS } from '../xtermHibernateController';
 import {
@@ -133,6 +134,8 @@ const testState = vi.hoisted(() => ({
   terminalRenderer: 'dom' as 'dom' | 'webgl',
   terminalFontSize: 14,
   terminalFontFamily: 'monospace',
+  terminalKeybindings: {} as Record<string, never>,
+  terminalShellConfig: { shellType: 'zsh' as const },
   rendererPlatform: 'darwin' as 'darwin' | 'win32',
   backgroundImageEnabled: false,
   recreateWebglRenderer: null as (() => void) | null,
@@ -402,11 +405,11 @@ vi.mock('@/stores/settings', () => ({
       terminalFontWeightBold: 'bold',
       terminalScrollback: 1000,
       terminalOptionIsMeta: true,
-      xtermKeybindings: {},
+      xtermKeybindings: testState.terminalKeybindings,
       backgroundImageEnabled: testState.backgroundImageEnabled,
       terminalRenderer: testState.terminalRenderer,
       copyOnSelection: false,
-      shellConfig: { shellType: 'zsh' },
+      shellConfig: testState.terminalShellConfig,
     }),
 }));
 
@@ -2511,6 +2514,115 @@ describe('useXterm startup loading state', () => {
     expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
     expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
 
+    await mounted.unmount();
+  });
+
+  it('uses the current Codex launch descriptor and command after a deferred-plan rerender', async () => {
+    const buildPlan = (initialPrompt: string) =>
+      buildAgentLaunchPlan({
+        agentCommand: 'codex',
+        initialPrompt,
+        environment: 'native',
+        hapiGlobalInstalled: null,
+        isRemoteExecution: false,
+        executionPlatform: 'darwin',
+        resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+      });
+    const firstPlan = buildPlan('Inspect the initial worktree');
+    const latestPlan = buildPlan('Inspect the selected worktree');
+    const mounted = mountHookHarness({
+      command: undefined,
+      initialCommand: firstPlan.initialCommand,
+      codexLaunch: firstPlan.codexLaunch,
+      deferSessionCreate: true,
+    });
+
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({
+      initialCommand: latestPlan.initialCommand,
+      codexLaunch: latestPlan.codexLaunch,
+    });
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({ deferSessionCreate: false });
+    await act(flushMicrotasks);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCommand: latestPlan.initialCommand,
+        codexLaunch: latestPlan.codexLaunch,
+      })
+    );
+
+    await mounted.unmount();
+  });
+
+  it('uses a Codex descriptor that becomes ready before a deferred command is created', async () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: 'Inspect this worktree',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const mounted = mountHookHarness({
+      command: undefined,
+      initialCommand: plan.initialCommand,
+      deferSessionCreate: true,
+    });
+
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
+
+    mounted.rerender({ codexLaunch: plan.codexLaunch });
+    mounted.rerender({ deferSessionCreate: false });
+    await act(flushMicrotasks);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      })
+    );
+
+    await mounted.unmount();
+  });
+
+  it('does not recreate an already running session when only its Codex descriptor changes', async () => {
+    const firstPlan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: 'Inspect current worktree',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const mounted = mountHookHarness({
+      command: undefined,
+      initialCommand: firstPlan.initialCommand,
+      codexLaunch: firstPlan.codexLaunch,
+    });
+
+    await act(flushMicrotasks);
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+
+    mounted.rerender({
+      codexLaunch:
+        firstPlan.codexLaunch?.kind === 'native'
+          ? { ...firstPlan.codexLaunch, rawArgs: [...firstPlan.codexLaunch.rawArgs] }
+          : undefined,
+    });
+    await act(flushMicrotasks);
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
     await mounted.unmount();
   });
 

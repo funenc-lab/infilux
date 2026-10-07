@@ -389,7 +389,7 @@ export function buildCodexSessionProjection(
   }
   if (sessionOptions.codexLaunch?.kind === 'wrapper') {
     allWarnings.push(
-      'Codex runtime capability injection is unavailable for Hapi/Happy wrapper launches.'
+      'Codex MCP and skill settings were not applied for Hapi/Happy wrapper launches. Use native Codex to apply the configured capabilities.'
     );
     return { warnings: allWarnings, applied: false };
   }
