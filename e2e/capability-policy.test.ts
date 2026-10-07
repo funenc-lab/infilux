@@ -86,6 +86,7 @@ describe.sequential('electron capability policy launch integration', () => {
       );
 
       const joinedArgs = invocation.argv.join(' ');
+      expect(invocation.argv).not.toContain('--no-daemon');
       expect(joinedArgs).toContain(`mcp_servers.${scenario.projectSharedMcpId}.command=`);
       expect(joinedArgs).toContain(`mcp_servers.${scenario.userPersonalMcpId}.command=`);
       expect(joinedArgs).toContain(`mcp_servers.${scenario.projectPersonalMcpId}.command=`);
