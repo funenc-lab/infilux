@@ -6,12 +6,13 @@ import { dirname, join } from 'node:path';
 import { RUNTIME_STATE_DIRNAME, SETTINGS_FILENAME } from '../../src/shared/paths';
 import { sanitizeRuntimeProfileName } from '../../src/shared/utils/runtimeProfile';
 import { buildRepositoryId } from '../../src/shared/utils/workspace';
+import type { ElectronLaunchScenario } from './electronApp';
 
 interface CommandOptions {
   cwd?: string;
 }
 
-export interface CodexWorktreeHistoryScenario {
+export interface CodexWorktreeHistoryScenario extends ElectronLaunchScenario {
   browserLocalStorage: Record<string, string>;
   homeDir: string;
   legacySessionId: string;
@@ -268,7 +269,16 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
   const invocationLogPath = join(rootPath, 'fake-codex.log');
   const repoId = buildRepositoryId('local', repoPath, { platform: resolveWorkspacePlatform() });
 
-  await mkdir(homeDir, { recursive: true });
+  await Promise.all(
+    [
+      homeDir,
+      join(homeDir, 'AppData', 'Roaming'),
+      join(homeDir, 'AppData', 'Local'),
+      join(homeDir, '.config'),
+      join(homeDir, '.local', 'share'),
+      join(homeDir, '.cache'),
+    ].map((path) => mkdir(path, { recursive: true }))
+  );
   await mkdir(workspaceRoot, { recursive: true });
   await createGitRepositoryFixture(repoPath, worktreePath);
   const fakeCodexPath = await installFakeCodex(rootPath);
@@ -304,6 +314,18 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
       worktreePath,
     }),
     homeDir,
+    environmentPatch: {
+      omitPrefixes: ['CODEX_', 'OPENAI_', 'AZURE_OPENAI_', 'INFILUX_CODEX_'],
+      set: {
+        CODEX_HOME: join(homeDir, '.codex'),
+        CODEX_HISTORY_E2E_LOG: invocationLogPath,
+        APPDATA: join(homeDir, 'AppData', 'Roaming'),
+        LOCALAPPDATA: join(homeDir, 'AppData', 'Local'),
+        XDG_CONFIG_HOME: join(homeDir, '.config'),
+        XDG_DATA_HOME: join(homeDir, '.local', 'share'),
+        XDG_CACHE_HOME: join(homeDir, '.cache'),
+      },
+    },
     legacySessionId,
     newExternalSessionId,
     newSiblingSessionId,

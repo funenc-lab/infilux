@@ -39,7 +39,7 @@ describe.sequential('electron Codex worktree history recovery', () => {
   it('includes post-migration external sessions on the first resume after restart without sharing another worktree', async () => {
     const scenario = await createCodexWorktreeHistoryScenario();
     cleanupTasks.push(scenario.cleanup);
-    const firstLaunch = await launchCodexHistoryScenario(scenario);
+    const firstLaunch = await launchInfiluxForScenario(scenario);
     let firstCodexHomePath = '';
     let sessionHistoryPath = '';
 
@@ -66,7 +66,7 @@ describe.sequential('electron Codex worktree history recovery', () => {
     }
 
     await scenario.writePostMigrationExternalSessions();
-    const secondLaunch = await launchCodexHistoryScenario(scenario);
+    const secondLaunch = await launchInfiluxForScenario(scenario);
     try {
       await prepareScenarioPage(secondLaunch.page, scenario);
       await launchCodexFromEmptyState(secondLaunch.page);
@@ -218,21 +218,6 @@ async function getActiveCodexSession(
       runtimeHomePath: runtimeHome.homePath,
     };
   });
-}
-
-async function launchCodexHistoryScenario(scenario: CodexWorktreeHistoryScenario) {
-  const originalLogPath = process.env.CODEX_HISTORY_E2E_LOG;
-  process.env.CODEX_HISTORY_E2E_LOG = scenario.invocationLogPath;
-
-  try {
-    return await launchInfiluxForScenario(scenario);
-  } finally {
-    if (originalLogPath === undefined) {
-      delete process.env.CODEX_HISTORY_E2E_LOG;
-    } else {
-      process.env.CODEX_HISTORY_E2E_LOG = originalLogPath;
-    }
-  }
 }
 
 async function prepareScenarioPage(

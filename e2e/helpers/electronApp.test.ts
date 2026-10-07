@@ -1,7 +1,75 @@
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { quitElectronApplication } from './electronApp';
+import { createCodexWorktreeHistoryScenario } from './codexWorktreeHistoryScenario';
+import { buildElectronLaunchEnvironment, quitElectronApplication } from './electronApp';
+
+describe('scenario-specific Electron environment isolation', () => {
+  it('keeps Codex credentials and app state out of an isolated worktree history launch', async () => {
+    const scenario = await createCodexWorktreeHistoryScenario();
+    const fakeHostEnvironment: NodeJS.ProcessEnv = {
+      PATH: '/fixture/bin',
+      HOME: '/host/home',
+      USERPROFILE: '/host/home',
+      CODEX_HOME: '/host/codex-home',
+      CODEX_CONFIG_DIR: '/host/codex-config',
+      CODEX_SQLITE_HOME: '/host/codex-sqlite',
+      CODEX_HISTORY_E2E_LOG: '/host/private.log',
+      CODEX_API_KEY: 'fake-codex-api-key',
+      CODEX_ACCESS_TOKEN: 'fake-codex-token',
+      OPENAI_API_KEY: 'fake-openai-api-key',
+      OPENAI_ORG_ID: 'fake-openai-org',
+      AZURE_OPENAI_API_KEY: 'fake-azure-api-key',
+      AZURE_OPENAI_ENDPOINT: 'https://host.invalid',
+      INFILUX_CODEX_API_KEY: 'fake-managed-codex-api-key',
+      INFILUX_CODEX_PROVIDER_KEY: 'fake-managed-provider-key',
+      APPDATA: '/host/appdata',
+      LOCALAPPDATA: '/host/localappdata',
+      XDG_CONFIG_HOME: '/host/config',
+      XDG_DATA_HOME: '/host/data',
+      XDG_CACHE_HOME: '/host/cache',
+    };
+
+    try {
+      const environment = buildElectronLaunchEnvironment(scenario, fakeHostEnvironment);
+      expect(environment.PATH).toBe('/fixture/bin');
+      expect(environment.HOME).toBe(scenario.homeDir);
+      expect(environment.USERPROFILE).toBe(scenario.homeDir);
+      expect(environment.CODEX_HOME).toBe(join(scenario.homeDir, '.codex'));
+      expect(environment.CODEX_HISTORY_E2E_LOG).toBe(scenario.invocationLogPath);
+      expect(environment.APPDATA).toBe(join(scenario.homeDir, 'AppData', 'Roaming'));
+      expect(environment.LOCALAPPDATA).toBe(join(scenario.homeDir, 'AppData', 'Local'));
+      expect(environment.XDG_CONFIG_HOME).toBe(join(scenario.homeDir, '.config'));
+      expect(environment.XDG_DATA_HOME).toBe(join(scenario.homeDir, '.local', 'share'));
+      expect(environment.XDG_CACHE_HOME).toBe(join(scenario.homeDir, '.cache'));
+      for (const name of [
+        'CODEX_CONFIG_DIR',
+        'CODEX_SQLITE_HOME',
+        'CODEX_API_KEY',
+        'CODEX_ACCESS_TOKEN',
+        'OPENAI_API_KEY',
+        'OPENAI_ORG_ID',
+        'AZURE_OPENAI_API_KEY',
+        'AZURE_OPENAI_ENDPOINT',
+        'INFILUX_CODEX_API_KEY',
+        'INFILUX_CODEX_PROVIDER_KEY',
+      ]) {
+        expect(Object.hasOwn(environment, name)).toBe(false);
+      }
+
+      const ordinaryLaunch = buildElectronLaunchEnvironment(
+        { homeDir: scenario.homeDir, profileName: scenario.profileName },
+        fakeHostEnvironment
+      );
+      expect(ordinaryLaunch.CODEX_HOME).toBe(fakeHostEnvironment.CODEX_HOME);
+      expect(ordinaryLaunch.OPENAI_API_KEY).toBeDefined();
+      expect(ordinaryLaunch.APPDATA).toBe(fakeHostEnvironment.APPDATA);
+    } finally {
+      await scenario.cleanup();
+    }
+  });
+});
 
 describe('quitElectronApplication', () => {
   it('installs renderer confirmations, requests app.quit(), and waits for the close event', async () => {
