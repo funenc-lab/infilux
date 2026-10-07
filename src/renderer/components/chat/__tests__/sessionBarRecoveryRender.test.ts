@@ -216,4 +216,37 @@ describe('SessionBar recovery render', () => {
     expect(tooltip?.className).toContain('whitespace-normal');
     expect(tooltip?.className).toContain('break-words');
   });
+
+  it('shows the active Hapi Codex SQLite limitation as persistent readable feedback', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'hapi',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Codex resume history is not isolated for Hapi/Happy sessions'
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Use the native Codex environment'
+    );
+  });
+
+  it('does not show a wrapper warning on native Codex sessions', async () => {
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'native',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
 });

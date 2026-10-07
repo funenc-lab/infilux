@@ -340,6 +340,8 @@ const SESSION_BAR_SPLIT_ACTION_GROUP_CLASS_NAME = 'flex items-center overflow-hi
 const SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME = CHAT_PRIMARY_ICON_BUTTON_CLASS_NAME;
 const SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME = `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} h-8 w-8 rounded-l-lg rounded-r-none border-r-0`;
 const SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME = `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} -ml-px h-8 w-7 rounded-l-none rounded-r-lg border-l border-foreground/12`;
+const CODEX_WRAPPER_SQLITE_WARNING_PREFIX =
+  'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.';
 
 /** Text that scrolls horizontally when overflowing */
 function MarqueeText({ children, className }: { children: string; className?: string }) {
@@ -579,6 +581,13 @@ export function SessionBar({
   );
   const showPolicyStaleNotice = Boolean(
     activeSession?.agentCapabilityStale || activeSession?.claudePolicyStale
+  );
+  const showCodexWrapperSqliteWarning = Boolean(
+    activeSession?.agentCommand === 'codex' &&
+      (activeSession.environment === 'hapi' || activeSession.environment === 'happy') &&
+      activeSession.agentCapabilityWarnings?.some((warning) =>
+        warning.startsWith(CODEX_WRAPPER_SQLITE_WARNING_PREFIX)
+      )
   );
   const activeSessionProviderId = useMemo(
     () => agentProviderProfileAdapter.getProviderIdForSession(activeSession),
@@ -1165,6 +1174,19 @@ export function SessionBar({
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div className="min-w-0 flex-1 ui-type-meta">
                   {t('Skill and MCP settings changed. Restart sessions to apply.')}
+                </div>
+              </div>
+            ) : null}
+            {showCodexWrapperSqliteWarning ? (
+              <div
+                role="status"
+                className="flex w-full items-start gap-2 rounded-xl border border-warning/45 bg-warning/8 px-3 py-2 text-warning-foreground"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <div className="min-w-0 flex-1 ui-type-meta">
+                  {t(
+                    'Codex resume history is not isolated for Hapi/Happy sessions. Use the native Codex environment for worktree-scoped history.'
+                  )}
                 </div>
               </div>
             ) : null}

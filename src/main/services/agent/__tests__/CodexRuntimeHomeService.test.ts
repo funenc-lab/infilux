@@ -150,6 +150,53 @@ describe('CodexRuntimeHomeService', () => {
     expect(existsSync(path.join(siblingSqlitePath, 'state_5.sqlite'))).toBe(false);
   });
 
+  it('rejects a workspace-parent symlink before creating sibling sessions or SQLite', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const historyRoot = createTempRoot();
+    const siblingWorkspace = createTempRoot();
+    const workspaceParent = path.join(historyRoot, 'workspace-current');
+    symlinkSync(
+      siblingWorkspace,
+      workspaceParent,
+      process.platform === 'win32' ? 'junction' : undefined
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    await expect(
+      service.prepareRuntimeHome('ui-session', {
+        sessionHistoryPath: path.join(workspaceParent, 'sessions'),
+        sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+      })
+    ).rejects.toThrow('Codex workspace history parent must not be a symlink');
+    expect(existsSync(path.join(siblingWorkspace, 'sessions'))).toBe(false);
+    expect(existsSync(path.join(siblingWorkspace, 'sqlite'))).toBe(false);
+  });
+
+  it('rejects a sessions symlink before touching a sibling worktree history', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceParent = createTempRoot();
+    const siblingWorkspace = createTempRoot();
+    symlinkSync(
+      siblingWorkspace,
+      path.join(workspaceParent, 'sessions'),
+      process.platform === 'win32' ? 'junction' : undefined
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    await expect(
+      service.prepareRuntimeHome('ui-session', {
+        sessionHistoryPath: path.join(workspaceParent, 'sessions'),
+        sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+      })
+    ).rejects.toThrow('Codex workspace session history must not be a symlink');
+    expect(existsSync(path.join(workspaceParent, 'sqlite'))).toBe(false);
+    expect(existsSync(path.join(siblingWorkspace, '.codex-external-import-lock.sqlite'))).toBe(
+      false
+    );
+  });
+
   it('imports only matching user-global session history into an Infilux runtime home', async () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();
