@@ -52,6 +52,51 @@ function isUnsupportedShellConfig(options: SessionCreateOptions): boolean {
   );
 }
 
+function matchesRendererInitialPromptArg(promptArg: string, executionPlatform?: string): boolean {
+  const isWindows = executionPlatform === 'win32';
+  const opening = isWindows ? '"' : "$'";
+  const closing = isWindows ? '"' : "'";
+  if (!promptArg.startsWith(opening) || !promptArg.endsWith(closing)) {
+    return false;
+  }
+
+  const end = promptArg.length - closing.length;
+  for (let index = opening.length; index < end; index += 1) {
+    const character = promptArg[index];
+    if (character === '\0' || character === '\n' || character === '\r') {
+      return false;
+    }
+    if (!isWindows) {
+      if (character === "'") {
+        return false;
+      }
+      if (character === '\\') {
+        index += 1;
+        if (index >= end || !['\\', "'", 'n'].includes(promptArg[index] ?? '')) {
+          return false;
+        }
+      }
+      continue;
+    }
+
+    // PowerShell does not escape double quotes with the renderer's backslash sequence.
+    if (character === '"' || character === '$') {
+      return false;
+    }
+    if (character === '`' || character === '\\' || character === '%') {
+      index += 1;
+      const escaped = promptArg[index];
+      if (
+        index >= end ||
+        (character === '`' ? escaped !== '`' && escaped !== '$' : escaped !== character)
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 function matchesNativeCodexLaunch(
   options: SessionCreateOptions,
   descriptor: NativeCodexDescriptor
@@ -66,15 +111,11 @@ function matchesNativeCodexLaunch(
     (descriptor.initialPromptArg !== undefined &&
       (typeof descriptor.initialPromptArg !== 'string' ||
         descriptor.initialPromptArg !== descriptor.rawArgs.at(-1) ||
-        (descriptor.executionPlatform === 'win32'
-          ? !(
-              descriptor.initialPromptArg.startsWith('"') &&
-              descriptor.initialPromptArg.endsWith('"')
-            )
-          : !(
-              descriptor.initialPromptArg.startsWith("$'") &&
-              descriptor.initialPromptArg.endsWith("'")
-            )))) ||
+        descriptor.layout === 'direct' ||
+        !matchesRendererInitialPromptArg(
+          descriptor.initialPromptArg,
+          descriptor.executionPlatform
+        ))) ||
     (descriptor.shellArgsPrefix !== undefined && !isStringList(descriptor.shellArgsPrefix)) ||
     (descriptor.fallbackArgsPrefix !== undefined && !isStringList(descriptor.fallbackArgsPrefix)) ||
     (descriptor.appliedAssignments !== undefined && !isStringList(descriptor.appliedAssignments)) ||

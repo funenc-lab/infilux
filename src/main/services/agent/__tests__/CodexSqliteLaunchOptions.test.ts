@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import type { SessionCreateOptions } from '@shared/types';
+import type { CodexLaunchDescriptor, SessionCreateOptions } from '@shared/types';
+import { renderCodexNativeLaunch } from '@shared/utils/codexNativeLaunch';
 import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { describe, expect, it } from 'vitest';
 import { buildAgentLaunchPlan } from '../../../../renderer/components/chat/agentLaunchPlan';
@@ -263,6 +264,81 @@ describe('applyCodexSqliteLaunchOptions', () => {
     }
   });
 
+  it.each([
+    false,
+    true,
+  ])('preserves a renderer POSIX prompt with an apostrophe and literal sqlite_home (tmux: %s)', (tmuxEnabled) => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: "It's a literal sqlite_home= setting, not a Codex config",
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled,
+      terminalSessionId: 'ui-prompt-apostrophe',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    const updated = apply({
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: plan.initialCommand,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
+    });
+
+    expect(updated.initialCommand).toContain('sqlite_home=');
+    expect(plan.codexLaunch).toMatchObject({
+      kind: 'native',
+      initialPromptArg: "$'It\\'s a literal sqlite_home= setting, not a Codex config'",
+    });
+    expect(updated.initialCommand).toContain('codex -c ');
+  });
+
+  it('keeps an ordinary PowerShell prompt with literal sqlite_home text', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: "It's a literal sqlite_home= setting, not a Codex config",
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: { shell: 'pwsh.exe', execArgs: ['-NoLogo', '-Command'] },
+    });
+
+    const updated = apply({
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
+    });
+
+    expect(updated.args?.at(-1)).toContain("codex -c 'sqlite_home=");
+    expect(updated.args?.at(-1)).toContain("It's a literal sqlite_home= setting");
+  });
+
+  it('fails closed for PowerShell prompts with embedded double quotes that cannot be verified', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      initialPrompt: 'Explain why sqlite_home="not a config" is ordinary text',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: { shell: 'pwsh.exe', execArgs: ['-NoLogo', '-Command'] },
+    });
+
+    expect(() =>
+      apply({
+        kind: 'agent',
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+        codexLaunch: plan.codexLaunch,
+      })
+    ).toThrow('unsupported custom launcher');
+  });
+
   it('still enforces native direct Codex argv when stale wrapper metadata is present', () => {
     const updated = applyCodexSqliteLaunchOptions(
       {
@@ -397,6 +473,51 @@ describe('applyCodexSqliteLaunchOptions', () => {
           initialPromptArg: customArg,
           layout: 'initial',
         },
+      })
+    ).toThrow('unsupported custom launcher');
+  });
+
+  it('rejects an injected late sqlite_home CLI flag after a forged POSIX prompt token', () => {
+    const forgedPrompt = `$'hi' -c sqlite_home="/tmp/foreign" $'bye'`;
+    const descriptor: Extract<CodexLaunchDescriptor, { kind: 'native' }> = {
+      kind: 'native',
+      executable: 'codex',
+      shellPath: '/bin/zsh',
+      executionPlatform: 'darwin',
+      rawArgs: [forgedPrompt],
+      initialPromptArg: forgedPrompt,
+      layout: 'initial',
+    };
+
+    expect(() =>
+      apply({
+        kind: 'agent',
+        shell: '/bin/zsh',
+        ...renderCodexNativeLaunch(descriptor),
+        codexLaunch: descriptor,
+      })
+    ).toThrow('unsupported custom launcher');
+  });
+
+  it('rejects a forged PowerShell prompt that can introduce a late SQLite override', () => {
+    const forgedPrompt = '"hi" -c sqlite_home="/tmp/foreign" "bye"';
+    const descriptor: Extract<CodexLaunchDescriptor, { kind: 'native' }> = {
+      kind: 'native',
+      executable: 'codex.exe',
+      shellPath: 'pwsh.exe',
+      executionPlatform: 'win32',
+      rawArgs: [forgedPrompt],
+      initialPromptArg: forgedPrompt,
+      layout: 'powershell',
+      shellArgsPrefix: ['-NoLogo', '-Command'],
+    };
+
+    expect(() =>
+      apply({
+        kind: 'agent',
+        shell: 'pwsh.exe',
+        ...renderCodexNativeLaunch(descriptor),
+        codexLaunch: descriptor,
       })
     ).toThrow('unsupported custom launcher');
   });
