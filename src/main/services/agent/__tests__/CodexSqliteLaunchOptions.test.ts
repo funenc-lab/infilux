@@ -2,7 +2,10 @@ import { execFileSync } from 'node:child_process';
 import type { SessionCreateOptions } from '@shared/types';
 import { describe, expect, it } from 'vitest';
 import { buildAgentLaunchPlan } from '../../../../renderer/components/chat/agentLaunchPlan';
-import { applyCodexSqliteLaunchOptions } from '../CodexSqliteLaunchOptions';
+import {
+  applyCodexSqliteLaunchOptions,
+  isCodexThirdPartyWrapperLaunch,
+} from '../CodexSqliteLaunchOptions';
 
 const sqliteHome = '/tmp/work tree/quotes " and apostrophe \'/sqlite';
 const assignment = `sqlite_home=${JSON.stringify(sqliteHome)}`;
@@ -213,6 +216,48 @@ describe('applyCodexSqliteLaunchOptions', () => {
         ],
       })
     ).toThrow('multiple Codex commands');
+  });
+
+  it('does not mistake an unrelated multi-Codex shell launcher for a built-in Hapi wrapper', () => {
+    const options: SessionCreateOptions = {
+      kind: 'agent',
+      shell: '/bin/zsh',
+      args: [
+        '-l',
+        '-c',
+        'if command -v codex >/dev/null; then exec codex; else exec hapi codex; fi',
+      ],
+    };
+
+    expect(isCodexThirdPartyWrapperLaunch(options)).toBe(false);
+    expect(() => applyCodexSqliteLaunchOptions(options, '/tmp/sqlite')).toThrow(
+      'Codex SQLite override could not match the current session launch shape'
+    );
+  });
+
+  it('rejects a built-in wrapper plan with a custom second Codex command', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'hapi',
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-custom-wrapper',
+      customArgs: '--profile fast; codex;',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const options: SessionCreateOptions = {
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      hostSession: plan.hostSession,
+    };
+
+    expect(isCodexThirdPartyWrapperLaunch(options)).toBe(false);
+    expect(() => applyCodexSqliteLaunchOptions(options, '/tmp/sqlite')).toThrow(
+      'Codex SQLite override could not match the current session launch shape'
+    );
   });
 
   it('rejects a shell command that only prints the Codex executable name', () => {

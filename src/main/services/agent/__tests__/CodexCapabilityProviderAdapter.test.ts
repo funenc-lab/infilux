@@ -681,6 +681,8 @@ describe('CodexCapabilityProviderAdapter', () => {
       hapiGlobalInstalled: true,
       isRemoteExecution: false,
       executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-1',
       resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
     });
 
@@ -689,7 +691,8 @@ describe('CodexCapabilityProviderAdapter', () => {
       kind: 'agent',
       shell: plan.command?.shell,
       args: plan.command?.args,
-      metadata: { environment, uiSessionId: 'ui-session-1' },
+      hostSession: plan.hostSession,
+      metadata: { uiSessionId: 'ui-session-1' },
     });
 
     expect(result?.sessionOverrides?.env?.CODEX_HOME).toBe('/runtime/codex/ui-session-1');
@@ -765,5 +768,44 @@ describe('CodexCapabilityProviderAdapter', () => {
 
     expect(result?.sessionOverrides?.env?.CODEX_HOME).toBe('/runtime/codex/ui-session-1');
     expect(result?.sessionOverrides?.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+  });
+
+  it('scopes managed native Codex SQLite history to the actual local cwd despite a stale remote request', async () => {
+    const runtimeHomeService = {
+      prepareRuntimeHome: vi.fn().mockResolvedValue({
+        homePath: '/runtime/codex/ui-session-1',
+        sourceHomePath: '/Users/test/.codex',
+        sqliteHomePath: '/history/actual-local-worktree/sqlite',
+      }),
+    };
+    const adapter = createCodexCapabilityProviderAdapter({
+      listClaudeCapabilityCatalog: vi.fn().mockResolvedValue({
+        capabilities: [],
+        sharedMcpServers: [],
+        personalMcpServers: [],
+        generatedAt: 1,
+      }),
+      resolveClaudePolicy: vi.fn().mockReturnValue(createResolvedPolicy()),
+      resolveCapabilityMcpConfigEntries: vi
+        .fn()
+        .mockResolvedValue({ sharedById: {}, personalById: {} }),
+      codexRuntimeHomeService: runtimeHomeService,
+    });
+    const localCwd = '/repo/worktrees/feat-a';
+    const staleRemotePath = toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a');
+
+    const result = await adapter.prepareLaunch(
+      { ...createRequest(), worktreePath: staleRemotePath },
+      { cwd: localCwd, kind: 'agent', shell: 'codex', metadata: { uiSessionId: 'ui-session-1' } }
+    );
+
+    expect(runtimeHomeService.prepareRuntimeHome).toHaveBeenCalledWith('ui-session-1', {
+      sessionHistoryPath: expect.stringContaining('codex-session-histories'),
+      sessionHistoryScope: { repoPath: '/repo', worktreePath: localCwd },
+    });
+    expect(result?.sessionOverrides?.env?.CODEX_HOME).toBe('/runtime/codex/ui-session-1');
+    expect(result?.sessionOverrides?.env?.CODEX_SQLITE_HOME).toBe(
+      '/history/actual-local-worktree/sqlite'
+    );
   });
 });

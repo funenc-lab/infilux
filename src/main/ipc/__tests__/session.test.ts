@@ -586,6 +586,116 @@ describe('session IPC handlers', () => {
     );
   });
 
+  it.each([
+    { environment: 'hapi', hapiGlobalInstalled: true },
+    { environment: 'hapi', hapiGlobalInstalled: false },
+    { environment: 'happy', hapiGlobalInstalled: true },
+  ] as const)('starts a built-in local $environment Codex tmux plan without wrapper metadata (hapi global: $hapiGlobalInstalled)', async ({
+    environment,
+    hapiGlobalInstalled,
+  }) => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: {
+        provider: 'codex',
+        hash: 'hash-1',
+        warnings: [],
+        projected: { warnings: [] },
+      },
+      sessionOverrides: undefined,
+    });
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-1',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    expect(plan.hostSession?.mode).toBe('create-if-missing');
+    expect(plan.command?.shell).toBe('/bin/zsh');
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      hostSession: plan.hostSession,
+      metadata: {
+        agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
+      },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.args).toEqual(plan.command?.args);
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(created.metadata?.agentCapability).toEqual(
+      expect.objectContaining({ warnings: [expect.stringContaining('SQLite index isolation')] })
+    );
+  });
+
+  it.each([
+    { environment: 'hapi', hapiGlobalInstalled: true, customPath: '/opt/tools/codex' },
+    { environment: 'hapi', hapiGlobalInstalled: false, customPath: '/opt/tools/codex' },
+    { environment: 'happy', hapiGlobalInstalled: true, customPath: '/opt/tools with spaces/codex' },
+    { environment: 'happy', hapiGlobalInstalled: true, customPath: "/opt/quote's tools/codex" },
+  ] as const)('preserves built-in local $environment tmux wrapper launches with a custom Codex path', async ({
+    environment,
+    hapiGlobalInstalled,
+    customPath,
+  }) => {
+    const event = createEvent();
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const createHandler = getHandler(IPC_CHANNELS.SESSION_CREATE);
+    sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({
+      launchResult: {
+        provider: 'codex',
+        hash: 'hash-1',
+        warnings: [],
+        projected: { warnings: [] },
+      },
+      sessionOverrides: undefined,
+    });
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath,
+      environment,
+      hapiGlobalInstalled,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-custom-path',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    expect(plan.hostSession?.mode).toBe('create-if-missing');
+
+    await createHandler(event, {
+      cwd: '/repo',
+      kind: 'agent',
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      hostSession: plan.hostSession,
+      metadata: {
+        agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
+      },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.args).toEqual(plan.command?.args);
+    expect(created.env?.CODEX_HOME).toBe('/runtime/codex/session-1');
+    expect(created.env).not.toHaveProperty('CODEX_SQLITE_HOME');
+    expect(created.metadata?.agentCapability).toEqual(
+      expect.objectContaining({ warnings: [expect.stringContaining('SQLite index isolation')] })
+    );
+  });
+
   it('applies the SQLite override once after a zero-assignment Codex capability projection', async () => {
     const event = createEvent();
     sessionTestDoubles.prepareAgentCapabilityLaunch.mockResolvedValueOnce({

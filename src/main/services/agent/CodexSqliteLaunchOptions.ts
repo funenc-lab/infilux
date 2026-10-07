@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { SessionCreateOptions } from '@shared/types';
+import { AGENT_TMUX_UNSET_ENV_KEYS, buildEnvUnsetPrefix } from '@shared/utils/agentEnvironment';
 
 type CodexShellFragmentStyle = 'posix' | 'powershell';
 
@@ -12,17 +13,142 @@ const UNSUPPORTED_LAUNCH_MESSAGE =
 export const CODEX_WRAPPER_SQLITE_WARNING =
   'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.';
 
+const BUILT_IN_CODEX_WRAPPERS = [
+  { command: 'hapi', probe: 'hapi' },
+  { command: 'npx -y @twsxtd/hapi', probe: 'npx' },
+  { command: 'happy', probe: 'happy' },
+] as const;
+
+function countCodexShellExecutables(command: string): number {
+  return (
+    command.match(
+      /(?:^|[\s;&|'"\x60])(?:'[^']*codex(?:\.(?:exe|cmd|bat))?'|(?:[^\s'";&|]*[\\/])?codex(?:\.(?:exe|cmd|bat))?)(?=[\s;&|'"\x60]|$)/gi
+    )?.length ?? 0
+  );
+}
+
+function readTmuxSessionCommand(
+  command: string,
+  sessionName: string
+): { payload: string; start: number; end: number } | null {
+  const newSessionIndex = command.indexOf('new-session ');
+  if (newSessionIndex < 0) {
+    return null;
+  }
+  const sessionMarker = `-s ${sessionName} `;
+  const markerIndex = command.indexOf(sessionMarker, newSessionIndex);
+  if (markerIndex < 0) {
+    return null;
+  }
+  const start = markerIndex + sessionMarker.length;
+  if (command[start] !== "'") {
+    return null;
+  }
+  let payload = '';
+  let end = start + 1;
+  while (end < command.length) {
+    if (command.startsWith("'\\''", end)) {
+      payload += "'";
+      end += 4;
+      continue;
+    }
+    if (command[end] === "'") {
+      return { payload, start, end };
+    }
+    payload += command[end];
+    end += 1;
+  }
+  return null;
+}
+
+function isCodexExecutablePrefix(fragment: string, hasCodexProbe: boolean): boolean {
+  const quotedPath = fragment.match(/^'((?:[^']|'\\'')*)'(?=\s|$)/);
+  const executable = quotedPath
+    ? quotedPath[1]?.replace(/'\\''/g, "'")
+    : fragment.match(/^[^\s'";&|]+(?=\s|$)/)?.[0];
+  return Boolean(
+    executable &&
+      isCodexShell(executable) &&
+      (hasCodexProbe ? executable === 'codex' : executable !== 'codex')
+  );
+}
+
+function isBuiltInWrapperShellPlan(options: SessionCreateOptions): boolean {
+  const command = options.args?.at(-1);
+  const shell = options.shell;
+  if (!command || !shell) {
+    return false;
+  }
+  const shellName = path.posix.basename(shell.replace(/\\/g, '/')).toLowerCase();
+  const interactiveArgs = /bash|zsh|fish|nu/.test(shellName)
+    ? '-i -l -c'
+    : shellName.includes('sh')
+      ? '-i -c'
+      : null;
+  if (!interactiveArgs) {
+    return false;
+  }
+  const hostSession =
+    options.hostSession?.mode === 'create-if-missing' ? options.hostSession : null;
+  const fallbackPrefix = `; else exec ${shell} ${interactiveArgs} `;
+  const fallbackIndex = command.lastIndexOf(fallbackPrefix);
+  if (fallbackIndex < 0) {
+    return false;
+  }
+
+  for (const wrapper of BUILT_IN_CODEX_WRAPPERS) {
+    for (const hasCodexProbe of [true, false]) {
+      const probes = [
+        ...(hostSession ? ['tmux'] : []),
+        wrapper.probe,
+        ...(hasCodexProbe ? ['codex'] : []),
+      ];
+      const prefix = `if ${probes.map((probe) => `command -v ${probe} >/dev/null 2>&1`).join(' && ')}; then `;
+      if (!command.startsWith(prefix)) {
+        continue;
+      }
+      const primary = command.slice(prefix.length, fallbackIndex);
+      const fallbackCommand = primary.startsWith('exec ') ? primary.slice('exec '.length) : primary;
+      const quotedPrimary = `'${fallbackCommand.replace(/'/g, "'\\''")}'`;
+      if (command !== `${prefix}${primary}${fallbackPrefix}${quotedPrimary}; fi`) {
+        continue;
+      }
+      const wrapperPrefix = `${wrapper.command} `;
+      let wrapperCommand: string;
+      if (hostSession) {
+        const tmuxPayload = readTmuxSessionCommand(primary, hostSession.sessionName)?.payload;
+        const environmentPrefix = `env ${buildEnvUnsetPrefix(AGENT_TMUX_UNSET_ENV_KEYS)} `;
+        if (!tmuxPayload?.startsWith(`${environmentPrefix}${wrapperPrefix}`)) {
+          continue;
+        }
+        wrapperCommand = tmuxPayload.slice(environmentPrefix.length);
+      } else {
+        wrapperCommand = fallbackCommand;
+      }
+      if (
+        wrapperCommand.startsWith(wrapperPrefix) &&
+        isCodexExecutablePrefix(wrapperCommand.slice(wrapperPrefix.length), hasCodexProbe) &&
+        countCodexShellExecutables(wrapperCommand) === 1
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function isCodexThirdPartyWrapperLaunch(options: SessionCreateOptions): boolean {
   if (isCodexShell(options.shell)) {
     return false;
   }
-  const environment = options.metadata?.environment;
-  if (environment === 'hapi' || environment === 'happy') {
+  if (isBuiltInWrapperShellPlan(options)) {
     return true;
   }
   const command = options.initialCommand ?? options.args?.at(-1) ?? '';
-  return /(?:^|[;&|]\s*|\b(?:then|else|exec)\s+)(?:(?:npx\s+-y\s+@twsxtd\/hapi|hapi|happy)\s+)(?:[^\s;&|]+\s+)*?[^\s;&|]*codex(?:\.(?:exe|cmd|bat))?(?=\s|[;&|]|$)/i.test(
-    command
+  return (
+    /^(?:&\s*\{\s*)?(?:env\s+(?:-u\s+[A-Za-z_]\w*\s+)+)?(?:npx\s+-y\s+@twsxtd\/hapi|hapi|happy)\s+codex(?:\.(?:exe|cmd|bat))?(?=[\s;}]|$)/i.test(
+      command
+    ) && countCodexShellExecutables(command) === 1
   );
 }
 
@@ -176,37 +302,14 @@ function patchTmuxSessionCommand(
   sessionName: string,
   fragment: string
 ): string | null {
-  const newSessionIndex = command.indexOf('new-session ');
-  if (newSessionIndex < 0) {
+  const tmuxCommand = readTmuxSessionCommand(command, sessionName);
+  if (!tmuxCommand) {
     return null;
   }
-  const sessionMarker = `-s ${sessionName} `;
-  const markerIndex = command.indexOf(sessionMarker, newSessionIndex);
-  if (markerIndex < 0) {
-    return null;
-  }
-  const payloadStart = markerIndex + sessionMarker.length;
-  if (command[payloadStart] !== "'") {
-    return null;
-  }
-  let payload = '';
-  let payloadEnd = payloadStart + 1;
-  while (payloadEnd < command.length) {
-    if (command.startsWith("'\\''", payloadEnd)) {
-      payload += "'";
-      payloadEnd += 4;
-      continue;
-    }
-    if (command[payloadEnd] === "'") {
-      const updated = addToCommand(payload, fragment);
-      return updated
-        ? `${command.slice(0, payloadStart)}'${updated.replace(/'/g, "'\\''")}'${command.slice(payloadEnd + 1)}`
-        : null;
-    }
-    payload += command[payloadEnd];
-    payloadEnd += 1;
-  }
-  return null;
+  const updated = addToCommand(tmuxCommand.payload, fragment);
+  return updated
+    ? `${command.slice(0, tmuxCommand.start)}'${updated.replace(/'/g, "'\\''")}'${command.slice(tmuxCommand.end + 1)}`
+    : null;
 }
 
 export function applyCodexSqliteLaunchOptions(

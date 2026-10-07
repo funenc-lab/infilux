@@ -480,18 +480,19 @@ export function createCodexCapabilityProviderAdapter(
       const hasUserOwnedHome =
         Boolean(sessionOptions.env?.CODEX_HOME) &&
         sessionOptions.env?.CODEX_HOME !== sessionOptions.env?.INFILUX_MANAGED_CODEX_RUNTIME_HOME;
+      const runtimeWorktreePath = sessionOptions.cwd ?? request.worktreePath;
       const runtimeHome = hasUserOwnedHome
         ? null
         : await runtimeHomeService.prepareRuntimeHome(
-            uiSessionId ?? `${request.worktreePath}:${Date.now()}`,
+            uiSessionId ?? `${runtimeWorktreePath}:${Date.now()}`,
             {
               sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath({
                 repoPath: request.repoPath,
-                worktreePath: request.worktreePath,
+                worktreePath: runtimeWorktreePath,
               }),
               sessionHistoryScope: {
                 repoPath: request.repoPath,
-                worktreePath: request.worktreePath,
+                worktreePath: runtimeWorktreePath,
               },
             }
           );
@@ -506,9 +507,7 @@ export function createCodexCapabilityProviderAdapter(
           ...(runtimeHome
             ? {
                 CODEX_HOME: runtimeHome.homePath,
-                ...(!isRemoteVirtualPath(request.worktreePath) &&
-                !isRemoteVirtualPath(sessionOptions.cwd ?? '') &&
-                !isWrapperLaunch
+                ...(!isRemoteVirtualPath(runtimeWorktreePath) && !isWrapperLaunch
                   ? { CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath }
                   : {}),
                 INFILUX_MANAGED_CODEX_RUNTIME_HOME: runtimeHome.homePath,
