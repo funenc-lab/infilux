@@ -393,11 +393,11 @@ async function captureNativeResumePicker(options: {
   const terminal = spawnPty(
     CLI_COMMAND,
     [
-      'resume',
-      '--no-alt-screen',
-      '--no-daemon',
       '-c',
       `sqlite_home=${JSON.stringify(options.sqliteHome)}`,
+      '--no-daemon',
+      'resume',
+      '--no-alt-screen',
     ],
     {
       cwd: options.cwd,

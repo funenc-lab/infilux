@@ -394,7 +394,7 @@ describe('session IPC handlers', () => {
         kind: 'agent',
         shellConfig: { shellType: 'zsh' },
         initialCommand: expect.stringContaining(
-          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --dangerously-bypass-approvals-and-sandbox'
+          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --no-daemon --dangerously-bypass-approvals-and-sandbox'
         ),
         persistOnDisconnect: true,
         env: {

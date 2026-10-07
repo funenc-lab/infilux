@@ -89,7 +89,7 @@ describe('applyCodexSqliteLaunchOptions', () => {
       )
         .trim()
         .split('\n');
-      expect(argumentsReceived).toEqual(['-c', assignment, '--profile', 'fast']);
+      expect(argumentsReceived).toEqual(['-c', assignment, '--no-daemon', '--profile', 'fast']);
     }
   });
 
@@ -163,7 +163,7 @@ describe('applyCodexSqliteLaunchOptions', () => {
       )
         .trim()
         .split('\n');
-      expect(args).toEqual(['-c', `sqlite_home=${JSON.stringify(sqliteHomePath)}`]);
+      expect(args).toEqual(['-c', `sqlite_home=${JSON.stringify(sqliteHomePath)}`, '--no-daemon']);
     }
   });
 

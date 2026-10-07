@@ -40,7 +40,7 @@ describe('resolveAgentTerminalLaunchPlan', () => {
     expect(result.sessionCreateFallback?.codexLaunch).toMatchObject({
       kind: 'native',
       layout: 'direct',
-      rawArgs: ['resume', 'provider-session-1'],
+      rawArgs: ['--no-daemon', 'resume', 'provider-session-1'],
     });
     expect(result.sessionCreateFallback?.command).toEqual({
       shell: 'codex',
@@ -70,7 +70,7 @@ describe('resolveAgentTerminalLaunchPlan', () => {
     expect(result.sessionCreateFallback?.codexLaunch).toMatchObject({
       kind: 'native',
       layout: 'direct',
-      rawArgs: [],
+      rawArgs: ['--no-daemon'],
     });
     expect(result.sessionCreateFallback?.command).toEqual({
       shell: 'codex',
