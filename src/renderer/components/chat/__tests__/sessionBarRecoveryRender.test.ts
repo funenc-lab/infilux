@@ -317,6 +317,80 @@ describe('SessionBar recovery render', () => {
     expect(container.querySelector('[role="status"]')?.textContent).toContain('MCP and skill');
   });
 
+  it.each([
+    { withCapabilities: false, expectedNotices: 1 },
+    { withCapabilities: true, expectedNotices: 2 },
+  ])('shows a persistent resume-index warning for an active Codex tmux attach (capabilities: $withCapabilities)', async ({
+    withCapabilities,
+    expectedNotices,
+  }) => {
+    const sqliteWarning =
+      'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'native',
+        agentRuntimeWarnings: [sqliteWarning, sqliteWarning],
+        ...(withCapabilities
+          ? {
+              agentCapabilityWarnings: [
+                'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.',
+              ],
+            }
+          : {}),
+      })
+    ));
+
+    const notices = [...container.querySelectorAll('[role="status"]')].map(
+      (notice) => notice.textContent ?? ''
+    );
+    expect(notices).toHaveLength(expectedNotices);
+    expect(
+      notices.filter((notice) => notice.includes('worktree-scoped resume index'))
+    ).toHaveLength(1);
+    if (withCapabilities) {
+      expect(notices.filter((notice) => notice.includes('MCP and skill changes'))).toHaveLength(1);
+    }
+  });
+
+  it('does not show the tmux resume-index limitation for unrelated or non-native sessions', async () => {
+    const { SessionBar } = await import('../SessionBar');
+    const warning =
+      'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
+    const sessions = [
+      createRecoveredSession({
+        id: 'other-provider',
+        agentId: 'claude',
+        agentCommand: 'claude',
+        agentRuntimeWarnings: [warning],
+      }),
+      createRecoveredSession({
+        id: 'other-environment',
+        environment: 'happy',
+        agentRuntimeWarnings: [warning],
+      }),
+    ];
+    const mountedContainer = document.createElement('div');
+    document.body.appendChild(mountedContainer);
+    const mountedRoot = createRoot(mountedContainer);
+    ({ container, root } = { container: mountedContainer, root: mountedRoot });
+    for (const session of sessions) {
+      await act(async () => {
+        mountedRoot.render(
+          React.createElement(SessionBar, {
+            sessions,
+            activeSessionId: session.id,
+            repoPath: session.repoPath,
+            onSelectSession: vi.fn(),
+            onCloseSession: vi.fn(),
+            onNewSession: vi.fn(),
+            onRenameSession: vi.fn(),
+          })
+        );
+      });
+      expect(mountedContainer.querySelector('[role="status"]')).toBeNull();
+    }
+  });
+
   it('does not show a wrapper warning on native Codex sessions', async () => {
     ({ container, root } = await renderSessionBar(
       createRecoveredSession({
@@ -349,6 +423,30 @@ describe('SessionBar recovery render', () => {
     expect(container.querySelector('button[aria-label]')?.getAttribute('aria-label')).toContain(
       'Codex resume history is not isolated'
     );
+  });
+
+  it('exposes the tmux resume-index and capability limits through the collapsed control label and title', async () => {
+    localStorage.setItem(
+      'enso-session-bar',
+      JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+    );
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        agentRuntimeWarnings: [
+          'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.',
+        ],
+        agentCapabilityWarnings: [
+          'Codex capability configuration was not applied to an existing tmux session. Restart this Codex session to apply MCP and skill changes.',
+        ],
+      })
+    ));
+
+    const collapsedButton = container.querySelector('button[aria-label]');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain('worktree-scoped resume index');
+    expect(collapsedButton?.getAttribute('aria-label')).toContain('MCP and skill changes');
+    expect(collapsedButton?.getAttribute('title')).toContain('worktree-scoped resume index');
+    expect(collapsedButton?.getAttribute('title')).toContain('MCP and skill changes');
+    expect(collapsedButton?.querySelector('svg')?.getAttribute('class')).toContain('text-warning');
   });
 
   it('exposes both wrapper limitations in the collapsed button label and title', async () => {

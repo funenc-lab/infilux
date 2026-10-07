@@ -355,6 +355,10 @@ const CODEX_TMUX_ATTACH_CAPABILITY_WARNING_PREFIX =
   'Codex capability configuration was not applied to an existing tmux session.';
 const CODEX_TMUX_ATTACH_CAPABILITY_NOTICE =
   'Codex MCP and skill changes were not applied to this existing session. Restart this Codex session to apply MCP and skill changes.';
+const CODEX_TMUX_ATTACH_SQLITE_WARNING_PREFIX =
+  'Restart this Codex session to use the worktree-scoped resume index;';
+const CODEX_TMUX_ATTACH_SQLITE_NOTICE =
+  'Restart this Codex session to use the worktree-scoped resume index; the existing tmux process cannot change it.';
 
 /** Text that scrolls horizontally when overflowing */
 function MarqueeText({ children, className }: { children: string; className?: string }) {
@@ -621,10 +625,18 @@ export function SessionBar({
         warning.startsWith(CODEX_TMUX_ATTACH_CAPABILITY_WARNING_PREFIX)
       )
   );
+  const showCodexTmuxSqliteWarning = Boolean(
+    activeSession?.agentCommand === 'codex' &&
+      (!activeSession.environment || activeSession.environment === 'native') &&
+      activeSession.agentRuntimeWarnings?.some((warning) =>
+        warning.startsWith(CODEX_TMUX_ATTACH_SQLITE_WARNING_PREFIX)
+      )
+  );
   const codexNotices = [
     ...(showCodexWrapperSqliteWarning ? [t(CODEX_WRAPPER_SQLITE_NOTICE)] : []),
     ...(showCodexWrapperCapabilityWarning ? [t(CODEX_WRAPPER_CAPABILITY_NOTICE)] : []),
     ...(showCodexTmuxCapabilityWarning ? [t(CODEX_TMUX_ATTACH_CAPABILITY_NOTICE)] : []),
+    ...(showCodexTmuxSqliteWarning ? [t(CODEX_TMUX_ATTACH_SQLITE_NOTICE)] : []),
   ];
   const activeSessionProviderId = useMemo(
     () => agentProviderProfileAdapter.getProviderIdForSession(activeSession),
@@ -1247,6 +1259,17 @@ export function SessionBar({
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <div className="min-w-0 flex-1 ui-type-meta">
                   {t(CODEX_TMUX_ATTACH_CAPABILITY_NOTICE)}
+                </div>
+              </div>
+            ) : null}
+            {showCodexTmuxSqliteWarning ? (
+              <div
+                role="status"
+                className="flex w-full items-start gap-2 rounded-xl border border-warning/45 bg-warning/8 px-3 py-2 text-warning-foreground"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <div className="min-w-0 flex-1 ui-type-meta">
+                  {t(CODEX_TMUX_ATTACH_SQLITE_NOTICE)}
                 </div>
               </div>
             ) : null}

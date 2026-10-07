@@ -25,6 +25,8 @@ import { sessionManager } from '../services/session/SessionManager';
 import log from '../utils/logger';
 
 const MANAGED_CODEX_RUNTIME_HOME_ENV_KEY = 'INFILUX_MANAGED_CODEX_RUNTIME_HOME';
+const CODEX_TMUX_ATTACH_SQLITE_WARNING =
+  'Restart this Codex session to use the worktree-scoped resume index; an existing tmux process cannot change it.';
 
 function toSessionCreateOptions(options: TerminalCreateOptions = {}): SessionCreateOptions {
   return {
@@ -255,12 +257,36 @@ async function prepareAgentSessionOptions(
   }
   const sqliteHomePath = prepared.env?.CODEX_SQLITE_HOME;
   const managedHomePath = prepared.env?.[MANAGED_CODEX_RUNTIME_HOME_ENV_KEY];
-  return isCodexAgentSession(prepared) &&
-    sqliteHomePath &&
-    managedHomePath &&
-    managedHomePath === prepared.env?.CODEX_HOME
-    ? applyCodexSqliteLaunchOptions(prepared, sqliteHomePath)
-    : prepared;
+  if (
+    !isCodexAgentSession(prepared) ||
+    !sqliteHomePath ||
+    !managedHomePath ||
+    managedHomePath !== prepared.env?.CODEX_HOME
+  ) {
+    return prepared;
+  }
+
+  const launched = applyCodexSqliteLaunchOptions(prepared, sqliteHomePath);
+  const isExistingTmuxSession =
+    prepared.hostSession?.kind === 'tmux' &&
+    prepared.hostSession?.mode === 'attach-existing' &&
+    (prepared.codexLaunch?.kind === 'native' || !prepared.codexLaunch);
+  if (!isExistingTmuxSession) {
+    return launched;
+  }
+
+  const existingWarnings = Array.isArray(launched.metadata?.codexRuntimeWarnings)
+    ? launched.metadata.codexRuntimeWarnings.filter(
+        (warning): warning is string => typeof warning === 'string'
+      )
+    : [];
+  return {
+    ...launched,
+    metadata: {
+      ...launched.metadata,
+      codexRuntimeWarnings: [...new Set([...existingWarnings, CODEX_TMUX_ATTACH_SQLITE_WARNING])],
+    },
+  };
 }
 
 function resolveSessionTarget(sender: WebContents): WebContents | number {
