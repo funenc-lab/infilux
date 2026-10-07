@@ -1,15 +1,21 @@
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { type FileHandle, open } from 'node:fs/promises';
 import os from 'node:os';
@@ -104,7 +110,9 @@ describe('importCodexExternalSessions', () => {
 
     expect(result.imported).toBe(1);
     expect(result.retryableFailures).toBeGreaterThan(0);
-    expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath))).toEqual(bytes);
+    expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath)).equals(bytes)).toBe(
+      true
+    );
     expect(existsSync(path.join(fixture.sessionHistoryPath, 'unknown.jsonl'))).toBe(false);
     expect(existsSync(path.join(fixture.sessionHistoryPath, 'incomplete.jsonl'))).toBe(false);
     expect(
@@ -215,6 +223,67 @@ describe('importCodexExternalSessions', () => {
     expect(existsSync(path.join(fixture.sessionHistoryPath, 'broken.jsonl'))).toBe(false);
   });
 
+  it('copies a multi-megabyte transcript in bounded chunks without reading it all at once', async () => {
+    const fixture = createFixture();
+    const relativePath = 'large-valid.jsonl';
+    const bytes = writeTranscript({
+      directory: fixture.sourceSessionsPath,
+      relativePath,
+      finalLine: JSON.stringify({
+        type: 'event_msg',
+        payload: { message: 'x'.repeat(4 * 1024 * 1024) },
+      }),
+    });
+    const probe = await open(path.join(fixture.sessionHistoryPath, 'prototype-probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as {
+      writeFile(data: Buffer): Promise<void>;
+      readFile(): Promise<Buffer>;
+    };
+    const originalWriteFile = prototype.writeFile;
+    await probe.close();
+    let largestWrite = 0;
+    vi.spyOn(prototype, 'writeFile').mockImplementation(function (this: FileHandle, data) {
+      largestWrite = Math.max(largestWrite, data.length);
+      return originalWriteFile.call(this, data);
+    });
+    const readAll = vi.spyOn(prototype, 'readFile');
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.imported).toBe(1);
+    expect(largestWrite).toBeLessThanOrEqual(128 * 1024);
+    expect(readAll).not.toHaveBeenCalled();
+    expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath)).equals(bytes)).toBe(
+      true
+    );
+  });
+
+  it('defers a single JSONL record over the 64 MiB last-line memory budget', async () => {
+    const fixture = createFixture();
+    const relativePath = 'oversized-record.jsonl';
+    const sourceFile = path.join(fixture.sourceSessionsPath, relativePath);
+    writeFileSync(
+      sourceFile,
+      `${JSON.stringify({ type: 'session_meta', payload: { id: firstThreadId, cwd: worktreePath } })}\n{"type":"event_msg","payload":{"message":"`
+    );
+    const descriptor = openSync(sourceFile, 'a');
+    try {
+      const chunk = Buffer.alloc(128 * 1024, 'x');
+      for (let index = 0; index < 513; index += 1) {
+        writeSync(descriptor, chunk);
+      }
+      writeSync(descriptor, Buffer.from('"}}\n'));
+    } finally {
+      closeSync(descriptor);
+    }
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.imported).toBe(0);
+    expect(result.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+  }, 20_000);
+
   it('rejects a transcript with truncated UTF-8 in the final JSON record', async () => {
     const fixture = createFixture();
     const relativePath = 'invalid-utf8.jsonl';
@@ -251,6 +320,25 @@ describe('importCodexExternalSessions', () => {
     expect(existsSync(path.join(outsideDirectory, '10', '07', 'outside.jsonl'))).toBe(false);
   });
 
+  it('rejects a symlinked session history root instead of importing into a sibling worktree', async () => {
+    const fixture = createFixture();
+    const sibling = createFixture();
+    const relativePath = 'sibling-leak.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const linkedHistoryPath = path.join(path.dirname(fixture.sessionHistoryPath), 'sessions-link');
+    symlinkSync(sibling.sessionHistoryPath, linkedHistoryPath);
+
+    const result = await importCodexExternalSessions({
+      ...fixture,
+      sessionHistoryPath: linkedHistoryPath,
+      worktreePath,
+    });
+
+    expect(result.imported).toBe(0);
+    expect(result.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(path.join(sibling.sessionHistoryPath, relativePath))).toBe(false);
+  });
+
   it('does not unlink unrelated files when a target ancestor changes during publication', async () => {
     const fixture = createFixture();
     const relativePath = path.join('2026', '10', '07', 'race.jsonl');
@@ -263,6 +351,9 @@ describe('importCodexExternalSessions', () => {
     await probe.close();
     let unrelatedFile = '';
     vi.spyOn(prototype, 'writeFile').mockImplementation(function (this: FileHandle, data) {
+      if (!Buffer.isBuffer(data) || !data.includes(Buffer.from('"type":"session_meta"'))) {
+        return originalWriteFile.call(this, data);
+      }
       const yearDirectory = path.join(fixture.sessionHistoryPath, '2026');
       const importDirectory = path.join(yearDirectory, '10', '07');
       const temporaryName = readdirSync(importDirectory).find((name) => name.endsWith('.tmp'));
@@ -298,6 +389,157 @@ describe('importCodexExternalSessions', () => {
     expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
   });
 
+  it('defers when a different process holds the workspace import lock', async () => {
+    const fixture = createFixture();
+    const relativePath = 'from-other-process.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const lockPath = path.join(
+      path.dirname(fixture.sessionHistoryPath),
+      '.external-session-import.lock'
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        [
+          "const fs = require('node:fs');",
+          'const lockPath = process.argv[1];',
+          "fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, token: 'other-process', createdAt: Date.now() }), { flag: 'wx' });",
+          "process.stdout.write('locked\\n');",
+          "process.stdin.on('end', () => fs.unlinkSync(lockPath));",
+          'process.stdin.resume();',
+        ].join('\n'),
+        lockPath,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+
+    try {
+      await once(child.stdout, 'data');
+      const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+      expect(result.imported).toBe(0);
+      expect(result.retryableFailures).toBeGreaterThan(0);
+      expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+    } finally {
+      child.stdin.end();
+      if (child.exitCode === null) {
+        await once(child, 'exit');
+      }
+    }
+  });
+
+  it('recovers an old lock only when its owner is confirmed dead', async () => {
+    const fixture = createFixture();
+    const relativePath = 'retry-after-crash.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const lockPath = path.join(
+      path.dirname(fixture.sessionHistoryPath),
+      '.external-session-import.lock'
+    );
+    const oldTimestamp = Date.now() - 20 * 60 * 1_000;
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: 2_147_483_647, token: firstThreadId, createdAt: oldTimestamp })
+    );
+    utimesSync(lockPath, new Date(oldTimestamp), new Date(oldTimestamp));
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.imported).toBe(1);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(true);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it('does not steal an old import lock while its owner process is still alive', async () => {
+    const fixture = createFixture();
+    const relativePath = 'alive-lock-owner.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+    const lockPath = path.join(
+      path.dirname(fixture.sessionHistoryPath),
+      '.external-session-import.lock'
+    );
+    const oldTimestamp = Date.now() - 20 * 60 * 1_000;
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: process.pid, token: firstThreadId, createdAt: oldTimestamp })
+    );
+    utimesSync(lockPath, new Date(oldTimestamp), new Date(oldTimestamp));
+
+    const result = await importCodexExternalSessions({ ...fixture, worktreePath });
+
+    expect(result.imported).toBe(0);
+    expect(result.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(lockPath)).toBe(true);
+  });
+
+  it('serializes concurrent imports across the complete thread-ID scan and publication', async () => {
+    const fixture = createFixture();
+    const firstPath = '2026/10/07/first.jsonl';
+    const duplicatePath = '2026/10/08/duplicate.jsonl';
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath: firstPath });
+    writeTranscript({ directory: fixture.sourceSessionsPath, relativePath: duplicatePath });
+    const probe = await open(path.join(fixture.sessionHistoryPath, 'prototype-probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as { writeFile(data: Buffer): Promise<void> };
+    const originalWriteFile = prototype.writeFile;
+    await probe.close();
+    let resumeFirstWrite: (() => void) | undefined;
+    let blockedOnce = false;
+    const firstWriteBlocked = new Promise<void>((resolve) => {
+      vi.spyOn(prototype, 'writeFile').mockImplementation(async function (this: FileHandle, data) {
+        if (
+          !blockedOnce &&
+          Buffer.isBuffer(data) &&
+          data.includes(Buffer.from('"type":"session_meta"'))
+        ) {
+          blockedOnce = true;
+          resolve();
+          await new Promise<void>((resume) => {
+            resumeFirstWrite = resume;
+          });
+        }
+        await originalWriteFile.call(this, data);
+      });
+    });
+
+    const firstImport = importCodexExternalSessions({ ...fixture, worktreePath });
+    await firstWriteBlocked;
+    let second: Awaited<ReturnType<typeof importCodexExternalSessions>>;
+    try {
+      second = await importCodexExternalSessions({ ...fixture, worktreePath });
+    } finally {
+      resumeFirstWrite?.();
+    }
+    const first = await firstImport;
+
+    expect(second.imported).toBe(0);
+    expect(second.retryableFailures).toBeGreaterThan(0);
+    expect(first.imported).toBe(1);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, firstPath))).toBe(true);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, duplicatePath))).toBe(false);
+  });
+
+  it('defers imports while any existing target transcript has unknown metadata', async () => {
+    const fixture = createFixture();
+    const relativePath = 'matching-new.jsonl';
+    const unreadable = path.join(fixture.sessionHistoryPath, 'unclassified.jsonl');
+    writeFileSync(unreadable, '{"type":"event_msg"}\n');
+    const bytes = writeTranscript({ directory: fixture.sourceSessionsPath, relativePath });
+
+    const first = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(first.imported).toBe(0);
+    expect(first.retryableFailures).toBeGreaterThan(0);
+    expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
+
+    writeTranscript({
+      directory: fixture.sessionHistoryPath,
+      relativePath: 'unclassified.jsonl',
+      threadId: secondThreadId,
+    });
+    const second = await importCodexExternalSessions({ ...fixture, worktreePath });
+    expect(second.imported).toBe(1);
+    expect(readFileSync(path.join(fixture.sessionHistoryPath, relativePath))).toEqual(bytes);
+  });
+
   it('does not publish a source that changes while being copied and retries on the next pass', async () => {
     const fixture = createFixture();
     const relativePath = '2026/10/07/active.jsonl';
@@ -311,6 +553,9 @@ describe('importCodexExternalSessions', () => {
       this: FileHandle,
       data
     ) {
+      if (!Buffer.isBuffer(data) || !data.includes(Buffer.from('"type":"session_meta"'))) {
+        return originalWriteFile.call(this, data);
+      }
       appendFileSync(
         sourceFile,
         `${JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Later' } })}\n`
@@ -320,7 +565,11 @@ describe('importCodexExternalSessions', () => {
 
     const first = await importCodexExternalSessions({ ...fixture, worktreePath });
 
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(
+      spy.mock.calls.filter(
+        ([data]) => Buffer.isBuffer(data) && data.includes(Buffer.from('"type":"session_meta"'))
+      )
+    ).toHaveLength(1);
     expect(first.imported).toBe(0);
     expect(first.retryableFailures).toBeGreaterThan(0);
     expect(existsSync(path.join(fixture.sessionHistoryPath, relativePath))).toBe(false);
