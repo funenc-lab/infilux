@@ -7,6 +7,7 @@ import type {
   SessionCreateOptions,
 } from '@shared/types';
 import { isHttpMcpConfig } from '@shared/types';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { listClaudeCapabilityCatalog } from '../claude/CapabilityCatalogService';
 import {
   type CapabilityMcpConfigEntry,
@@ -23,8 +24,10 @@ import type {
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
 import {
+  CODEX_WRAPPER_SQLITE_WARNING,
   injectCodexShellFragment,
   isCodexShell,
+  isCodexThirdPartyWrapperLaunch,
   isUnsupportedShellConfig,
   patchTrailingCommandArg,
   quoteCodexShellAssignment,
@@ -468,6 +471,7 @@ export function createCodexCapabilityProviderAdapter(
         resolvedPolicy,
         mcpConfigs
       );
+      const isWrapperLaunch = isCodexThirdPartyWrapperLaunch(sessionOptions);
       const uiSessionId =
         typeof sessionOptions.metadata?.uiSessionId === 'string' &&
         sessionOptions.metadata.uiSessionId.length > 0
@@ -491,6 +495,10 @@ export function createCodexCapabilityProviderAdapter(
               },
             }
           );
+      const warnings =
+        isWrapperLaunch && runtimeHome
+          ? [...projection.warnings, CODEX_WRAPPER_SQLITE_WARNING]
+          : projection.warnings;
       const sessionOverrides: AgentCapabilitySessionOverrides = {
         ...(projection.sessionOverrides ?? {}),
         env: {
@@ -498,7 +506,11 @@ export function createCodexCapabilityProviderAdapter(
           ...(runtimeHome
             ? {
                 CODEX_HOME: runtimeHome.homePath,
-                CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath,
+                ...(!isRemoteVirtualPath(request.worktreePath) &&
+                !isRemoteVirtualPath(sessionOptions.cwd ?? '') &&
+                !isWrapperLaunch
+                  ? { CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath }
+                  : {}),
                 INFILUX_MANAGED_CODEX_RUNTIME_HOME: runtimeHome.homePath,
               }
             : {}),
@@ -522,14 +534,14 @@ export function createCodexCapabilityProviderAdapter(
           repoPath: request.repoPath,
           worktreePath: request.worktreePath,
           hash: resolvedPolicy.hash,
-          warnings: projection.warnings,
+          warnings,
           resolvedPolicy,
           projected: {
             hash: resolvedPolicy.hash,
             materializationMode: 'provider-native',
             applied: projection.applied,
             updatedFiles: [],
-            warnings: projection.warnings,
+            warnings,
             errors: [],
           },
           policyHash: resolvedPolicy.hash,

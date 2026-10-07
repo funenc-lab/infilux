@@ -7,6 +7,7 @@ import {
   type TerminalCreateOptions,
   type TerminalResizeOptions,
 } from '@shared/types';
+import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import {
   prepareAgentCapabilityLaunch,
@@ -14,9 +15,14 @@ import {
 } from '../services/agent/AgentCapabilityLaunchService';
 import type { PreparedAgentCapabilityLaunch } from '../services/agent/AgentCapabilityProviderAdapter';
 import { codexRuntimeHomeService } from '../services/agent/CodexRuntimeHomeService';
-import { applyCodexSqliteLaunchOptions } from '../services/agent/CodexSqliteLaunchOptions';
+import {
+  applyCodexSqliteLaunchOptions,
+  CODEX_WRAPPER_SQLITE_WARNING,
+  isCodexThirdPartyWrapperLaunch,
+} from '../services/agent/CodexSqliteLaunchOptions';
 import { resolveCodexWorkspaceSessionHistoryPath } from '../services/agent/CodexWorkspaceSessionHistory';
 import { sessionManager } from '../services/session/SessionManager';
+import log from '../utils/logger';
 
 const MANAGED_CODEX_RUNTIME_HOME_ENV_KEY = 'INFILUX_MANAGED_CODEX_RUNTIME_HOME';
 
@@ -155,7 +161,9 @@ async function ensureCodexRuntimeHome(
     env: {
       ...(options.env ?? {}),
       CODEX_HOME: runtimeHome.homePath,
-      CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath,
+      ...(!isRemoteVirtualPath(worktreePath ?? '') && !isCodexThirdPartyWrapperLaunch(options)
+        ? { CODEX_SQLITE_HOME: runtimeHome.sqliteHomePath }
+        : {}),
       [MANAGED_CODEX_RUNTIME_HOME_ENV_KEY]: runtimeHome.homePath,
     },
     metadata: {
@@ -191,6 +199,45 @@ async function prepareAgentSessionOptions(
   const prepared = await ensureCodexRuntimeHome(
     launchResult ? applyPreparedAgentCapabilityLaunch(options, launchResult) : options
   );
+  const remotePath =
+    prepared.cwd ??
+    (typeof prepared.metadata?.worktreePath === 'string' ? prepared.metadata.worktreePath : '');
+  if (isRemoteVirtualPath(remotePath)) {
+    if (
+      prepared.env?.CODEX_SQLITE_HOME &&
+      prepared.env.CODEX_SQLITE_HOME !== options.env?.CODEX_SQLITE_HOME
+    ) {
+      const remoteEnv = { ...prepared.env };
+      delete remoteEnv.CODEX_SQLITE_HOME;
+      return { ...prepared, env: remoteEnv };
+    }
+    return prepared;
+  }
+  if (
+    isCodexAgentSession(prepared) &&
+    prepared.env?.CODEX_HOME === prepared.env?.[MANAGED_CODEX_RUNTIME_HOME_ENV_KEY] &&
+    isCodexThirdPartyWrapperLaunch(prepared)
+  ) {
+    log.warn(`[session] ${CODEX_WRAPPER_SQLITE_WARNING}`);
+    const agentCapability = prepared.metadata?.agentCapability;
+    if (agentCapability && typeof agentCapability === 'object' && !Array.isArray(agentCapability)) {
+      const capability = agentCapability as { warnings?: unknown };
+      const warnings = Array.isArray(capability.warnings)
+        ? capability.warnings.filter((warning): warning is string => typeof warning === 'string')
+        : [];
+      const updatedWarnings = warnings.includes(CODEX_WRAPPER_SQLITE_WARNING)
+        ? warnings
+        : [...warnings, CODEX_WRAPPER_SQLITE_WARNING];
+      return {
+        ...prepared,
+        metadata: {
+          ...prepared.metadata,
+          agentCapability: { ...agentCapability, warnings: updatedWarnings },
+        },
+      };
+    }
+    return prepared;
+  }
   const sqliteHomePath = prepared.env?.CODEX_SQLITE_HOME;
   const managedHomePath = prepared.env?.[MANAGED_CODEX_RUNTIME_HOME_ENV_KEY];
   return isCodexAgentSession(prepared) &&

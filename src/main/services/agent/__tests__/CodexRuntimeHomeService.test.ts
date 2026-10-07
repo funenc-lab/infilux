@@ -128,6 +128,28 @@ describe('CodexRuntimeHomeService', () => {
     expect(existsSync(path.join(workspaceSessionsPath, 'global-history.jsonl'))).toBe(false);
   });
 
+  it('rejects a pre-existing symlink to a sibling worktree SQLite directory before launch', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const siblingSqlitePath = path.join(createTempRoot(), 'sqlite');
+    mkdirSync(siblingSqlitePath, { recursive: true });
+    symlinkSync(
+      siblingSqlitePath,
+      path.join(path.dirname(workspaceSessionsPath), 'sqlite'),
+      process.platform === 'win32' ? 'junction' : undefined
+    );
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    await expect(
+      service.prepareRuntimeHome('ui-session', {
+        sessionHistoryPath: workspaceSessionsPath,
+        sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+      })
+    ).rejects.toThrow('Codex worktree SQLite directory must not be a symlink');
+    expect(existsSync(path.join(siblingSqlitePath, 'state_5.sqlite'))).toBe(false);
+  });
+
   it('imports only matching user-global session history into an Infilux runtime home', async () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();

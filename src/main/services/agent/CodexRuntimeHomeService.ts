@@ -257,6 +257,9 @@ export class CodexRuntimeHomeService {
     );
     const sqliteHomePath = path.join(path.dirname(options.sessionHistoryPath), 'sqlite');
     mkdirSync(sqliteHomePath, { recursive: true });
+    if (lstatSync(sqliteHomePath).isSymbolicLink()) {
+      throw new Error('Codex worktree SQLite directory must not be a symlink');
+    }
     try {
       const result = await importCodexExternalSessions({
         sessionHistoryPath: options.sessionHistoryPath,

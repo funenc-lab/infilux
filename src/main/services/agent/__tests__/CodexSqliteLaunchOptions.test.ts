@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import type { SessionCreateOptions } from '@shared/types';
 import { describe, expect, it } from 'vitest';
+import { buildAgentLaunchPlan } from '../../../../renderer/components/chat/agentLaunchPlan';
 import { applyCodexSqliteLaunchOptions } from '../CodexSqliteLaunchOptions';
 
 const sqliteHome = '/tmp/work tree/quotes " and apostrophe \'/sqlite';
@@ -94,6 +95,68 @@ describe('applyCodexSqliteLaunchOptions', () => {
         .split('\n');
       expect(argumentsReceived).toEqual(['-c', assignment, 'resume', 'thread-id']);
     }
+  });
+
+  it.each([
+    '/tmp/work tree/sqlite',
+    sqliteHome,
+  ])('passes sqlite_home into the actual Codex process inside a native local tmux plan: %s', (sqliteHomePath) => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-session-native',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const updated = applyCodexSqliteLaunchOptions(
+      {
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        hostSession: plan.hostSession,
+      },
+      sqliteHomePath
+    );
+
+    const tmuxNewSessionPayload = updated.initialCommand?.match(
+      /new-session -d .*? -s \S+ ('(?:[^']|'\\'')*')/
+    )?.[1];
+    expect(tmuxNewSessionPayload).toBeDefined();
+    if (process.platform !== 'win32' && tmuxNewSessionPayload) {
+      const args = execFileSync(
+        '/bin/sh',
+        [
+          '-c',
+          `env() { while [ "$1" = -u ]; do shift 2; done; "$@"; }; codex() { printf '%s\\n' "$@"; }; eval ${tmuxNewSessionPayload}`,
+        ],
+        { encoding: 'utf8' }
+      )
+        .trim()
+        .split('\n');
+      expect(args).toEqual(['-c', `sqlite_home=${JSON.stringify(sqliteHomePath)}`]);
+    }
+  });
+
+  it('still enforces native direct Codex argv when stale wrapper metadata is present', () => {
+    const updated = applyCodexSqliteLaunchOptions(
+      {
+        kind: 'agent',
+        shell: 'codex',
+        args: ['resume', 'thread-id'],
+        metadata: { environment: 'hapi' },
+      },
+      '/tmp/codex-worktree/sqlite'
+    );
+
+    expect(updated.args).toEqual([
+      '-c',
+      'sqlite_home="/tmp/codex-worktree/sqlite"',
+      'resume',
+      'thread-id',
+    ]);
   });
 
   it('injects PowerShell executable commands using PowerShell-safe quoting', () => {

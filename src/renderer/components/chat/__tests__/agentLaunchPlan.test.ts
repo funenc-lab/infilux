@@ -397,6 +397,25 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.tmuxSessionName).toBeNull();
   });
 
+  it.each([
+    'hapi',
+    'happy',
+  ] as const)('does not claim a managed SQLite index in the local %s tmux wrapper environment', (environment) => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment,
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-wrapper',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    expect(plan.command?.args.at(-1)).toContain(`-e CODEX_HOME="\${CODEX_HOME}"`);
+    expect(plan.command?.args.at(-1)).not.toContain('CODEX_SQLITE_HOME');
+  });
+
   it('passes Gemini runtime provenance to a new tmux host session', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'gemini',
