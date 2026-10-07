@@ -24,6 +24,15 @@ describe('scenario-specific Electron environment isolation', () => {
       AZURE_OPENAI_ENDPOINT: 'https://host.invalid',
       INFILUX_CODEX_API_KEY: 'fake-managed-codex-api-key',
       INFILUX_CODEX_PROVIDER_KEY: 'fake-managed-provider-key',
+      CLAUDE_CONFIG_DIR: '/host/claude-config',
+      ANTHROPIC_AUTH_TOKEN: 'fake-anthropic-token',
+      CURSOR_CONFIG_DIR: '/host/cursor-config',
+      CURSOR_API_KEY: 'fake-cursor-api-key',
+      GEMINI_CONFIG_DIR: '/host/gemini-config',
+      GEMINI_CLI_HOME: '/host/gemini-home',
+      GEMINI_API_KEY: 'fake-gemini-api-key',
+      GOOGLE_API_KEY: 'fake-google-api-key',
+      GOOGLE_GEMINI_BASE_URL: 'https://host.invalid',
       APPDATA: '/host/appdata',
       LOCALAPPDATA: '/host/localappdata',
       XDG_CONFIG_HOME: '/host/config',
@@ -54,6 +63,15 @@ describe('scenario-specific Electron environment isolation', () => {
         'AZURE_OPENAI_ENDPOINT',
         'INFILUX_CODEX_API_KEY',
         'INFILUX_CODEX_PROVIDER_KEY',
+        'CLAUDE_CONFIG_DIR',
+        'ANTHROPIC_AUTH_TOKEN',
+        'CURSOR_CONFIG_DIR',
+        'CURSOR_API_KEY',
+        'GEMINI_CONFIG_DIR',
+        'GEMINI_CLI_HOME',
+        'GEMINI_API_KEY',
+        'GOOGLE_API_KEY',
+        'GOOGLE_GEMINI_BASE_URL',
       ]) {
         expect(Object.hasOwn(environment, name)).toBe(false);
       }
@@ -65,6 +83,9 @@ describe('scenario-specific Electron environment isolation', () => {
       expect(ordinaryLaunch.CODEX_HOME).toBe(fakeHostEnvironment.CODEX_HOME);
       expect(ordinaryLaunch.OPENAI_API_KEY).toBeDefined();
       expect(ordinaryLaunch.APPDATA).toBe(fakeHostEnvironment.APPDATA);
+      expect(ordinaryLaunch.CLAUDE_CONFIG_DIR).toBe(fakeHostEnvironment.CLAUDE_CONFIG_DIR);
+      expect(ordinaryLaunch.CURSOR_API_KEY).toBeDefined();
+      expect(ordinaryLaunch.GEMINI_CLI_HOME).toBe(fakeHostEnvironment.GEMINI_CLI_HOME);
     } finally {
       await scenario.cleanup();
     }

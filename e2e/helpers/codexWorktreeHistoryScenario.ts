@@ -315,7 +315,17 @@ export async function createCodexWorktreeHistoryScenario(): Promise<CodexWorktre
     }),
     homeDir,
     environmentPatch: {
-      omitPrefixes: ['CODEX_', 'OPENAI_', 'AZURE_OPENAI_', 'INFILUX_CODEX_'],
+      omitPrefixes: [
+        'CODEX_',
+        'OPENAI_',
+        'AZURE_OPENAI_',
+        'INFILUX_CODEX_',
+        'CLAUDE_',
+        'ANTHROPIC_',
+        'CURSOR_',
+        'GEMINI_',
+        'GOOGLE_',
+      ],
       set: {
         CODEX_HOME: join(homeDir, '.codex'),
         CODEX_HISTORY_E2E_LOG: invocationLogPath,
