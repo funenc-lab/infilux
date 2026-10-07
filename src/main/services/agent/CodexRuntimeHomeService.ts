@@ -29,7 +29,7 @@ import {
   migrateCodexWorkspaceSessionHistory,
 } from './CodexWorkspaceSessionHistory';
 
-export type CodexRuntimeHomeResult = AgentRuntimeHomeResult;
+export type CodexRuntimeHomeResult = AgentRuntimeHomeResult & { sqliteHomePath: string };
 
 export interface CodexRuntimeHomeOptions {
   sessionHistoryPath: string;
@@ -277,12 +277,14 @@ export class CodexRuntimeHomeService {
       options.sessionHistoryPath,
       runtimeHome.homePath
     );
+    const sqliteHomePath = path.join(path.dirname(options.sessionHistoryPath), 'sqlite');
+    mkdirSync(sqliteHomePath, { recursive: true });
     this.scheduleWorkspaceMigration(
       options,
       migratedRuntimeSessionPath ? [migratedRuntimeSessionPath] : [],
       runtimeHome.sourceHomePath
     );
-    return runtimeHome;
+    return { ...runtimeHome, sqliteHomePath };
   }
 
   async runExclusive<T>(runtimeKey: string, operation: () => Promise<T> | T): Promise<T> {

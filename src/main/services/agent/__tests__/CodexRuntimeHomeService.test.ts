@@ -17,7 +17,10 @@ import type {
   CodexWorkspaceHistoryMigrationOperation,
   CodexWorkspaceHistoryMigrationScheduler,
 } from '../CodexWorkspaceHistoryMigrationCoordinator';
-import { resolveCodexWorkspaceSessionHistoryPath } from '../CodexWorkspaceSessionHistory';
+import {
+  resolveCodexWorkspaceSessionHistoryPath,
+  resolveCodexWorkspaceSqliteHomePath,
+} from '../CodexWorkspaceSessionHistory';
 
 vi.mock('electron', () => ({
   app: {
@@ -107,6 +110,7 @@ describe('CodexRuntimeHomeService', () => {
     expect(result).toEqual({
       homePath: path.join(runtimeRoot, 'session-with-spaces'),
       sourceHomePath: sourceHome,
+      sqliteHomePath: path.join(path.dirname(workspaceSessionsPath), 'sqlite'),
     });
     expect(existsSync(path.join(result.homePath, '.infilux-managed-runtime-home-v1'))).toBe(true);
     expect(readlinkSync(path.join(result.homePath, 'auth.json'))).toBe(
@@ -420,6 +424,37 @@ describe('CodexRuntimeHomeService', () => {
     );
   });
 
+  it('keeps SQLite stable across UI runtime homes while separating sibling worktrees', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const historyRoot = path.join(createTempRoot(), 'history with spaces');
+    const scope = { historyRoot, worktreePath: '/repo/worktree with spaces' };
+    const siblingScope = { historyRoot, worktreePath: '/repo/sibling-worktree' };
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    const [first, second, sibling] = await Promise.all([
+      service.prepareRuntimeHome('ui-session-one', {
+        sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath(scope),
+        sessionHistoryScope: scope,
+      }),
+      service.prepareRuntimeHome('ui-session-two', {
+        sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath(scope),
+        sessionHistoryScope: scope,
+      }),
+      service.prepareRuntimeHome('ui-session-three', {
+        sessionHistoryPath: resolveCodexWorkspaceSessionHistoryPath(siblingScope),
+        sessionHistoryScope: siblingScope,
+      }),
+    ]);
+
+    expect(first.homePath).not.toBe(second.homePath);
+    expect(first.sqliteHomePath).toBe(resolveCodexWorkspaceSqliteHomePath(scope));
+    expect(first.sqliteHomePath).toBe(second.sqliteHomePath);
+    expect(first.sqliteHomePath).not.toBe(sibling.sqliteHomePath);
+    expect(existsSync(first.sqliteHomePath)).toBe(true);
+    expect(existsSync(sibling.sqliteHomePath)).toBe(true);
+  });
+
   it('prunes old orphaned Codex runtime homes while retaining active and recent homes', () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();
@@ -511,6 +546,8 @@ describe('CodexRuntimeHomeService', () => {
     mkdirSync(path.dirname(historyPath), { recursive: true });
     writeFileSync(historyPath, 'worktree-history');
     writeFileSync(path.join(runtimeHome.homePath, 'state_5.sqlite'), 'runtime-state');
+    const stableSqlitePath = path.join(runtimeHome.sqliteHomePath, 'state_5.sqlite');
+    writeFileSync(stableSqlitePath, 'persistent-worktree-state');
 
     const releaseRuntimeHome = Reflect.get(service, 'releaseRuntimeHome') as
       | ((homePath: string) => Promise<boolean>)
@@ -520,6 +557,32 @@ describe('CodexRuntimeHomeService', () => {
     await expect(releaseRuntimeHome?.call(service, runtimeHome.homePath)).resolves.toBe(true);
     expect(existsSync(runtimeHome.homePath)).toBe(false);
     expect(readFileSync(historyPath, 'utf8')).toBe('worktree-history');
+    expect(readFileSync(stableSqlitePath, 'utf8')).toBe('persistent-worktree-state');
+  });
+
+  it('retains the worktree SQLite directory after pruning an orphaned UI runtime home', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const workspaceSessionsPath = path.join(createTempRoot(), 'sessions');
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+    const runtimeHome = await service.prepareRuntimeHome('old-session', {
+      sessionHistoryPath: workspaceSessionsPath,
+      sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+    });
+    const stableSqlitePath = path.join(runtimeHome.sqliteHomePath, 'state_5.sqlite');
+    writeFileSync(stableSqlitePath, 'persistent-worktree-state');
+    const oldTimestamp = new Date('2026-01-01T00:00:00.000Z');
+    utimesSync(runtimeHome.homePath, oldTimestamp, oldTimestamp);
+
+    const pruneResult = service.pruneOrphanedRuntimeHomes({
+      retainedRuntimeKeys: [],
+      minAgeMs: 30 * 24 * 60 * 60 * 1_000,
+      now: Date.parse('2026-04-10T00:00:00.000Z'),
+    });
+
+    expect(pruneResult.prunedHomePaths).toEqual([runtimeHome.homePath]);
+    expect(existsSync(runtimeHome.homePath)).toBe(false);
+    expect(readFileSync(stableSqlitePath, 'utf8')).toBe('persistent-worktree-state');
   });
 
   it('refuses to release paths outside the managed runtime root', async () => {

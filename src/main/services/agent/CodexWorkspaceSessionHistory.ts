@@ -183,6 +183,12 @@ export function resolveCodexWorkspaceSessionHistoryPath(
   return path.join(historyRoot, `workspace-${key}`, 'sessions');
 }
 
+export function resolveCodexWorkspaceSqliteHomePath(
+  scope: CodexWorkspaceSessionHistoryScope
+): string {
+  return path.join(path.dirname(resolveCodexWorkspaceSessionHistoryPath(scope)), 'sqlite');
+}
+
 export async function listLegacyCodexWorkspaceSessionHistoryPaths(
   sessionHistoryPath: string
 ): Promise<string[]> {
