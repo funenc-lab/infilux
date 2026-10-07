@@ -342,6 +342,8 @@ const SESSION_BAR_SPLIT_PRIMARY_ACTION_BUTTON_CLASS_NAME = `${SESSION_BAR_SPLIT_
 const SESSION_BAR_SPLIT_TOGGLE_ACTION_BUTTON_CLASS_NAME = `${SESSION_BAR_SPLIT_ACTION_BUTTON_CLASS_NAME} -ml-px h-8 w-7 rounded-l-none rounded-r-lg border-l border-foreground/12`;
 const CODEX_WRAPPER_SQLITE_WARNING_PREFIX =
   'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches.';
+const CODEX_WRAPPER_SQLITE_NOTICE =
+  'Codex resume history is not isolated for Hapi/Happy sessions. Use the native Codex environment for worktree-scoped history.';
 
 /** Text that scrolls horizontally when overflowing */
 function MarqueeText({ children, className }: { children: string; className?: string }) {
@@ -1125,12 +1127,6 @@ export function SessionBar({
     <div ref={containerRef} className="absolute inset-0 pointer-events-none">
       <div
         ref={barRef}
-        onClick={state.collapsed ? handleExpand : undefined}
-        onKeyDown={
-          state.collapsed ? (event) => handleKeyboardActivation(event, handleExpand) : undefined
-        }
-        role={state.collapsed ? 'button' : undefined}
-        tabIndex={state.collapsed ? 0 : undefined}
         className={cn(
           'absolute max-w-[calc(100%-1rem)] pointer-events-auto',
           !dragging && 'transition-[left,right,top,transform] duration-300',
@@ -1153,16 +1149,31 @@ export function SessionBar({
         }}
       >
         {state.collapsed ? (
-          <div
-            title={t('Expand session controls')}
+          <button
+            type="button"
+            onClick={handleExpand}
+            aria-label={
+              showCodexWrapperSqliteWarning
+                ? `${t('Expand session controls')}. ${t(CODEX_WRAPPER_SQLITE_NOTICE)}`
+                : t('Expand session controls')
+            }
+            title={
+              showCodexWrapperSqliteWarning
+                ? t(CODEX_WRAPPER_SQLITE_NOTICE)
+                : t('Expand session controls')
+            }
             className={cn(
               SESSION_BAR_COLLAPSED_BUTTON_CLASS_NAME,
               state.edge === 'left' && 'rounded-l-md',
               state.edge === 'right' && 'rounded-r-md'
             )}
           >
-            <RectangleEllipsis className="h-4 w-4 text-muted-foreground" />
-          </div>
+            {showCodexWrapperSqliteWarning ? (
+              <AlertTriangle className="h-4 w-4 text-warning-foreground" aria-hidden="true" />
+            ) : (
+              <RectangleEllipsis className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
         ) : (
           <div
             role="toolbar"
@@ -1183,11 +1194,7 @@ export function SessionBar({
                 className="flex w-full items-start gap-2 rounded-xl border border-warning/45 bg-warning/8 px-3 py-2 text-warning-foreground"
               >
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <div className="min-w-0 flex-1 ui-type-meta">
-                  {t(
-                    'Codex resume history is not isolated for Hapi/Happy sessions. Use the native Codex environment for worktree-scoped history.'
-                  )}
-                </div>
+                <div className="min-w-0 flex-1 ui-type-meta">{t(CODEX_WRAPPER_SQLITE_NOTICE)}</div>
               </div>
             ) : null}
 

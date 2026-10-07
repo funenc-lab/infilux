@@ -92,11 +92,50 @@ function requireRegularWorkspaceDirectory(targetPath: string, label: string): St
   return stat;
 }
 
-function ensureSafeWorkspaceHistoryDirectories(sessionHistoryPath: string): void {
+interface WorkspaceHistoryDirectoryIdentity {
+  historyRoot: Stats;
+  workspaceParent: Stats;
+}
+
+function verifyWorkspaceHistoryDirectories(
+  sessionHistoryPath: string,
+  expected: WorkspaceHistoryDirectoryIdentity
+): void {
+  const workspaceParent = path.dirname(sessionHistoryPath);
+  const historyRoot = path.dirname(workspaceParent);
+  const actualRoot = requireRegularWorkspaceDirectory(historyRoot, 'Codex workspace history root');
+  const actualParent = requireRegularWorkspaceDirectory(
+    workspaceParent,
+    'Codex workspace history parent'
+  );
+  if (
+    !actualRoot ||
+    !actualParent ||
+    actualRoot.dev !== expected.historyRoot.dev ||
+    actualRoot.ino !== expected.historyRoot.ino ||
+    actualParent.dev !== expected.workspaceParent.dev ||
+    actualParent.ino !== expected.workspaceParent.ino ||
+    path.dirname(realpathSync(workspaceParent)) !== realpathSync(historyRoot)
+  ) {
+    throw new Error('Codex workspace history parent changed during preparation');
+  }
+  requireRegularWorkspaceDirectory(sessionHistoryPath, 'Codex workspace session history');
+  requireRegularWorkspaceDirectory(
+    path.join(workspaceParent, 'sqlite'),
+    'Codex worktree SQLite directory'
+  );
+}
+
+function ensureSafeWorkspaceHistoryDirectories(
+  sessionHistoryPath: string
+): WorkspaceHistoryDirectoryIdentity {
   const workspaceParent = path.dirname(sessionHistoryPath);
   const historyRoot = path.dirname(workspaceParent);
   const sqliteHomePath = path.join(workspaceParent, 'sqlite');
-  requireRegularWorkspaceDirectory(historyRoot, 'Codex workspace history root');
+  const originalRoot = requireRegularWorkspaceDirectory(
+    historyRoot,
+    'Codex workspace history root'
+  );
   const originalParent = requireRegularWorkspaceDirectory(
     workspaceParent,
     'Codex workspace history parent'
@@ -105,13 +144,19 @@ function ensureSafeWorkspaceHistoryDirectories(sessionHistoryPath: string): void
   requireRegularWorkspaceDirectory(sqliteHomePath, 'Codex worktree SQLite directory');
 
   mkdirSync(workspaceParent, { recursive: true });
-  requireRegularWorkspaceDirectory(historyRoot, 'Codex workspace history root');
+  const preparedRoot = requireRegularWorkspaceDirectory(
+    historyRoot,
+    'Codex workspace history root'
+  );
   const preparedParent = requireRegularWorkspaceDirectory(
     workspaceParent,
     'Codex workspace history parent'
   );
   if (
     !preparedParent ||
+    !preparedRoot ||
+    (originalRoot &&
+      (preparedRoot.dev !== originalRoot.dev || preparedRoot.ino !== originalRoot.ino)) ||
     (originalParent &&
       (preparedParent.dev !== originalParent.dev || preparedParent.ino !== originalParent.ino)) ||
     path.dirname(realpathSync(workspaceParent)) !== realpathSync(historyRoot)
@@ -120,16 +165,20 @@ function ensureSafeWorkspaceHistoryDirectories(sessionHistoryPath: string): void
   }
   requireRegularWorkspaceDirectory(sessionHistoryPath, 'Codex workspace session history');
   requireRegularWorkspaceDirectory(sqliteHomePath, 'Codex worktree SQLite directory');
+  return { historyRoot: preparedRoot, workspaceParent: preparedParent };
 }
 
 function ensureWorkspaceCodexRuntimeSessions(
   sessionHistoryPath: string,
-  runtimeHomePath: string
+  runtimeHomePath: string,
+  expected: WorkspaceHistoryDirectoryIdentity
 ): string | null {
   const runtimeSessionsPath = path.join(runtimeHomePath, 'sessions');
   let legacySessionsPath: string | null = null;
 
+  verifyWorkspaceHistoryDirectories(sessionHistoryPath, expected);
   mkdirSync(sessionHistoryPath, { recursive: true });
+  verifyWorkspaceHistoryDirectories(sessionHistoryPath, expected);
 
   if (existsSync(runtimeSessionsPath)) {
     const runtimeSessionsStat = lstatSync(runtimeSessionsPath);
@@ -300,17 +349,21 @@ export class CodexRuntimeHomeService {
     runtimeKey: string,
     options: CodexRuntimeHomeOptions
   ): Promise<CodexRuntimeHomeResult> {
-    ensureSafeWorkspaceHistoryDirectories(options.sessionHistoryPath);
+    const historyDirectoryIdentity = ensureSafeWorkspaceHistoryDirectories(
+      options.sessionHistoryPath
+    );
     const runtimeHome = this.getDelegate().prepareRuntimeHome(runtimeKey);
+    verifyWorkspaceHistoryDirectories(options.sessionHistoryPath, historyDirectoryIdentity);
     ensureSharedCodexMarketplaceSnapshots(runtimeHome.sourceHomePath, runtimeHome.homePath);
     const migratedRuntimeSessionPath = ensureWorkspaceCodexRuntimeSessions(
       options.sessionHistoryPath,
-      runtimeHome.homePath
+      runtimeHome.homePath,
+      historyDirectoryIdentity
     );
     const sqliteHomePath = path.join(path.dirname(options.sessionHistoryPath), 'sqlite');
-    requireRegularWorkspaceDirectory(sqliteHomePath, 'Codex worktree SQLite directory');
+    verifyWorkspaceHistoryDirectories(options.sessionHistoryPath, historyDirectoryIdentity);
     mkdirSync(sqliteHomePath, { recursive: true });
-    requireRegularWorkspaceDirectory(sqliteHomePath, 'Codex worktree SQLite directory');
+    verifyWorkspaceHistoryDirectories(options.sessionHistoryPath, historyDirectoryIdentity);
     try {
       const result = await importCodexExternalSessions({
         sessionHistoryPath: options.sessionHistoryPath,

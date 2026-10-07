@@ -35,7 +35,13 @@ describe('resolveAgentTerminalLaunchPlan', () => {
       sessionName: 'infilux-ui-session-1',
       mode: 'attach-existing',
     });
+    expect(result.codexLaunch).toMatchObject({ kind: 'native', layout: 'tmux-attach' });
     expect(result.sessionCreateFallback?.hostSession).toBeUndefined();
+    expect(result.sessionCreateFallback?.codexLaunch).toMatchObject({
+      kind: 'native',
+      layout: 'direct',
+      rawArgs: ['resume', 'provider-session-1'],
+    });
     expect(result.sessionCreateFallback?.command).toEqual({
       shell: 'codex',
       args: ['resume', 'provider-session-1'],
@@ -61,6 +67,11 @@ describe('resolveAgentTerminalLaunchPlan', () => {
       mode: 'attach-existing',
     });
     expect(result.sessionCreateFallback?.hostSession).toBeUndefined();
+    expect(result.sessionCreateFallback?.codexLaunch).toMatchObject({
+      kind: 'native',
+      layout: 'direct',
+      rawArgs: [],
+    });
     expect(result.sessionCreateFallback?.command).toEqual({
       shell: 'codex',
       args: [],

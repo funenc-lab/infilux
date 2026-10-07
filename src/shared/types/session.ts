@@ -8,6 +8,27 @@ export interface SessionHostSessionOptions {
   mode?: 'attach-existing' | 'create-if-missing';
 }
 
+export type CodexLaunchDescriptor =
+  | {
+      kind: 'wrapper';
+      environment: 'hapi' | 'happy';
+      originalShell: string;
+      originalArgs: string[];
+      originalInitialCommand?: string;
+      originalHostSession?: SessionHostSessionOptions;
+    }
+  | {
+      kind: 'native';
+      executable: string;
+      shellPath: string;
+      executionPlatform?: string;
+      rawArgs: string[];
+      layout: 'direct' | 'initial' | 'tmux' | 'tmux-attach' | 'powershell' | 'remote';
+      shellArgsPrefix?: string[];
+      fallbackArgsPrefix?: string[];
+      appliedAssignments?: string[];
+    };
+
 export interface SessionCreateOptions {
   cwd?: string;
   /** Internal use: OS cwd for the spawned process when logical cwd is virtual. */
@@ -27,6 +48,8 @@ export interface SessionCreateOptions {
   kind?: SessionKind;
   persistOnDisconnect?: boolean;
   hostSession?: SessionHostSessionOptions;
+  /** App-generated launch provenance; never persist this inside session metadata. */
+  codexLaunch?: CodexLaunchDescriptor;
   metadata?: Record<string, unknown>;
 }
 

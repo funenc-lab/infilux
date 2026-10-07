@@ -108,16 +108,111 @@ function createCapabilities(
   return capabilities;
 }
 
+function createNativeShellPlan() {
+  return buildAgentLaunchPlan({
+    agentCommand: 'codex',
+    customArgs: '--profile fast',
+    environment: 'native',
+    hapiGlobalInstalled: null,
+    isRemoteExecution: false,
+    executionPlatform: 'darwin',
+    resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+  });
+}
+
 describe('CodexCapabilityProviderAdapter', () => {
+  it('preserves remote native Codex capability assignments without a local SQLite override', () => {
+    const executable = "/opt/O'Brien's tools/codex";
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: executable,
+      customArgs: '--profile codex',
+      initialPrompt: 'review codex logs',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: true,
+      executionPlatform: 'linux',
+      resolvedShell: null,
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        cwd: toRemoteVirtualPath('connection-1', '/srv/repo/worktree-a'),
+        kind: 'agent',
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      },
+      createCapabilities(),
+      createResolvedPolicy({
+        allowedSharedMcpIds: ['shared-project'],
+        allowedCapabilityIds: ['legacy-skill:ship'],
+      }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.initialCommand).toContain(
+      `'${executable.replace(/'/g, "'\\''")}' -c `
+    );
+    expect(projection.sessionOverrides?.initialCommand).toContain('mcp_servers.shared-project');
+    expect(projection.sessionOverrides?.initialCommand).toContain('skills.config=');
+    expect(projection.sessionOverrides?.initialCommand).toContain('--profile codex');
+    expect(projection.sessionOverrides?.initialCommand).not.toContain('sqlite_home');
+  });
+
+  it('applies capability assignments at the renderer native Codex executable despite profile and prompt words', () => {
+    const executable = "/opt/OpenAI's Codex tools/codex";
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: executable,
+      customArgs: '--profile codex',
+      initialPrompt: 'inspect codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const projection = buildCodexSessionProjection(
+      {
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      },
+      [],
+      createResolvedPolicy({ allowedSharedMcpIds: ['shared-project'] }),
+      createMcpConfigs()
+    );
+
+    expect(projection.applied).toBe(true);
+    expect(projection.sessionOverrides?.initialCommand).toContain(
+      `'${executable.replace(/'/g, "'\\''")}' -c `
+    );
+    expect(projection.sessionOverrides?.initialCommand).toContain(' --profile codex ');
+    expect(projection.sessionOverrides?.codexLaunch?.kind).toBe('native');
+  });
+
   it('injects MCP and skill runtime configuration into direct codex launches', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'codex-session-1',
+      initialized: true,
+      terminalSessionId: 'ui-direct-session',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
         kind: 'agent',
-        shell: 'codex',
-        args: ['resume', 'codex-session-1'],
-        fallbackShell: '/bin/zsh',
-        fallbackArgs: ['-l', '-c', 'codex resume codex-session-1'],
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+        fallbackShell: plan.fallbackCommand?.shell,
+        fallbackArgs: plan.fallbackCommand?.args,
+        codexLaunch: plan.codexLaunch,
       },
       createCapabilities(),
       createResolvedPolicy({
@@ -386,12 +481,14 @@ describe('CodexCapabilityProviderAdapter', () => {
   });
 
   it('warns and prefers the personal configuration when the same MCP id exists in both scopes', () => {
+    const plan = createNativeShellPlan();
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
         kind: 'agent',
-        initialCommand: 'codex',
+        initialCommand: plan.initialCommand,
         shellConfig: { shellType: 'zsh' },
+        codexLaunch: plan.codexLaunch,
       },
       [],
       createResolvedPolicy({
@@ -477,16 +574,25 @@ describe('CodexCapabilityProviderAdapter', () => {
   });
 
   it('injects runtime config into PowerShell custom executable launches', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: 'C:\\Program Files\\OpenAI\\codex.exe',
+      resumeSessionId: 'codex-session-9',
+      terminalSessionId: 'ui-powershell',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: { shell: 'pwsh.exe', execArgs: ['-NoLogo', '-Command'] },
+    });
     const projection = buildCodexSessionProjection(
       {
         cwd: 'C:\\repo\\worktrees\\feat-a',
         kind: 'agent',
         shell: 'pwsh.exe',
-        args: [
-          '-NoLogo',
-          '-Command',
-          "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume codex-session-9 }",
-        ],
+        args: plan.command?.args,
+        codexLaunch: plan.codexLaunch,
       },
       createCapabilities(),
       createResolvedPolicy({
@@ -507,12 +613,14 @@ describe('CodexCapabilityProviderAdapter', () => {
   });
 
   it('ignores unsupported command and subagent entries when building Codex runtime skill config', () => {
+    const plan = createNativeShellPlan();
     const projection = buildCodexSessionProjection(
       {
         cwd: '/repo/worktrees/feat-a',
         kind: 'agent',
-        initialCommand: 'codex',
+        initialCommand: plan.initialCommand,
         shellConfig: { shellType: 'zsh' },
+        codexLaunch: plan.codexLaunch,
       },
       createCapabilities({ includeCommand: true }),
       createResolvedPolicy({
@@ -553,11 +661,13 @@ describe('CodexCapabilityProviderAdapter', () => {
       resolveCapabilityMcpConfigEntries: resolveCapabilityMcpConfigEntriesFn,
       codexRuntimeHomeService,
     });
+    const plan = createNativeShellPlan();
     const sessionOptions: SessionCreateOptions = {
       cwd: '/repo/worktrees/feat-a',
       kind: 'agent',
-      initialCommand: 'codex',
+      initialCommand: plan.initialCommand,
       shellConfig: { shellType: 'zsh' },
+      codexLaunch: plan.codexLaunch,
       metadata: {
         uiSessionId: 'ui-session-1',
       },
@@ -692,6 +802,7 @@ describe('CodexCapabilityProviderAdapter', () => {
       shell: plan.command?.shell,
       args: plan.command?.args,
       hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
       metadata: { uiSessionId: 'ui-session-1' },
     });
 

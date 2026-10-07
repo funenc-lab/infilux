@@ -95,7 +95,8 @@ describe('SessionBar floating accessibility and structure', () => {
   });
 
   it('uses a control-strip affordance for the collapsed entry instead of an AI sparkle icon', () => {
-    expect(sessionBarSource).toContain("title={t('Expand session controls')}");
+    expect(sessionBarSource).toContain("t('Expand session controls')");
+    expect(sessionBarSource).toContain('type="button"');
     expect(sessionBarSource).toContain('SESSION_BAR_COLLAPSED_BUTTON_CLASS_NAME');
     expect(sessionBarSource).toContain(
       '<RectangleEllipsis className="h-4 w-4 text-muted-foreground" />'

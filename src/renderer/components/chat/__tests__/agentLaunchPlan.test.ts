@@ -380,6 +380,36 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.initialCommand).not.toContain('codex resume codex-session-11');
   });
 
+  it('does not mark a shell fallback as safe when the provider resume id contains shell operators', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      resumeSessionId: 'thread-id; codex resume sibling',
+      terminalSessionId: 'ui-session',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    expect(plan.codexLaunch).toBeUndefined();
+  });
+
+  it('rejects nested executable substitutions in an otherwise native custom argument', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '--profile $(codex resume sibling)',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    expect(plan.codexLaunch).toBeUndefined();
+  });
+
   it('does not forward the managed local SQLite home into remote Codex launches', () => {
     const plan = buildAgentLaunchPlan({
       agentCommand: 'codex',
@@ -395,6 +425,7 @@ describe('buildAgentLaunchPlan', () => {
     expect(plan.initialCommand).toContain('codex');
     expect(plan.initialCommand).not.toContain('CODEX_SQLITE_HOME');
     expect(plan.tmuxSessionName).toBeNull();
+    expect(plan.codexLaunch).toMatchObject({ kind: 'native', layout: 'remote' });
   });
 
   it.each([
@@ -676,19 +707,28 @@ describe('buildAgentLaunchPlan', () => {
       },
     });
 
-    expect(plan).toEqual({
-      command: {
-        shell: 'pwsh.exe',
-        args: [
-          '-NoLogo',
-          '-Command',
-          "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume codex-session-9 }",
-        ],
-      },
-      env: undefined,
-      initialCommand: undefined,
-      tmuxSessionName: null,
-    });
+    expect(plan).toEqual(
+      expect.objectContaining({
+        command: {
+          shell: 'pwsh.exe',
+          args: [
+            '-NoLogo',
+            '-Command',
+            "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume codex-session-9 }",
+          ],
+        },
+        env: undefined,
+        initialCommand: undefined,
+        tmuxSessionName: null,
+      })
+    );
+    expect(plan.codexLaunch).toEqual(
+      expect.objectContaining({
+        kind: 'native',
+        layout: 'powershell',
+        executable: 'C:\\Program Files\\OpenAI\\codex.exe',
+      })
+    );
   });
 
   it('does not resume cursor-agent with the ui session id when provider resume id is unknown', () => {

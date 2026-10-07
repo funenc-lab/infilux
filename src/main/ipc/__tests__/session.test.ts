@@ -351,6 +351,15 @@ describe('session IPC handlers', () => {
 
   it('preserves shell-config launch options and scopes plain Codex history to its worktree', async () => {
     const event = createEvent();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '--dangerously-bypass-approvals-and-sandbox',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
 
     const { registerSessionHandlers } = await import('../session');
     registerSessionHandlers();
@@ -361,7 +370,8 @@ describe('session IPC handlers', () => {
       cwd: '/repo',
       kind: 'agent',
       shellConfig: { shellType: 'zsh' },
-      initialCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
+      initialCommand: plan.initialCommand,
+      codexLaunch: plan.codexLaunch,
       persistOnDisconnect: true,
       metadata: {
         uiSessionId: 'ui-session-plain-codex',
@@ -383,8 +393,9 @@ describe('session IPC handlers', () => {
         cwd: '/repo',
         kind: 'agent',
         shellConfig: { shellType: 'zsh' },
-        initialCommand:
-          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --dangerously-bypass-approvals-and-sandbox',
+        initialCommand: expect.stringContaining(
+          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --dangerously-bypass-approvals-and-sandbox'
+        ),
         persistOnDisconnect: true,
         env: {
           CODEX_HOME: '/runtime/codex/session-1',
@@ -402,6 +413,38 @@ describe('session IPC handlers', () => {
         }),
       })
     );
+  });
+
+  it('honors a renderer-generated native Codex launch with a quoted custom path and prompt', async () => {
+    const event = createEvent();
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: "/opt/OpenAI's Codex tools/codex",
+      customArgs: '--profile codex',
+      initialPrompt: 'read codex logs',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+
+    await getHandler(IPC_CHANNELS.SESSION_CREATE)(event, {
+      cwd: '/repo/worktrees/a',
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: plan.initialCommand,
+      codexLaunch: plan.codexLaunch,
+      metadata: { uiSessionId: 'ui-native', agentId: 'codex', agentCommand: 'codex' },
+    });
+
+    const created = sessionTestDoubles.create.mock.calls[0]?.[1] as SessionCreateOptions;
+    expect(created.initialCommand).toContain("'/opt/OpenAI'\\''s Codex tools/codex' -c ");
+    expect(created.initialCommand).toContain('--profile codex');
+    expect(created.initialCommand).toContain('read codex logs');
+    expect(created.env?.CODEX_SQLITE_HOME).toBe('/runtime/codex/worktree-shared/sqlite');
   });
 
   it('uses the same worktree-scoped Codex history for explicit resume launches', async () => {
@@ -567,6 +610,7 @@ describe('session IPC handlers', () => {
       kind: 'agent',
       shell: plan.command?.shell,
       args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
       metadata: {
         agentId: 'codex',
         agentCommand: 'codex',
@@ -626,6 +670,7 @@ describe('session IPC handlers', () => {
       shell: plan.command?.shell,
       args: plan.command?.args,
       hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
       metadata: {
         agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
       },
@@ -682,6 +727,7 @@ describe('session IPC handlers', () => {
       shell: plan.command?.shell,
       args: plan.command?.args,
       hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
       metadata: {
         agentCapabilityLaunch: { provider: 'codex', repoPath: '/repo', worktreePath: '/repo' },
       },
@@ -746,7 +792,8 @@ describe('session IPC handlers', () => {
     await createHandler(event, {
       cwd: '/repo',
       kind: 'agent',
-      initialCommand: 'codex',
+      shell: 'codex',
+      args: [],
       metadata: {
         uiSessionId: 'ui-session-lock',
         agentId: 'codex',
@@ -1007,7 +1054,7 @@ describe('session IPC handlers', () => {
         env: {
           AGENT_CAPABILITY_PROFILE: 'strict',
         },
-        initialCommand: 'codex --profile strict',
+        initialCommand: 'claude --profile strict',
         spawnCwd: '/tmp/infilux/capability-session',
         metadata: {
           providerLaunchStrategy: 'provider-native',
@@ -1026,7 +1073,7 @@ describe('session IPC handlers', () => {
       env: {
         BASE_ENV: '1',
       },
-      initialCommand: 'codex --profile default',
+      initialCommand: 'claude --profile default',
       metadata: {
         agentCapabilityLaunch: {
           provider: 'claude',
@@ -1049,21 +1096,13 @@ describe('session IPC handlers', () => {
         cwd: '/repo/worktrees/feature-a',
         kind: 'agent',
         spawnCwd: '/tmp/infilux/capability-session',
-        initialCommand:
-          'codex -c "sqlite_home=\\"/runtime/codex/worktree-shared/sqlite\\"" --profile strict',
+        initialCommand: 'claude --profile strict',
         env: {
           BASE_ENV: '1',
           AGENT_CAPABILITY_PROFILE: 'strict',
-          CODEX_HOME: '/runtime/codex/session-1',
-          CODEX_SQLITE_HOME: '/runtime/codex/worktree-shared/sqlite',
-          INFILUX_MANAGED_CODEX_RUNTIME_HOME: '/runtime/codex/session-1',
         },
         metadata: expect.objectContaining({
           providerLaunchStrategy: 'provider-native',
-          codexRuntimeHome: {
-            homePath: '/runtime/codex/session-1',
-            sourceHomePath: '/Users/test/.codex',
-          },
           agentCapability: expect.objectContaining({
             provider: 'claude',
             hash: 'hash-1',

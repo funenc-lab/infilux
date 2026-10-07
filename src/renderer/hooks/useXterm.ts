@@ -215,6 +215,7 @@ export interface XtermSessionCreateFallbackOptions {
   command?: XtermCommandOptions;
   env?: Record<string, string>;
   hostSession?: SessionCreateOptions['hostSession'];
+  codexLaunch?: SessionCreateOptions['codexLaunch'];
   initialCommand?: string;
   onRetry?: () => void;
 }
@@ -226,6 +227,7 @@ export interface UseXtermOptions {
   command?: XtermCommandOptions;
   env?: Record<string, string>;
   hostSession?: SessionCreateOptions['hostSession'];
+  codexLaunch?: SessionCreateOptions['codexLaunch'];
   metadata?: Record<string, unknown>;
   isActive?: boolean;
   isVisible?: boolean;
@@ -391,6 +393,7 @@ export function useXterm({
   command,
   env,
   hostSession,
+  codexLaunch,
   metadata,
   isActive = true,
   isVisible = isActive,
@@ -2059,6 +2062,9 @@ export function useXterm({
           const nextHostSession = hasOwnOverride(overrides, 'hostSession')
             ? overrides.hostSession
             : hostSession;
+          const nextCodexLaunch = hasOwnOverride(overrides, 'codexLaunch')
+            ? overrides.codexLaunch
+            : codexLaunch;
           const nextInitialCommand = hasOwnOverride(overrides, 'initialCommand')
             ? overrides.initialCommand
             : initialCommandRef.current;
@@ -2077,6 +2083,7 @@ export function useXterm({
             rows: terminal.rows,
             env: nextEnv,
             hostSession: nextHostSession,
+            ...(nextCodexLaunch ? { codexLaunch: nextCodexLaunch } : {}),
             metadata,
             initialCommand: nextInitialCommand,
             kind,

@@ -73,6 +73,9 @@ function applyPreparedAgentCapabilityLaunch(
     ...(sessionOverrides?.initialCommand !== undefined
       ? { initialCommand: sessionOverrides.initialCommand }
       : {}),
+    ...(sessionOverrides?.codexLaunch !== undefined
+      ? { codexLaunch: sessionOverrides.codexLaunch }
+      : {}),
     env: mergeSessionEnvironment(options.env, sessionOverrides?.env),
     metadata: {
       ...(options.metadata ?? {}),

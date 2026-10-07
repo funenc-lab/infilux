@@ -1480,7 +1480,7 @@ export function AgentTerminal({
   // Only recovery-confirmed sessions may attach to an existing persistent host.
   const recoveredHostSessionKey = recovered ? hostSessionKey : undefined;
 
-  const { command, env, initialCommand, hostSession, sessionCreateFallback } = useMemo(
+  const { command, env, initialCommand, hostSession, codexLaunch, sessionCreateFallback } = useMemo(
     () =>
       resolveAgentTerminalLaunchPlan({
         isReadOnlyTranscript,
@@ -1904,6 +1904,7 @@ export function AgentTerminal({
     command,
     env,
     hostSession,
+    codexLaunch,
     initialCommand,
     activateOnInitialCommandWhenInactive,
     isActive: effectiveIsActive,

@@ -24,14 +24,10 @@ import type {
 import { selectPreferredSkillSourcePathForProvider } from './AgentCapabilitySkillSourceSelection';
 import { type CodexRuntimeHomeService, codexRuntimeHomeService } from './CodexRuntimeHomeService';
 import {
+  applyCodexNativeLaunchAssignments,
   CODEX_WRAPPER_SQLITE_WARNING,
-  injectCodexShellFragment,
   isCodexShell,
   isCodexThirdPartyWrapperLaunch,
-  isUnsupportedShellConfig,
-  patchTrailingCommandArg,
-  quoteCodexShellAssignment,
-  resolveShellFragmentStyle,
 } from './CodexSqliteLaunchOptions';
 import { resolveCodexWorkspaceSessionHistoryPath } from './CodexWorkspaceSessionHistory';
 
@@ -189,15 +185,6 @@ function isExplicitPolicyDecision(
 
 function buildCodexCliArgs(assignments: string[]): string[] {
   return assignments.flatMap((assignment) => ['-c', assignment]);
-}
-
-function buildCodexShellFragment(
-  assignments: string[],
-  style: 'posix' | 'powershell' = 'posix'
-): string {
-  return assignments
-    .map((assignment) => `-c ${quoteCodexShellAssignment(assignment, style)}`)
-    .join(' ');
 }
 
 function chooseCodexConfigEntry(
@@ -361,11 +348,6 @@ export function buildCodexSessionProjection(
   }
 
   const cliArgs = buildCodexCliArgs(assignments);
-  const shellFragment = buildCodexShellFragment(assignments);
-  const commandShellFragment = buildCodexShellFragment(
-    assignments,
-    resolveShellFragmentStyle(sessionOptions.shell)
-  );
   const sessionOverrides: AgentCapabilitySessionOverrides = {
     metadata: {
       providerLaunchStrategy: 'codex-runtime-config',
@@ -374,52 +356,46 @@ export function buildCodexSessionProjection(
     },
   };
 
-  if (isCodexShell(sessionOptions.shell)) {
-    sessionOverrides.args = [...cliArgs, ...(sessionOptions.args ?? [])];
-    const fallbackArgs = patchTrailingCommandArg(sessionOptions.fallbackArgs, shellFragment);
-    if (fallbackArgs) {
-      sessionOverrides.fallbackArgs = fallbackArgs;
+  if (sessionOptions.codexLaunch?.kind === 'native') {
+    try {
+      const updated = applyCodexNativeLaunchAssignments(sessionOptions, assignments);
+      return {
+        sessionOverrides: {
+          ...sessionOverrides,
+          ...(updated.args ? { args: updated.args } : {}),
+          ...(updated.fallbackArgs ? { fallbackArgs: updated.fallbackArgs } : {}),
+          ...(updated.initialCommand ? { initialCommand: updated.initialCommand } : {}),
+          codexLaunch: updated.codexLaunch,
+        },
+        warnings: allWarnings,
+        applied: true,
+      };
+    } catch {
+      allWarnings.push(
+        'Codex runtime capability injection could not match the current session launch shape. Restart the session with a standard Codex launch command to apply MCP overrides.'
+      );
+      return { warnings: allWarnings, applied: false };
     }
+  }
+  if (sessionOptions.codexLaunch?.kind === 'wrapper') {
+    allWarnings.push(
+      'Codex runtime capability injection is unavailable for Hapi/Happy wrapper launches.'
+    );
+    return { warnings: allWarnings, applied: false };
+  }
 
+  if (
+    isCodexShell(sessionOptions.shell) &&
+    !sessionOptions.fallbackArgs &&
+    !sessionOptions.fallbackShell &&
+    !sessionOptions.initialCommand
+  ) {
+    sessionOverrides.args = [...cliArgs, ...(sessionOptions.args ?? [])];
     return {
       sessionOverrides,
       warnings: allWarnings,
       applied: true,
     };
-  }
-
-  if (!isUnsupportedShellConfig(sessionOptions)) {
-    const updatedInitialCommand = sessionOptions.initialCommand
-      ? injectCodexShellFragment(sessionOptions.initialCommand, commandShellFragment)
-      : null;
-    if (updatedInitialCommand) {
-      sessionOverrides.initialCommand = updatedInitialCommand;
-      const fallbackArgs = patchTrailingCommandArg(sessionOptions.fallbackArgs, shellFragment);
-      if (fallbackArgs) {
-        sessionOverrides.fallbackArgs = fallbackArgs;
-      }
-
-      return {
-        sessionOverrides,
-        warnings: allWarnings,
-        applied: true,
-      };
-    }
-
-    const updatedArgs = patchTrailingCommandArg(sessionOptions.args, commandShellFragment);
-    if (updatedArgs) {
-      sessionOverrides.args = updatedArgs;
-      const fallbackArgs = patchTrailingCommandArg(sessionOptions.fallbackArgs, shellFragment);
-      if (fallbackArgs) {
-        sessionOverrides.fallbackArgs = fallbackArgs;
-      }
-
-      return {
-        sessionOverrides,
-        warnings: allWarnings,
-        applied: true,
-      };
-    }
   }
 
   allWarnings.push(

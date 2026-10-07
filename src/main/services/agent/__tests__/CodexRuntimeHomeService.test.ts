@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -171,6 +172,42 @@ describe('CodexRuntimeHomeService', () => {
     ).rejects.toThrow('Codex workspace history parent must not be a symlink');
     expect(existsSync(path.join(siblingWorkspace, 'sessions'))).toBe(false);
     expect(existsSync(path.join(siblingWorkspace, 'sqlite'))).toBe(false);
+  });
+
+  it('rejects a workspace parent replaced by a sibling symlink during runtime setup', async () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const historyRoot = createTempRoot();
+    const siblingWorkspace = createTempRoot();
+    const workspaceParent = path.join(historyRoot, 'workspace-current');
+    mkdirSync(workspaceParent);
+    const originalPrepareRuntimeHome = AgentRuntimeHomeService.prototype.prepareRuntimeHome;
+    const prepareSpy = vi
+      .spyOn(AgentRuntimeHomeService.prototype, 'prepareRuntimeHome')
+      .mockImplementation(function (this: AgentRuntimeHomeService, runtimeKey) {
+        const result = originalPrepareRuntimeHome.call(this, runtimeKey);
+        renameSync(workspaceParent, `${workspaceParent}-moved`);
+        symlinkSync(
+          siblingWorkspace,
+          workspaceParent,
+          process.platform === 'win32' ? 'junction' : undefined
+        );
+        return result;
+      });
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    try {
+      await expect(
+        service.prepareRuntimeHome('ui-session', {
+          sessionHistoryPath: path.join(workspaceParent, 'sessions'),
+          sessionHistoryScope: { worktreePath: '/repo/worktree-a' },
+        })
+      ).rejects.toThrow('Codex workspace history parent');
+      expect(existsSync(path.join(siblingWorkspace, 'sessions'))).toBe(false);
+      expect(existsSync(path.join(siblingWorkspace, 'sqlite'))).toBe(false);
+    } finally {
+      prepareSpy.mockRestore();
+    }
   });
 
   it('rejects a sessions symlink before touching a sibling worktree history', async () => {

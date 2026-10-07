@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import type { SessionCreateOptions } from '@shared/types';
+import { toRemoteVirtualPath } from '@shared/utils/remotePath';
 import { describe, expect, it } from 'vitest';
 import { buildAgentLaunchPlan } from '../../../../renderer/components/chat/agentLaunchPlan';
 import {
@@ -16,16 +17,30 @@ function apply(options: SessionCreateOptions): SessionCreateOptions {
 
 describe('applyCodexSqliteLaunchOptions', () => {
   it('passes the SQLite override as separate CLI arguments before resume', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: '/opt/codex',
+      resumeSessionId: 'thread-id',
+      terminalSessionId: 'ui-session',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
     const original: SessionCreateOptions = {
       kind: 'agent',
-      shell: '/opt/codex',
-      args: ['resume', 'thread-id'],
-      fallbackArgs: ['-l', '-c', 'codex resume thread-id'],
+      shell: plan.command?.shell,
+      args: plan.command?.args,
+      fallbackShell: plan.fallbackCommand?.shell,
+      fallbackArgs: plan.fallbackCommand?.args,
+      codexLaunch: plan.codexLaunch,
     };
 
     const updated = apply(original);
     expect(updated.args).toEqual(['-c', assignment, 'resume', 'thread-id']);
-    expect(updated.fallbackArgs?.at(-1)).toContain('codex -c ');
+    expect(updated.fallbackArgs?.at(-1)).toContain('/opt/codex -c ');
     expect(updated.fallbackArgs?.at(-1)).toContain('resume thread-id');
     expect(original.args).toEqual(['resume', 'thread-id']);
     expect(apply(updated)).toEqual(updated);
@@ -42,24 +57,32 @@ describe('applyCodexSqliteLaunchOptions', () => {
   });
 
   it('quotes the entire assignment for POSIX shell commands with spaces, double and single quotes', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: '--profile fast',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
     const updated = apply({
       kind: 'agent',
       shell: '/bin/zsh',
-      initialCommand: 'env -u TMUX codex --profile fast',
-      fallbackArgs: ['-l', '-c', 'codex resume thread-id'],
+      initialCommand: plan.initialCommand,
+      codexLaunch: plan.codexLaunch,
     });
 
     expect(updated.initialCommand).toContain('codex -c ');
     expect(updated.initialCommand).toContain(' --profile fast');
     expect(updated.initialCommand).toContain('\\"');
     expect(updated.initialCommand).toContain("apostrophe '");
-    expect(updated.fallbackArgs?.at(-1)).toContain('codex -c ');
     if (process.platform !== 'win32') {
       const argumentsReceived = execFileSync(
         '/bin/sh',
         [
           '-c',
-          `codex() { printf '%s\\n' "$@"; }; ${updated.initialCommand?.replace(/^env -u TMUX /, '')}`,
+          `codex() { printf '%s\\n' "$@"; }; ${updated.initialCommand?.replace(/^env .*? codex /, 'codex ')}`,
         ],
         { encoding: 'utf8' }
       )
@@ -70,33 +93,32 @@ describe('applyCodexSqliteLaunchOptions', () => {
   });
 
   it('escapes apostrophes when injecting into a tmux single-quoted command', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customArgs: 'resume thread-id',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-example',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
     const updated = apply({
       kind: 'agent',
       shell: '/bin/zsh',
-      initialCommand: "tmux new-session -d -s example 'true; codex resume thread-id'",
-      hostSession: {
-        kind: 'tmux',
-        serverName: 'infilux',
-        sessionName: 'example',
-        mode: 'create-if-missing',
-      },
+      initialCommand: plan.initialCommand,
+      hostSession: plan.hostSession,
+      codexLaunch: plan.codexLaunch,
     });
 
     expect(updated.initialCommand).toContain("apostrophe '\\''");
     expect(updated.initialCommand).toContain('codex -c ');
     expect(updated.initialCommand).toContain('resume thread-id');
     if (process.platform !== 'win32') {
-      const argumentsReceived = execFileSync(
-        '/bin/sh',
-        [
-          '-c',
-          `tmux() { for last; do :; done; eval "$last"; }; codex() { printf '%s\\n' "$@"; }; ${updated.initialCommand}`,
-        ],
-        { encoding: 'utf8' }
-      )
-        .trim()
-        .split('\n');
-      expect(argumentsReceived).toEqual(['-c', assignment, 'resume', 'thread-id']);
+      expect(() =>
+        execFileSync('/bin/sh', ['-n', '-c', updated.initialCommand ?? ''])
+      ).not.toThrow();
     }
   });
 
@@ -120,6 +142,7 @@ describe('applyCodexSqliteLaunchOptions', () => {
         shell: '/bin/zsh',
         initialCommand: plan.initialCommand,
         hostSession: plan.hostSession,
+        codexLaunch: plan.codexLaunch,
       },
       sqliteHomePath
     );
@@ -143,6 +166,72 @@ describe('applyCodexSqliteLaunchOptions', () => {
     }
   });
 
+  it('uses the renderer native executable position instead of words in a profile or prompt', () => {
+    const executable = "/opt/OpenAI's Codex tools/codex";
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: executable,
+      customArgs: '--profile codex',
+      initialPrompt: 'review codex output',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const updated = applyCodexSqliteLaunchOptions(
+      {
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      },
+      sqliteHome
+    );
+
+    expect(updated.initialCommand).toContain(`'${executable.replace(/'/g, "'\\''")}' -c `);
+    expect(updated.initialCommand).toContain(' --profile codex ');
+    expect(updated.initialCommand).toContain('review codex output');
+    if (process.platform !== 'win32') {
+      expect(() =>
+        execFileSync('/bin/sh', ['-n', '-c', updated.initialCommand ?? ''])
+      ).not.toThrow();
+    }
+  });
+
+  it('keeps the Codex CLI override inside the renderer tmux command when the prompt mentions codex', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: "/opt/O'Brien's tools/codex",
+      initialPrompt: 'inspect codex settings',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      tmuxEnabled: true,
+      terminalSessionId: 'ui-shell-quoted',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+    const updated = applyCodexSqliteLaunchOptions(
+      {
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: plan.initialCommand,
+        hostSession: plan.hostSession,
+        codexLaunch: plan.codexLaunch,
+      },
+      sqliteHome
+    );
+
+    expect(updated.initialCommand).toContain('sqlite_home=');
+    expect(updated.initialCommand).toContain('inspect codex settings');
+    if (process.platform !== 'win32') {
+      expect(() =>
+        execFileSync('/bin/sh', ['-n', '-c', updated.initialCommand ?? ''])
+      ).not.toThrow();
+    }
+  });
+
   it('still enforces native direct Codex argv when stale wrapper metadata is present', () => {
     const updated = applyCodexSqliteLaunchOptions(
       {
@@ -163,14 +252,23 @@ describe('applyCodexSqliteLaunchOptions', () => {
   });
 
   it('injects PowerShell executable commands using PowerShell-safe quoting', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      customPath: 'C:\\Program Files\\OpenAI\\codex.exe',
+      resumeSessionId: 'thread-id',
+      terminalSessionId: 'ui-powershell',
+      initialized: true,
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: false,
+      executionPlatform: 'win32',
+      resolvedShell: { shell: 'pwsh.exe', execArgs: ['-NoLogo', '-Command'] },
+    });
     const updated = apply({
       kind: 'agent',
       shell: 'pwsh.exe',
-      args: [
-        '-NoLogo',
-        '-Command',
-        "& { & 'C:\\Program Files\\OpenAI\\codex.exe' resume thread-id }",
-      ],
+      args: plan.command?.args,
+      codexLaunch: plan.codexLaunch,
     });
 
     expect(updated.args?.at(-1)).toContain("codex.exe' -c 'sqlite_home=");
@@ -192,6 +290,26 @@ describe('applyCodexSqliteLaunchOptions', () => {
     expect(apply(options)).toEqual(options);
   });
 
+  it('refuses a local SQLite override on a typed remote capability-only launch', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'native',
+      hapiGlobalInstalled: null,
+      isRemoteExecution: true,
+      executionPlatform: 'linux',
+      resolvedShell: null,
+    });
+
+    expect(() =>
+      apply({
+        kind: 'agent',
+        cwd: toRemoteVirtualPath('connection-1', '/srv/worktree'),
+        initialCommand: plan.initialCommand,
+        codexLaunch: plan.codexLaunch,
+      })
+    ).toThrow('unsupported custom launcher');
+  });
+
   it('fails closed for a custom launcher that cannot enforce the worktree SQLite override', () => {
     expect(() =>
       apply({ kind: 'agent', shell: '/opt/custom-wrapper', args: ['--launch', 'codex'] })
@@ -201,7 +319,7 @@ describe('applyCodexSqliteLaunchOptions', () => {
   it('rejects a conflicting sqlite_home inside a custom shell command', () => {
     expect(() =>
       apply({ kind: 'agent', shell: '/bin/zsh', initialCommand: 'codex -c sqlite_home="/other"' })
-    ).toThrow('conflicting custom sqlite_home argument');
+    ).toThrow('unsupported custom launcher');
   });
 
   it('rejects a shell probe that could receive the override instead of the real Codex process', () => {
@@ -215,7 +333,7 @@ describe('applyCodexSqliteLaunchOptions', () => {
           "if command -v codex >/dev/null; then exec codex --profile fast; else exec zsh -lc 'codex'; fi",
         ],
       })
-    ).toThrow('multiple Codex commands');
+    ).toThrow('unsupported custom launcher');
   });
 
   it('does not mistake an unrelated multi-Codex shell launcher for a built-in Hapi wrapper', () => {
@@ -264,5 +382,51 @@ describe('applyCodexSqliteLaunchOptions', () => {
     expect(() => apply({ kind: 'agent', shell: '/bin/zsh', initialCommand: 'echo codex' })).toThrow(
       'unsupported custom launcher'
     );
+  });
+
+  it('does not infer a safe Codex executable position from an untrusted shell string', () => {
+    expect(() =>
+      apply({
+        kind: 'agent',
+        shell: '/bin/zsh',
+        initialCommand: 'env -u TMUX codex --profile fast',
+      })
+    ).toThrow('unsupported custom launcher');
+  });
+
+  it('rejects a malformed native launch descriptor using the standard unsupported-launch warning', () => {
+    const options: SessionCreateOptions = {
+      kind: 'agent',
+      shell: '/bin/zsh',
+      initialCommand: 'env -u TMUX codex',
+      codexLaunch: {
+        kind: 'native',
+        executable: 'codex',
+        shellPath: '/bin/zsh',
+        layout: 'initial',
+        rawArgs: JSON.parse('{"unexpected":"shell arg"}'),
+      },
+    };
+
+    expect(() => apply(options)).toThrow('unsupported custom launcher');
+  });
+
+  it('does not infer built-in wrapper provenance from a serialized shell command', () => {
+    const plan = buildAgentLaunchPlan({
+      agentCommand: 'codex',
+      environment: 'hapi',
+      hapiGlobalInstalled: true,
+      isRemoteExecution: false,
+      executionPlatform: 'darwin',
+      resolvedShell: { shell: '/bin/zsh', execArgs: ['-l', '-c'] },
+    });
+
+    expect(
+      isCodexThirdPartyWrapperLaunch({
+        kind: 'agent',
+        shell: plan.command?.shell,
+        args: plan.command?.args,
+      })
+    ).toBe(false);
   });
 });

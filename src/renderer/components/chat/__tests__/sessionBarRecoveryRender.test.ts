@@ -249,4 +249,24 @@ describe('SessionBar recovery render', () => {
 
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
+
+  it('signals the wrapper limitation when the active session bar is collapsed', async () => {
+    localStorage.setItem(
+      'enso-session-bar',
+      JSON.stringify({ x: 50, y: 16, collapsed: true, edge: null })
+    );
+    ({ container, root } = await renderSessionBar(
+      createRecoveredSession({
+        environment: 'happy',
+        agentCapabilityProvider: 'codex',
+        agentCapabilityWarnings: [
+          'Codex SQLite index isolation is unavailable for Hapi/Happy wrapper launches. Use the native Codex environment for worktree-scoped resume history.',
+        ],
+      })
+    ));
+
+    expect(container.querySelector('button[aria-label]')?.getAttribute('aria-label')).toContain(
+      'Codex resume history is not isolated'
+    );
+  });
 });
