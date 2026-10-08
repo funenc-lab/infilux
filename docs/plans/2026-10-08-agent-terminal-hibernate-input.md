@@ -85,7 +85,7 @@ isolated Electron scenario under `e2e/` using `e2e/helpers/electronApp.ts`.
 - [x] Verify superseded restoration cannot release a replacement session's pending input.
 - [x] Pass scoped tests, type checking, equivalent lint checks, and independent review.
 - [x] Build the x64 app and pass the same two-cycle keyboard E2E against the packaged binary.
-- [ ] Integrate the fix and replace the installed app with a recoverable backup.
+- [x] Integrate the fix and replace the installed app with a recoverable backup.
 - [ ] Pass the entire test suite (blocked by the unrelated missing ImageMagick CLI).
 
 ## Verification Notes
@@ -109,3 +109,20 @@ isolated Electron scenario under `e2e/` using `e2e/helpers/electronApp.ts`.
 - Packaged E2E uses an explicit fixture-owned Chromium user-data directory as well
   as the existing temporary HOME, profile, and dev runtime channel. It neither
   reuses the installed app's single-instance lock nor its production sessions.
+
+## Local Deployment
+
+- Fix commit: `567b567` (fast-forwarded into the primary `main` workspace).
+- Re-ran `pnpm lint`, `pnpm typecheck`, and the 153 scoped tests in the primary
+  workspace successfully. Rebuilt the primary workspace and confirmed its main,
+  preload, renderer HTML, AgentPanel, and ShellTerminal assets match the installation.
+- Installed and restarted `/Applications/Infilux.app` with the tested x64 package.
+  Installed archive SHA-256: `f8b30b991e6ba3cc78af9518b34330973f1e51e864d3db8ca12ff318d8f8920a`.
+- Recoverable previous app and state snapshots:
+  `/Users/aiassist/Library/Application Support/Infilux/Install Backups/input-fix-lUoDC4`.
+- Requested a normal quit before the atomic application-directory replacement.
+  All 10 production tmux panes kept their original live process IDs through quit
+  and restart, and the new application reattached its 10 clients.
+- The unknown old 74-character renderer queue was never sent to the backend.
+- The unrelated ImageMagick test prerequisite remains missing; this scoped input
+  repair does not certify every application feature for production deployment.
