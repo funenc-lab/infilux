@@ -3112,8 +3112,11 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('recreates a hibernated surface from replay before resuming output delivery', async () => {
-    const mounted = mountHookHarness();
+  it.each([
+    'codex',
+    'claude',
+  ])('recreates a hibernated surface for %s from replay before resuming output delivery', async (agentId) => {
+    const mounted = mountHookHarness({ agentId });
 
     await act(async () => {
       await flushMicrotasks();
@@ -3191,6 +3194,11 @@ describe('useXterm startup loading state', () => {
     expect(testState.terminalWrite).toHaveBeenCalledWith('replay before hibernation\n');
     expect(testState.sessionSetOutputDelivery).not.toHaveBeenCalledWith('backend-session-1', true);
 
+    act(() => {
+      testState.terminalDataHandler?.('typed while restoring');
+    });
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
     await act(async () => {
       testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
         callback();
@@ -3204,6 +3212,233 @@ describe('useXterm startup loading state', () => {
       resultCount: 3,
       resultIndex: 1,
     });
+    expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+      'backend-session-1',
+      'typed while restoring'
+    );
+
+    act(() => {
+      testState.terminalDataHandler?.('typed after restoring');
+    });
+    expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+      'backend-session-1',
+      'typed after restoring'
+    );
+
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose).toHaveBeenCalledWith(cycle + 1);
+
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      const writesBeforeRestore = testState.sessionWrite.mock.calls.length;
+      const input = `${agentId} input for cycle ${cycle}`;
+      act(() => testState.terminalDataHandler?.(input));
+      expect(testState.sessionWrite).toHaveBeenCalledTimes(writesBeforeRestore);
+
+      await act(async () => {
+        testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+          callback();
+        });
+        await flushMicrotasks();
+      });
+      expect(testState.sessionWrite).toHaveBeenCalledTimes(writesBeforeRestore + 1);
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith('backend-session-1', input);
+    }
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+    expect(testState.terminalInstanceCount).toBe(4);
+    await mounted.unmount();
+  });
+
+  it('retains input after surface restoration until a reconnecting runtime becomes live', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+    const mounted = mountHookHarness();
+    await act(async () => await flushMicrotasks());
+    vi.useFakeTimers();
+    mounted.rerender({ isActive: false, isVisible: false });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+      await flushMicrotasks();
+    });
+    expect(testState.terminalDispose).toHaveBeenCalledWith(0);
+
+    let resumeOutput: (() => void) | undefined;
+    testState.sessionSetOutputDelivery.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resumeOutput = () => resolve(undefined);
+        })
+    );
+    mounted.rerender({ isActive: true, isVisible: true });
+    await act(async () => await flushMicrotasks());
+    expect(resumeOutput).toBeTypeOf('function');
+    act(() => {
+      testState.terminalDataHandler?.('before reconnect');
+      testState.sessionHandlers?.onState?.({
+        sessionId: 'backend-session-1',
+        state: 'reconnecting',
+      });
+      testState.terminalDataHandler?.(' during reconnect');
+    });
+    await act(async () => {
+      resumeOutput?.();
+      await flushMicrotasks();
+    });
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+    act(() => {
+      testState.terminalDataHandler?.(' after restore');
+      testState.sessionHandlers?.onState?.({ sessionId: 'backend-session-1', state: 'live' });
+      testState.sessionHandlers?.onState?.({ sessionId: 'backend-session-1', state: 'live' });
+    });
+    expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+      'backend-session-1',
+      'before reconnect during reconnect after restore'
+    );
+    await mounted.unmount();
+  });
+
+  it('does not release pending restoration input after the surface is unmounted', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+    const mounted = mountHookHarness();
+    await act(async () => await flushMicrotasks());
+    vi.useFakeTimers();
+    mounted.rerender({ isActive: false, isVisible: false });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+      await flushMicrotasks();
+    });
+
+    let resumeOutput: (() => void) | undefined;
+    testState.sessionSetOutputDelivery.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resumeOutput = () => resolve(undefined);
+        })
+    );
+    mounted.rerender({ isActive: true, isVisible: true });
+    await act(async () => await flushMicrotasks());
+    expect(resumeOutput).toBeTypeOf('function');
+    act(() => testState.terminalDataHandler?.('cancelled input'));
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+    await act(async () => {
+      resumeOutput?.();
+      await flushMicrotasks();
+    });
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+  });
+
+  it('does not let a superseded surface restore release input for a replacement session', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+    const mounted = mountHookHarness();
+    await act(async () => await flushMicrotasks());
+    vi.useFakeTimers();
+    mounted.rerender({ isActive: false, isVisible: false });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+      await flushMicrotasks();
+    });
+
+    let resumeOldOutput: (() => void) | undefined;
+    testState.sessionSetOutputDelivery.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resumeOldOutput = () => resolve(undefined);
+        })
+    );
+    mounted.rerender({ isActive: true, isVisible: true });
+    await act(async () => await flushMicrotasks());
+    expect(resumeOldOutput).toBeTypeOf('function');
+    act(() => testState.terminalDataHandler?.('old restoration input'));
+
+    testState.sessionCreate.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-2',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 2,
+        runtimeState: 'live',
+        metadata: undefined,
+      },
+    });
+    await act(async () => {
+      testState.restartSession?.();
+      await vi.advanceTimersByTimeAsync(32);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+    expect(testState.sessionAttach).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: 'backend-session-2' })
+    );
+    act(() => testState.terminalDataHandler?.('replacement pending'));
+
+    await act(async () => {
+      resumeOldOutput?.();
+      await flushMicrotasks();
+    });
+    act(() => testState.terminalDataHandler?.(' still pending'));
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-2',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 2,
+          runtimeState: 'live',
+        },
+        replay: '',
+      });
+      await flushMicrotasks();
+    });
+    expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+      'backend-session-2',
+      'replacement pending still pending'
+    );
     await mounted.unmount();
   });
 

@@ -115,6 +115,50 @@ describe.sequential('electron agent transcript interactions', () => {
     }
   });
 
+  it('accepts real keyboard input after repeated hidden Agent surface hibernation', async () => {
+    const scenario = await createAgentWheelProbeScenario();
+    cleanupTasks.push(scenario.cleanup);
+    const launch = await launchInfiluxForScenario(scenario, {
+      executablePath: process.env.INFILUX_E2E_EXECUTABLE_PATH,
+    });
+
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await launch.page.clock.install();
+
+      for (let cycle = 0; cycle < 2; cycle += 1) {
+        await launch.page.getByRole('button', { name: 'File', exact: true }).focus();
+        await launch.page.keyboard.press('Enter');
+        await resolveTerminalLocator(launch.page, scenario).waitFor({ state: 'hidden' });
+        await launch.page.clock.fastForward(61000);
+        await expect
+          .poll(async () => resolveTerminalLocator(launch.page, scenario).count())
+          .toBe(0);
+
+        await launch.page.getByRole('button', { name: 'Agent', exact: true }).focus();
+        await launch.page.keyboard.press('Enter');
+        await resolveTerminalLocator(launch.page, scenario).waitFor({ state: 'visible' });
+        await clickTerminalAt(launch.page, scenario, { xRatio: 0.45, yRatio: 0.2 });
+        const typedLine = `restored-keyboard-cycle-${cycle}`;
+        await launch.page.keyboard.type(typedLine);
+        await launch.page.keyboard.press('Enter');
+        await waitForProbeMarker(scenario.probeLogPath, `TEXT:${typedLine}`);
+        const lines = (await readProbeLog(scenario.probeLogPath)).split(/\r?\n/u);
+        expect(lines.filter((line) => line === `TEXT:${typedLine}`)).toHaveLength(1);
+      }
+
+      await launch.page.screenshot({ path: '.tmp/e2e/agent-terminal-hibernate-input.png' });
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
   it('copies selected transcript output through the terminal clipboard bridge without sending control input to the process', async () => {
     const scenario = await createAgentWheelProbeScenario();
     cleanupTasks.push(scenario.cleanup);

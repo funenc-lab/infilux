@@ -80,11 +80,19 @@ export function buildElectronLaunchEnvironment(
 }
 
 export async function launchInfiluxForScenario(
-  scenario: ElectronLaunchScenario
+  scenario: ElectronLaunchScenario,
+  options: { executablePath?: string } = {}
 ): Promise<LaunchedElectronApp> {
   const consoleMessages: string[] = [];
   const app = await electron.launch({
-    args: [PROJECT_ROOT, encodeRuntimeChannelArgument(AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL)],
+    executablePath: options.executablePath,
+    args: [
+      ...(options.executablePath ? [] : [PROJECT_ROOT]),
+      encodeRuntimeChannelArgument(AGENT_SESSION_RECOVERY_RUNTIME_CHANNEL),
+      ...(options.executablePath
+        ? [`--user-data-dir=${join(scenario.homeDir, 'electron-user-data')}`]
+        : []),
+    ],
     env: buildElectronLaunchEnvironment(scenario),
   });
 

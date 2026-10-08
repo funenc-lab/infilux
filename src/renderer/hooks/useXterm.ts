@@ -665,6 +665,23 @@ export function useXterm({
     }
   }, []);
 
+  const flushPendingTerminalInput = useCallback((sessionId: string) => {
+    if (isUnmountedRef.current || ptyIdRef.current !== sessionId) {
+      return;
+    }
+
+    isSessionCreationPendingRef.current = false;
+    if (runtimeStateRef.current !== 'live') {
+      return;
+    }
+
+    const pendingInput = pendingTerminalInputRef.current;
+    pendingTerminalInputRef.current = '';
+    if (pendingInput) {
+      window.electronAPI.session.write(sessionId, pendingInput);
+    }
+  }, []);
+
   const flushReplaySnapshot = useCallback((immediate = false) => {
     const emit = () => {
       replaySnapshotFlushTimerRef.current = null;
@@ -2010,6 +2027,17 @@ export function useXterm({
         await window.electronAPI.session.setOutputDelivery(sessionId, true).catch((error) => {
           console.warn('[xterm] Failed to resume session output delivery:', error);
         });
+        if (
+          isUnmountedRef.current ||
+          initAttemptId !== initAttemptIdRef.current ||
+          terminalRef.current !== terminal ||
+          ptyIdRef.current !== sessionId
+        ) {
+          finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
+          return;
+        }
+
+        flushPendingTerminalInput(sessionId);
         const supersedingResync = pendingOutputResyncRef.current;
         if (supersedingResync?.sessionId === sessionId) {
           pendingOutputResyncRef.current = null;
@@ -2118,18 +2146,10 @@ export function useXterm({
             lastSyncedViewportRef.current = null;
           }
           ptyIdRef.current = sessionId;
+          runtimeStateRef.current = 'live';
           setRuntimeState('live');
           onInitRef.current?.(sessionId);
           onSessionIdChangeRef.current?.(sessionId);
-        };
-
-        const flushPendingTerminalInput = (sessionId: string) => {
-          isSessionCreationPendingRef.current = false;
-          const pendingTerminalInput = pendingTerminalInputRef.current;
-          pendingTerminalInputRef.current = '';
-          if (pendingTerminalInput) {
-            window.electronAPI.session.write(sessionId, pendingTerminalInput);
-          }
         };
 
         const subscribeToSession = (sessionId: string) => {
@@ -2510,6 +2530,7 @@ export function useXterm({
       staticContent,
       staticContentKey,
       write,
+      flushPendingTerminalInput,
       writeInitialTerminalContent,
       flushBufferedTerminalOutput,
       flushPendingTerminalExit,
