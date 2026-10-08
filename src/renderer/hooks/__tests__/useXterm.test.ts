@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAgentLaunchPlan } from '../../components/chat/agentLaunchPlan';
 import { type UseXtermOptions, useXterm } from '../useXterm';
 import { XTERM_HIBERNATION_IDLE_MS } from '../xtermHibernateController';
+import type { resolveAgentWheelPolicy } from '../xtermWheelPolicy';
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_WRITE_CHAR_LIMIT,
@@ -114,7 +115,7 @@ const testState = vi.hoisted(() => ({
   latestTextarea: null as HTMLTextAreaElement | null,
   terminalFocus: vi.fn(),
   attachedWheelHandler: null as ((event: WheelEvent) => boolean | undefined) | null,
-  resolveAgentWheelPolicy: vi.fn((_input?: unknown) => ({
+  resolveAgentWheelPolicy: vi.fn((_input?: unknown): ReturnType<typeof resolveAgentWheelPolicy> => ({
     action: 'delegate' as const,
     carryY: 0,
   })),
@@ -474,7 +475,7 @@ vi.mock('../xtermWheelPolicy', () => ({
   PAGE_UP_SEQUENCE: '\x1b[5~',
   resolveAgentProgramScrollRepeat: (scrollLines: number) =>
     Math.min(3, Math.max(1, Math.ceil(Math.abs(scrollLines) / 8))),
-  resolveAgentWheelPolicy: () => testState.resolveAgentWheelPolicy(),
+  resolveAgentWheelPolicy: (input: unknown) => testState.resolveAgentWheelPolicy(input),
 }));
 
 function HookHarness() {
@@ -3247,6 +3248,71 @@ describe('useXterm startup loading state', () => {
       direction: 'up',
       amount: 4,
     });
+    expect(testState.terminalScrollLines).not.toHaveBeenCalled();
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
+  it('sends Codex alternate-buffer program scrolling to the session instead of tmux', async () => {
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'program-scroll',
+      carryY: 0,
+      sequence: '\x1b[5~',
+      repeat: 1,
+    });
+    testState.sessionAttach.mockResolvedValueOnce({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local',
+        kind: 'agent',
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live',
+      },
+    });
+
+    const mounted = mountHookHarness({
+      agentId: 'codex',
+      hostSession: {
+        kind: 'tmux',
+        serverName: 'infilux',
+        sessionName: 'tmux-session-1',
+      },
+      kind: 'agent',
+    });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.attachedWheelHandler).toBeTypeOf('function');
+
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    await act(async () => {
+      testState.attachedWheelHandler?.({
+        deltaMode: 1,
+        deltaY: -4,
+        preventDefault,
+        stopPropagation,
+      } as unknown as WheelEvent);
+      await flushMicrotasks();
+    });
+
+    expect(testState.resolveAgentWheelPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'codex',
+        kind: 'agent',
+        hostScrollMode: 'tmux',
+        deltaY: -4,
+      })
+    );
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', '\x1b[5~');
+    expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
     expect(testState.terminalScrollLines).not.toHaveBeenCalled();
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(stopPropagation).toHaveBeenCalledTimes(1);

@@ -257,6 +257,48 @@ describe('xtermWheelPolicy', () => {
     });
   });
 
+  it.each([
+    ['codex', -4, '\x1b[5~'],
+    ['codex-happy', 4, '\x1b[6~'],
+  ])('scrolls %s alternate-buffer history inside tmux', (agentId, deltaY, sequence) => {
+    expect(
+      resolveAgentWheelPolicy({
+        agentId,
+        kind: 'agent',
+        activeBufferType: 'alternate',
+        mouseTrackingMode: 'any',
+        hostScrollMode: 'tmux',
+        deltaMode: DOM_DELTA_LINE,
+        deltaY,
+        carryY: 0,
+      })
+    ).toEqual({
+      action: 'program-scroll',
+      carryY: 0,
+      sequence,
+      repeat: 1,
+    });
+  });
+
+  it('keeps Codex normal-buffer scrollback in tmux', () => {
+    expect(
+      resolveAgentWheelPolicy({
+        agentId: 'codex',
+        kind: 'agent',
+        activeBufferType: 'normal',
+        mouseTrackingMode: 'any',
+        hostScrollMode: 'tmux',
+        deltaMode: DOM_DELTA_LINE,
+        deltaY: -4,
+        carryY: 0,
+      })
+    ).toEqual({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -4,
+    });
+  });
+
   it('keeps normal-buffer agent history scrollable when tmux enables mouse tracking', () => {
     expect(
       resolveAgentWheelPolicy({

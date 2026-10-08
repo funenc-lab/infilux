@@ -117,18 +117,18 @@ function normalizeWheelDelta(
 
 export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWheelPolicyDecision {
   const { activeBufferType, agentId, hostScrollMode, kind, mouseTrackingMode, deltaY } = input;
-  const isClaudeAlternateBuffer =
+  const agentInputBaseId = typeof agentId === 'string' ? getAgentInputBaseId(agentId) : undefined;
+  const isProgramScrollableAlternateBuffer =
     kind === 'agent' &&
     activeBufferType === 'alternate' &&
-    typeof agentId === 'string' &&
-    getAgentInputBaseId(agentId) === 'claude';
+    (agentInputBaseId === 'claude' || agentInputBaseId === 'codex');
 
   const shouldRemapWheel =
     kind === 'agent' &&
     (hostScrollMode === 'tmux' ||
       activeBufferType === 'normal' ||
       mouseTrackingMode === 'none' ||
-      isClaudeAlternateBuffer);
+      isProgramScrollableAlternateBuffer);
 
   if (!shouldRemapWheel) {
     return {
@@ -163,7 +163,7 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
     };
   }
 
-  if (isClaudeAlternateBuffer) {
+  if (isProgramScrollableAlternateBuffer) {
     return {
       action: 'program-scroll',
       carryY,
