@@ -10,6 +10,7 @@ import type {
 } from '@shared/types';
 import { TASK_COMPLETION_MARKER } from '@shared/types/agent';
 import { supportsProviderSessionResume } from '@shared/utils/agentInputMode';
+import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
@@ -57,6 +58,7 @@ import { cn } from '@/lib/utils';
 import { type OutputState, useAgentSessionsStore } from '@/stores/agentSessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
+import { recordAgentStartup } from '@/utils/logging';
 import {
   type AgentAttachmentSource,
   DRAFT_ATTACHMENT_MAX_BYTES,
@@ -505,6 +507,41 @@ export function AgentTerminal({
   const [claudeIdeStatus, setClaudeIdeStatus] = useState<ClaudeIdeBridgeStatus | null>(null);
   const [claudeWorkspaceTrusted, setClaudeWorkspaceTrusted] = useState<boolean | null>(null);
   const [startupProbeRetryNonce, setStartupProbeRetryNonce] = useState(0);
+  const startupTimeline = useMemo(
+    () =>
+      isBaseReadOnlyTranscript
+        ? undefined
+        : createAgentStartupTimelineLogger({
+            source: 'renderer',
+            getLabel: () => `${id ?? agentId}:attempt-${startupProbeRetryNonce}`,
+            log: recordAgentStartup,
+          }),
+    [agentId, id, isBaseReadOnlyTranscript, startupProbeRetryNonce]
+  );
+  const pendingStartupProbesRef = useRef(new Set<string>());
+  const [startupProbeProgress, setStartupProbeProgress] = useState<{
+    timeline: typeof startupTimeline;
+  }>({ timeline: undefined });
+  useEffect(() => {
+    pendingStartupProbesRef.current.clear();
+    setStartupProbeProgress({ timeline: startupTimeline });
+    startupTimeline?.markStage('prerequisites-start');
+  }, [startupTimeline]);
+  const beginStartupProbe = useCallback(
+    (probe: string) => {
+      pendingStartupProbesRef.current.add(probe);
+      startupTimeline?.markStage(`${probe}-start`);
+    },
+    [startupTimeline]
+  );
+  const finishStartupProbe = useCallback(
+    (probe: string, outcome: 'complete' | 'failed') => {
+      pendingStartupProbesRef.current.delete(probe);
+      startupTimeline?.markStage(`${probe}-${outcome}`);
+      setStartupProbeProgress({ timeline: startupTimeline });
+    },
+    [startupTimeline]
+  );
   const [hasRenderableTerminalOutput, setHasRenderableTerminalOutput] = useState(() =>
     hasRenderableAgentTerminalOutput(replaySnapshot ?? '')
   );
@@ -540,22 +577,26 @@ export function AgentTerminal({
       };
     }
 
+    beginStartupProbe('shell-resolve');
     window.electronAPI.shell
       .resolveForCommand(cwd, shellConfig)
       .then((nextShell) => {
         if (!cancelled) {
+          finishStartupProbe('shell-resolve', 'complete');
           setResolvedShell(nextShell);
         }
       })
       .catch((error) => {
         console.warn('[AgentTerminal] Failed to resolve shell for command execution', error);
         if (!cancelled) {
+          finishStartupProbe('shell-resolve', 'failed');
           setResolvedShell(resolveFallbackCommandShell(executionPlatform, shellConfig));
         }
       });
 
     return () => {
       cancelled = true;
+      pendingStartupProbesRef.current.delete('shell-resolve');
     };
   }, [
     cwd,
@@ -564,6 +605,8 @@ export function AgentTerminal({
     isRemoteExecution,
     shellConfig,
     startupProbeRetryNonce,
+    beginStartupProbe,
+    finishStartupProbe,
   ]);
 
   // Check hapi global installation on mount (only for hapi environment)
@@ -581,21 +624,25 @@ export function AgentTerminal({
       if (startupProbeRetryNonce > 0) {
         setHapiGlobalInstalled(null);
       }
+      beginStartupProbe('hapi-probe');
       window.electronAPI.hapi
         .checkGlobal(cwd, false)
         .then((status) => {
           if (!cancelled) {
+            finishStartupProbe('hapi-probe', 'complete');
             setHapiGlobalInstalled(status.installed);
           }
         })
         .catch((error) => {
           console.warn('[AgentTerminal] Failed to probe hapi availability', error);
           if (!cancelled) {
+            finishStartupProbe('hapi-probe', 'failed');
             setHapiGlobalInstalled(false);
           }
         });
       return () => {
         cancelled = true;
+        pendingStartupProbesRef.current.delete('hapi-probe');
       };
     }
 
@@ -603,7 +650,14 @@ export function AgentTerminal({
     return () => {
       cancelled = true;
     };
-  }, [cwd, environment, isBaseReadOnlyTranscript, startupProbeRetryNonce]);
+  }, [
+    cwd,
+    environment,
+    isBaseReadOnlyTranscript,
+    startupProbeRetryNonce,
+    beginStartupProbe,
+    finishStartupProbe,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -642,15 +696,18 @@ export function AgentTerminal({
     if (startupProbeRetryNonce > 0) {
       setClaudeIdeStatus(null);
     }
+    beginStartupProbe('claude-ide-probe');
     window.electronAPI.mcp
       .getStatus(cwd)
       .then((status) => {
         if (!cancelled) {
+          finishStartupProbe('claude-ide-probe', 'complete');
           setClaudeIdeStatus(status);
         }
       })
       .catch(() => {
         if (!cancelled) {
+          finishStartupProbe('claude-ide-probe', 'failed');
           console.warn('[AgentTerminal] Failed to resolve Claude IDE readiness');
           setClaudeIdeStatus({
             enabled: false,
@@ -666,6 +723,7 @@ export function AgentTerminal({
 
     return () => {
       cancelled = true;
+      pendingStartupProbesRef.current.delete('claude-ide-probe');
     };
   }, [
     agentCommand,
@@ -673,6 +731,8 @@ export function AgentTerminal({
     cwd,
     isBaseReadOnlyTranscript,
     startupProbeRetryNonce,
+    beginStartupProbe,
+    finishStartupProbe,
   ]);
   useEffect(() => {
     let cancelled = false;
@@ -691,15 +751,18 @@ export function AgentTerminal({
     if (startupProbeRetryNonce > 0) {
       setClaudeWorkspaceTrusted(null);
     }
+    beginStartupProbe('claude-trust-probe');
     window.electronAPI.claudeConfig.projectTrust
       .ensureWorkspaceTrusted(cwd)
       .then((trusted) => {
         if (!cancelled) {
+          finishStartupProbe('claude-trust-probe', 'complete');
           setClaudeWorkspaceTrusted(trusted);
         }
       })
       .catch(() => {
         if (!cancelled) {
+          finishStartupProbe('claude-trust-probe', 'failed');
           console.warn('[AgentTerminal] Failed to resolve Claude workspace trust');
           setClaudeWorkspaceTrusted(false);
         }
@@ -707,8 +770,17 @@ export function AgentTerminal({
 
     return () => {
       cancelled = true;
+      pendingStartupProbesRef.current.delete('claude-trust-probe');
     };
-  }, [agentCommand, cwd, isBaseReadOnlyTranscript, isRemoteExecution, startupProbeRetryNonce]);
+  }, [
+    agentCommand,
+    cwd,
+    isBaseReadOnlyTranscript,
+    isRemoteExecution,
+    startupProbeRetryNonce,
+    beginStartupProbe,
+    finishStartupProbe,
+  ]);
   const outputBufferRef = useRef('');
   const currentOutputBlockRef = useRef('');
   const latestCompletedOutputBlockRef = useRef('');
@@ -1406,6 +1478,19 @@ export function AgentTerminal({
     resolvedShell,
   ]);
   const effectiveIsActive = isAgentStartupReady ? isActive : false;
+  const lastReadyStartupTimelineRef = useRef<typeof startupTimeline>(undefined);
+  useEffect(() => {
+    if (
+      isAgentStartupReady &&
+      startupTimeline &&
+      startupProbeProgress.timeline === startupTimeline &&
+      pendingStartupProbesRef.current.size === 0 &&
+      lastReadyStartupTimelineRef.current !== startupTimeline
+    ) {
+      lastReadyStartupTimelineRef.current = startupTimeline;
+      startupTimeline.markStage('prerequisites-ready');
+    }
+  }, [isAgentStartupReady, startupTimeline, startupProbeProgress]);
   const effectiveIsVisible = isReadOnlyTranscript ? isVisible : isVisible && isAgentStartupReady;
 
   // Mark session as active when user is viewing it
@@ -1902,6 +1987,7 @@ export function AgentTerminal({
     write,
   } = useXterm({
     agentId,
+    startupTimeline,
     cwd,
     backendSessionId: effectiveBackendSessionId,
     command,

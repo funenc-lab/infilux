@@ -170,7 +170,10 @@ async function createTmuxProbeSession(options: {
   ]);
 }
 
-async function installWheelProbeScript(rootDir: string): Promise<{
+async function installWheelProbeScript(
+  rootDir: string,
+  echoInput: boolean
+): Promise<{
   probeScriptPath: string;
   probeLogPath: string;
 }> {
@@ -179,6 +182,7 @@ async function installWheelProbeScript(rootDir: string): Promise<{
 
   const probeScript = [
     'import atexit',
+    'import codecs',
     'import os',
     'import sys',
     'import termios',
@@ -190,6 +194,8 @@ async function installWheelProbeScript(rootDir: string): Promise<{
     'fd = sys.stdin.fileno()',
     'original = termios.tcgetattr(fd)',
     "text_buffer = ''",
+    `ECHO_INPUT = ${echoInput ? 'True' : 'False'}`,
+    "decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')",
     '',
     'def log_marker(label):',
     "    with open(LOG_PATH, 'a', encoding='utf-8') as log:",
@@ -201,6 +207,9 @@ async function installWheelProbeScript(rootDir: string): Promise<{
     '    if not text_buffer:',
     '        return',
     "    log_marker(f'TEXT:{text_buffer}')",
+    '    if ECHO_INPUT:',
+    "        sys.stdout.write(f'ECHO:{text_buffer}\\r\\n')",
+    '        sys.stdout.flush()',
     "    text_buffer = ''",
     '',
     'def cleanup():',
@@ -263,8 +272,8 @@ async function installWheelProbeScript(rootDir: string): Promise<{
     '        if byte in (10, 13):',
     '            flush_text_buffer()',
     '            continue',
-    '        if 32 <= byte <= 126:',
-    '            text_buffer += chr(byte)',
+    '        if byte >= 32 and byte != 127:',
+    '            text_buffer += decoder.decode(bytes([byte]), final=False)',
     '',
   ].join('\n');
 
@@ -351,7 +360,9 @@ function buildBrowserLocalStorageSnapshot(input: {
   };
 }
 
-export async function createAgentWheelProbeScenario(): Promise<AgentWheelProbeScenario> {
+export async function createAgentWheelProbeScenario(
+  options: { echoInput?: boolean } = {}
+): Promise<AgentWheelProbeScenario> {
   const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
   const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-wheel-'));
   const homeDir = join(rootDir, 'home');
@@ -380,6 +391,7 @@ export async function createAgentWheelProbeScenario(): Promise<AgentWheelProbeSc
     'enso-settings': {
       state: {
         terminalRenderer: 'dom',
+        ...(options.echoInput ? { loggingEnabled: true, logLevel: 'info' } : {}),
         claudeCodeIntegration: {
           tmuxEnabled: false,
         },
@@ -392,7 +404,10 @@ export async function createAgentWheelProbeScenario(): Promise<AgentWheelProbeSc
     'utf8'
   );
 
-  const { probeScriptPath, probeLogPath } = await installWheelProbeScript(rootDir);
+  const { probeScriptPath, probeLogPath } = await installWheelProbeScript(
+    rootDir,
+    options.echoInput ?? false
+  );
   const hostSessionKey = buildPersistentAgentHostSessionKey(uiSessionId, 'dev');
   await createTmuxProbeSession({
     homeDir,

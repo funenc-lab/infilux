@@ -4,7 +4,10 @@ import type {
   SessionKind,
   SessionRuntimeState,
 } from '@shared/types';
-import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
+import {
+  type AgentStartupTimelineLogger,
+  createAgentStartupTimelineLogger,
+} from '@shared/utils/agentStartupTimeline';
 import { appendPersistentAgentReplaySnapshotState } from '@shared/utils/persistentAgentSession';
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import type { TerminalReplayTailState } from '@shared/utils/terminalReplayTail';
@@ -104,6 +107,8 @@ const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
+const TERMINAL_OUTPUT_BATCH_DELAY_MS = 30;
+const INTERACTIVE_RESPONSE_WINDOW_MS = 500;
 const PENDING_TERMINAL_INPUT_CHAR_LIMIT = 1024 * 1024;
 
 interface TerminalInputRef {
@@ -222,6 +227,7 @@ export interface XtermSessionCreateFallbackOptions {
 
 export interface UseXtermOptions {
   agentId?: string;
+  startupTimeline?: AgentStartupTimelineLogger;
   backendSessionId?: string;
   cwd?: string;
   command?: XtermCommandOptions;
@@ -388,6 +394,7 @@ function clearWebglTextureAtlas(addon: XtermRendererAddon | null): boolean {
 
 export function useXterm({
   agentId,
+  startupTimeline,
   backendSessionId,
   cwd,
   command,
@@ -479,6 +486,11 @@ export function useXterm({
     null
   );
   const agentStartupFirstOutputLoggedRef = useRef(false);
+  const agentStartupFirstInputLoggedRef = useRef(false);
+  const agentStartupInputReadyLoggedRef = useRef(false);
+  const agentStartupSurfaceReadyLoggedRef = useRef(false);
+  const startupTimelineRef = useRef(startupTimeline);
+  startupTimelineRef.current = startupTimeline;
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const onDataRef = useRef(onData);
@@ -612,6 +624,7 @@ export function useXterm({
   );
   const pendingTerminalExitRef = useRef(false);
   const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const interactiveResponseDeadlineRef = useRef(0);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
   const pendingHostScrollRef = useRef<PendingHostScrollRequest | null>(null);
@@ -647,41 +660,64 @@ export function useXterm({
     replaySnapshotParserStateRef.current = 'text';
   }, [recoveredReplaySnapshot]);
 
-  const write = useCallback((data: string) => {
-    if (!data) {
-      return;
-    }
-
-    if (
-      ptyIdRef.current &&
-      runtimeStateRef.current === 'live' &&
-      !isSessionCreationPendingRef.current
-    ) {
-      window.electronAPI.session.write(ptyIdRef.current, data);
-      return;
-    }
-
-    if (isSessionCreationPendingRef.current || runtimeStateRef.current === 'reconnecting') {
-      appendPendingTerminalInput(pendingTerminalInputRef, data);
+  const sendTerminalInput = useCallback((sessionId: string, data: string) => {
+    window.electronAPI.session.write(sessionId, data);
+    interactiveResponseDeadlineRef.current =
+      isVisibleRef.current && !isHibernatedRef.current
+        ? Date.now() + INTERACTIVE_RESPONSE_WINDOW_MS
+        : 0;
+    if (!agentStartupFirstInputLoggedRef.current) {
+      agentStartupFirstInputLoggedRef.current = true;
+      agentStartupLoggerRef.current?.markStage('first-input-sent');
     }
   }, []);
 
-  const flushPendingTerminalInput = useCallback((sessionId: string) => {
-    if (isUnmountedRef.current || ptyIdRef.current !== sessionId) {
-      return;
-    }
+  const write = useCallback(
+    (data: string) => {
+      if (!data) {
+        return;
+      }
 
-    isSessionCreationPendingRef.current = false;
-    if (runtimeStateRef.current !== 'live') {
-      return;
-    }
+      if (
+        ptyIdRef.current &&
+        runtimeStateRef.current === 'live' &&
+        !isSessionCreationPendingRef.current
+      ) {
+        sendTerminalInput(ptyIdRef.current, data);
+        return;
+      }
 
-    const pendingInput = pendingTerminalInputRef.current;
-    pendingTerminalInputRef.current = '';
-    if (pendingInput) {
-      window.electronAPI.session.write(sessionId, pendingInput);
-    }
-  }, []);
+      if (isSessionCreationPendingRef.current || runtimeStateRef.current === 'reconnecting') {
+        appendPendingTerminalInput(pendingTerminalInputRef, data);
+      }
+    },
+    [sendTerminalInput]
+  );
+
+  const flushPendingTerminalInput = useCallback(
+    (sessionId: string) => {
+      if (isUnmountedRef.current || ptyIdRef.current !== sessionId) {
+        return;
+      }
+
+      isSessionCreationPendingRef.current = false;
+      if (runtimeStateRef.current !== 'live') {
+        return;
+      }
+
+      if (!agentStartupInputReadyLoggedRef.current) {
+        agentStartupInputReadyLoggedRef.current = true;
+        agentStartupLoggerRef.current?.markStage('input-channel-ready');
+      }
+
+      const pendingInput = pendingTerminalInputRef.current;
+      pendingTerminalInputRef.current = '';
+      if (pendingInput) {
+        sendTerminalInput(sessionId, pendingInput);
+      }
+    },
+    [sendTerminalInput]
+  );
 
   const flushReplaySnapshot = useCallback((immediate = false) => {
     const emit = () => {
@@ -934,6 +970,15 @@ export function useXterm({
       }
       const revealed = revealTerminalReplaySurface(terminal, generation);
       if (revealed) {
+        if (
+          ptyIdRef.current &&
+          runtimeStateRef.current === 'live' &&
+          !isSessionCreationPendingRef.current &&
+          !agentStartupSurfaceReadyLoggedRef.current
+        ) {
+          agentStartupSurfaceReadyLoggedRef.current = true;
+          agentStartupLoggerRef.current?.markStage('surface-ready');
+        }
         setIsLoading(false);
       }
       return revealed;
@@ -1204,6 +1249,7 @@ export function useXterm({
       initialTerminalWriteInProgressRef.current = false;
       initialTerminalWriteGenerationRef.current += 1;
       isFlushPendingRef.current = false;
+      interactiveResponseDeadlineRef.current = 0;
       terminalWriteGenerationRef.current += 1;
       viewportSyncControllerRef.current.reset();
       pendingTerminalExitRef.current = false;
@@ -1606,6 +1652,7 @@ export function useXterm({
         options?.restoreHibernatedSurface && isHibernatedRef.current && ptyIdRef.current
       );
       const initAttemptId = ++initAttemptIdRef.current;
+      interactiveResponseDeadlineRef.current = 0;
       containerReadyCleanupRef.current?.();
       containerReadyCleanupRef.current = null;
       if (staticContent) {
@@ -1614,11 +1661,16 @@ export function useXterm({
       setIsLoading(true);
       if (!staticContent && kind === 'agent') {
         agentStartupFirstOutputLoggedRef.current = false;
-        agentStartupLoggerRef.current = createAgentStartupTimelineLogger({
-          source: 'renderer',
-          getLabel: () => ptyIdRef.current ?? backendSessionId ?? command?.shell ?? 'pending',
-          log: (message) => recordAgentStartup(message),
-        });
+        agentStartupFirstInputLoggedRef.current = false;
+        agentStartupInputReadyLoggedRef.current = false;
+        agentStartupSurfaceReadyLoggedRef.current = false;
+        agentStartupLoggerRef.current =
+          startupTimelineRef.current ??
+          createAgentStartupTimelineLogger({
+            source: 'renderer',
+            getLabel: () => ptyIdRef.current ?? backendSessionId ?? command?.shell ?? 'pending',
+            log: (message) => recordAgentStartup(message),
+          });
         agentStartupLoggerRef.current.markStage('init-terminal-start');
       } else {
         agentStartupLoggerRef.current = null;
@@ -2233,15 +2285,28 @@ export function useXterm({
               appendReplaySnapshot(event.data);
 
               if (isHibernatedRef.current || !isVisibleRef.current) {
+                interactiveResponseDeadlineRef.current = 0;
                 return;
               }
 
-              if (!isFlushPendingRef.current) {
+              const expediteResponse =
+                interactiveResponseDeadlineRef.current > 0 &&
+                Date.now() <= interactiveResponseDeadlineRef.current;
+              interactiveResponseDeadlineRef.current = 0;
+              // Expedite one response while keeping normal streaming output batched.
+              if (expediteResponse && dataFlushTimerRef.current) {
+                clearTimeout(dataFlushTimerRef.current);
+                dataFlushTimerRef.current = null;
+              }
+              if (!isFlushPendingRef.current || expediteResponse) {
                 isFlushPendingRef.current = true;
-                dataFlushTimerRef.current = setTimeout(() => {
-                  dataFlushTimerRef.current = null;
-                  flushBufferedTerminalOutput(terminalRef.current);
-                }, 30);
+                dataFlushTimerRef.current = setTimeout(
+                  () => {
+                    dataFlushTimerRef.current = null;
+                    flushBufferedTerminalOutput(terminalRef.current);
+                  },
+                  expediteResponse ? 0 : TERMINAL_OUTPUT_BATCH_DELAY_MS
+                );
               }
             },
             onResync: (event) => {
@@ -2486,6 +2551,7 @@ export function useXterm({
           persistedReplaySnapshot: recoveredReplaySnapshot,
           reusedExistingSession,
         });
+        agentStartupLoggerRef.current?.markStage('transcript-replay-start');
         const restoredReplay = await resolveLatestAgentTranscriptReplay(
           session.sessionId,
           initialReplay ?? ''
@@ -2498,6 +2564,7 @@ export function useXterm({
           finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
+        agentStartupLoggerRef.current?.markStage('transcript-replay-loaded');
         const liveReplaySnapshot = replaySnapshotRef.current;
         const persistedReplaySnapshot = resolveRecoveredReplaySnapshotPersistence({
           attachedReplay: replay,
@@ -2532,6 +2599,7 @@ export function useXterm({
           }
           onDataRef.current?.(restoredReplay);
         }
+        agentStartupLoggerRef.current?.markStage('output-activation-start');
         await window.electronAPI.session.activateOutput(session.sessionId);
         if (
           isUnmountedRef.current ||
@@ -2541,6 +2609,7 @@ export function useXterm({
           finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
+        agentStartupLoggerRef.current?.markStage('output-activation-complete');
         finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
 
         // Focus is handled by the isActive effect after loading ends.
@@ -2912,6 +2981,9 @@ export function useXterm({
   }, [clearReplaySnapshotAppendTimer, flushReplaySnapshotWithPendingOutput]);
 
   useEffect(() => {
+    if (!isVisible) {
+      interactiveResponseDeadlineRef.current = 0;
+    }
     const sessionId = ptyIdRef.current;
     if (!sessionId || staticContent) {
       return;

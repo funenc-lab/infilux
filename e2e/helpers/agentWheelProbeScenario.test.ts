@@ -1,8 +1,62 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { createAgentWheelProbeScenario } from './agentWheelProbeScenario';
+import { buildPersistentAgentHostSessionKey } from '../../src/shared/utils/runtimeIdentity';
+import { buildManagedTmuxSocketPath } from '../../src/shared/utils/tmux';
+import {
+  type AgentWheelProbeScenario,
+  createAgentWheelProbeScenario,
+  readProbeLog,
+  waitForProbeMarker,
+} from './agentWheelProbeScenario';
+
+async function runProbeLine(scenario: AgentWheelProbeScenario, text: string): Promise<string[]> {
+  const socket = buildManagedTmuxSocketPath(scenario.homeDir, 'infilux-dev');
+  const target = buildPersistentAgentHostSessionKey(scenario.uiSessionId, 'dev');
+  const command = `python3 -u '${scenario.probeScriptPath}' '${scenario.probeLogPath}'`;
+  execFileSync('tmux', ['-S', socket, 'respawn-pane', '-k', '-t', target, command]);
+  await waitForProbeMarker(scenario.probeLogPath, 'READY', 3000);
+  execFileSync('tmux', ['-S', socket, 'send-keys', '-t', target, '-l', '--', text]);
+  execFileSync('tmux', ['-S', socket, 'send-keys', '-t', target, 'Enter']);
+  await waitForProbeMarker(scenario.probeLogPath, `TEXT:${text}`, 3000);
+  return (await readProbeLog(scenario.probeLogPath)).split(/\r?\n/u);
+}
 
 describe('createAgentWheelProbeScenario', () => {
+  it('echoes input only when the performance probe is enabled', async () => {
+    const scenario = await createAgentWheelProbeScenario({ echoInput: true });
+    try {
+      const lines = await runProbeLine(scenario, 'echo-performance-probe');
+      expect(lines.filter((line) => line === 'TEXT:echo-performance-probe')).toHaveLength(1);
+      const pane = execFileSync(
+        'tmux',
+        [
+          '-S',
+          buildManagedTmuxSocketPath(scenario.homeDir, 'infilux-dev'),
+          'capture-pane',
+          '-p',
+          '-t',
+          buildPersistentAgentHostSessionKey(scenario.uiSessionId, 'dev'),
+        ],
+        { encoding: 'utf8' }
+      );
+      expect(pane).toContain('ECHO:echo-performance-probe');
+    } finally {
+      await scenario.cleanup();
+    }
+  });
+
+  it('preserves Unicode input across the probe read chunk boundary', async () => {
+    const scenario = await createAgentWheelProbeScenario();
+    try {
+      const text = `${'x'.repeat(31)}\u4e2d\u6587`;
+      const lines = await runProbeLine(scenario, text);
+      expect(lines.filter((line) => line === `TEXT:${text}`)).toHaveLength(1);
+    } finally {
+      await scenario.cleanup();
+    }
+  });
+
   it('creates a local repo fixture and browser snapshot for a seeded transcript probe session', async () => {
     const scenario = await createAgentWheelProbeScenario();
 

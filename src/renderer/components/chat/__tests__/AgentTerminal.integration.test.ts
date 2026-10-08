@@ -3,6 +3,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UseXtermOptions } from '@/hooks/useXterm';
 import { AGENT_STARTUP_STALL_THRESHOLD_MS } from '../agentStartupOverlay';
 import { AGENT_STARTUP_RECOVERY_INACTIVITY_THRESHOLD_MS } from '../agentStartupVisibilityPolicy';
 
@@ -19,7 +20,7 @@ const testState = vi.hoisted(() => ({
   runtimeContext: { kind: 'local' as 'local' | 'remote' },
   showScrollToBottom: false,
   formattedTranscriptText: 'formatted transcript',
-  useXtermOptions: [] as Array<Record<string, unknown>>,
+  useXtermOptions: [] as UseXtermOptions[],
   discoveryCalls: [] as Array<Record<string, unknown>>,
   providerDiscoveryState: {
     providerSessionResolutionPending: false,
@@ -169,7 +170,10 @@ const testState = vi.hoisted(() => ({
   toastAdd: vi.fn(),
   showRendererNotification: vi.fn(async () => undefined),
   searchBarFocus: vi.fn(),
+  recordAgentStartup: vi.fn(),
 }));
+
+vi.mock('@/utils/logging', () => ({ recordAgentStartup: testState.recordAgentStartup }));
 
 vi.mock('lucide-react', () => {
   const icon = (props: Record<string, unknown>) => React.createElement('svg', props);
@@ -227,7 +231,7 @@ vi.mock('@/hooks/useTerminalScrollToBottom', () => ({
 }));
 
 vi.mock('@/hooks/useXterm', () => ({
-  useXterm: (options: Record<string, unknown>) => {
+  useXterm: (options: UseXtermOptions) => {
     testState.useXtermOptions.push(options);
     return {
       ...testState.xtermResult,
@@ -549,6 +553,7 @@ describe('AgentTerminal integration', () => {
     testState.toastAdd.mockReset();
     testState.showRendererNotification.mockReset();
     testState.searchBarFocus.mockReset();
+    testState.recordAgentStartup.mockReset();
 
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
@@ -605,6 +610,182 @@ describe('AgentTerminal integration', () => {
     document.body.innerHTML = '';
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('measures shell prerequisites before starting the shared terminal timeline', async () => {
+    vi.useFakeTimers();
+    let resolveShell: ((value: { shell: string; execArgs: string[] }) => void) | undefined;
+    testState.electronAPI.shellResolveForCommand.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveShell = resolve;
+      })
+    );
+    const mounted = await mountAgentTerminal({ agentId: 'codex', agentCommand: 'codex' });
+    const timeline = testState.useXtermOptions.at(-1)?.startupTimeline;
+    expect(timeline).toBeDefined();
+    expect(testState.recordAgentStartup).toHaveBeenCalledWith(
+      expect.stringContaining('shell-resolve-start')
+    );
+    expect(testState.recordAgentStartup).not.toHaveBeenCalledWith(
+      expect.stringContaining('prerequisites-ready')
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      resolveShell?.({ shell: '/bin/zsh', execArgs: ['-lc'] });
+      await flushMicrotasks();
+    });
+
+    expect(testState.useXtermOptions.at(-1)?.startupTimeline).toBe(timeline);
+    expect(testState.recordAgentStartup).toHaveBeenCalledWith(
+      expect.stringMatching(/shell-resolve-complete .*\(75ms total\)/u)
+    );
+    expect(testState.recordAgentStartup).toHaveBeenCalledWith(
+      expect.stringContaining('prerequisites-ready')
+    );
+    await mounted.unmount();
+  });
+
+  it('records prerequisite failures without logging exception content', async () => {
+    testState.electronAPI.shellResolveForCommand.mockRejectedValueOnce(
+      new Error('private-shell-failure')
+    );
+    const mounted = await mountAgentTerminal();
+    expect(testState.recordAgentStartup).toHaveBeenCalledWith(
+      expect.stringContaining('shell-resolve-failed')
+    );
+    expect(testState.recordAgentStartup.mock.calls.flat().join('\n')).not.toContain(
+      'private-shell-failure'
+    );
+    await mounted.unmount();
+  });
+
+  it.each([
+    'shell',
+    'hapi',
+    'ide',
+    'trust',
+  ] as const)('waits for the current %s probe before recording retry readiness', async (probe) => {
+    vi.useFakeTimers();
+    testState.xtermResult.isLoading = true;
+    testState.settingsStore.agentIntegration.enabled = probe === 'ide';
+    const mounted = await mountAgentTerminal({
+      agentId: probe === 'ide' || probe === 'trust' ? 'claude' : 'codex',
+      agentCommand: probe === 'ide' || probe === 'trust' ? 'claude' : 'codex',
+      environment: probe === 'hapi' ? 'hapi' : 'native',
+    });
+    try {
+      const originalTimeline = testState.useXtermOptions.at(-1)?.startupTimeline;
+      expect(originalTimeline?.getEntries().map((entry) => entry.stage)).toContain(
+        'prerequisites-ready'
+      );
+      let resolveProbe: (() => void) | undefined;
+      if (probe === 'shell') {
+        testState.electronAPI.shellResolveForCommand.mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveProbe = () => resolve({ shell: '/bin/zsh', execArgs: ['-lc'] });
+          })
+        );
+      } else if (probe === 'hapi') {
+        testState.electronAPI.hapiCheckGlobal.mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveProbe = () => resolve({ installed: true });
+          })
+        );
+      } else if (probe === 'ide') {
+        testState.electronAPI.mcpGetStatus.mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveProbe = () =>
+              resolve({
+                enabled: false,
+                port: null,
+                workspaceFolders: [],
+                hasMatchingWorkspace: false,
+                matchingWorkspaceLockCount: 0,
+                canUseIde: false,
+                reason: 'bridge-disabled',
+              });
+          })
+        );
+      } else {
+        testState.electronAPI.ensureWorkspaceTrusted.mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveProbe = () => resolve(true);
+          })
+        );
+      }
+      await act(async () => {
+        vi.advanceTimersByTime(AGENT_STARTUP_STALL_THRESHOLD_MS + 1);
+        await flushMicrotasks();
+      });
+      const retryButton =
+        mounted.container.querySelector<HTMLButtonElement>('button[title="Retry"]');
+      expect(retryButton).not.toBeNull();
+      await act(async () => {
+        retryButton?.click();
+        await flushMicrotasks();
+      });
+      const retryTimeline = testState.useXtermOptions.at(-1)?.startupTimeline;
+      expect(retryTimeline).toBeDefined();
+      expect(retryTimeline).not.toBe(originalTimeline);
+      expect(retryTimeline?.getEntries().map((entry) => entry.stage)).not.toContain(
+        'prerequisites-ready'
+      );
+      await act(async () => {
+        vi.advanceTimersByTime(125);
+        resolveProbe?.();
+        await flushMicrotasks();
+      });
+      const readyEntries = retryTimeline
+        ?.getEntries()
+        .filter((entry) => entry.stage === 'prerequisites-ready');
+      expect(readyEntries).toHaveLength(1);
+      expect(readyEntries?.[0]?.sinceStartMs).toBe(125);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not collect live startup stages for read-only transcripts', async () => {
+    const mounted = await mountAgentTerminal({
+      readOnlyTranscript: { identity: 'history', entries: [] },
+    });
+    expect(testState.recordAgentStartup).not.toHaveBeenCalled();
+    await mounted.unmount();
+  });
+
+  it('does not retain a cancelled optional probe in startup timing', async () => {
+    testState.electronAPI.hapiCheckGlobal.mockReturnValueOnce(new Promise(() => undefined));
+    const mounted = await mountAgentTerminal({ environment: 'hapi' });
+    try {
+      const timeline = testState.useXtermOptions.at(-1)?.startupTimeline;
+      expect(timeline?.getEntries().map((entry) => entry.stage)).not.toContain(
+        'prerequisites-ready'
+      );
+      await mounted.rerender({ environment: 'native' });
+      expect(testState.useXtermOptions.at(-1)?.startupTimeline).toBe(timeline);
+      expect(
+        timeline?.getEntries().filter((entry) => entry.stage === 'prerequisites-ready')
+      ).toHaveLength(1);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('ignores completed prerequisite probes after the component unmounts', async () => {
+    let resolveShell: ((value: { shell: string; execArgs: string[] }) => void) | undefined;
+    testState.electronAPI.shellResolveForCommand.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveShell = resolve;
+      })
+    );
+    const mounted = await mountAgentTerminal();
+    await mounted.unmount();
+    const count = testState.recordAgentStartup.mock.calls.length;
+    await act(async () => {
+      resolveShell?.({ shell: '/bin/zsh', execArgs: ['-lc'] });
+      await flushMicrotasks();
+    });
+    expect(testState.recordAgentStartup).toHaveBeenCalledTimes(count);
   });
 
   it('renders transcript mode and passes formatted static content to useXterm', async () => {

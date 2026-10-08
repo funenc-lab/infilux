@@ -6,6 +6,7 @@ import type {
   SessionRuntimeInfo,
   SessionTranscriptPage,
 } from '@shared/types';
+import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -810,6 +811,96 @@ describe('useXterm startup loading state', () => {
     vi.useRealTimers();
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
+  });
+
+  it('continues the prerequisite timeline through input and surface readiness', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const logger = createAgentStartupTimelineLogger({
+      source: 'renderer',
+      getLabel: () => 'ui-session-1',
+      log: vi.fn(),
+    });
+    logger.markStage('prerequisites-start');
+    const mounted = mountHookHarness({ startupTimeline: logger });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(logger.getEntries().map((entry) => entry.stage)).toEqual(
+      expect.arrayContaining([
+        'prerequisites-start',
+        'init-terminal-start',
+        'input-channel-ready',
+        'surface-ready',
+      ])
+    );
+    await mounted.unmount();
+  });
+
+  it('records the first actual input send once without logging its content', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const messages: string[] = [];
+    const logger = createAgentStartupTimelineLogger({
+      source: 'renderer',
+      getLabel: () => 'ui-session-1',
+      log: (message) => messages.push(message),
+    });
+    const mounted = mountHookHarness({ startupTimeline: logger });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    testState.terminalDataHandler?.('private-input-one');
+    testState.terminalDataHandler?.('private-input-two');
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', 'private-input-one');
+    expect(logger.getEntries().filter((entry) => entry.stage === 'first-input-sent')).toHaveLength(
+      1
+    );
+    expect(messages.join('\n')).not.toContain('private-input');
+    await mounted.unmount();
+  });
+
+  it('does not announce surface readiness before current output activation completes', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const activation = createDeferredResult<undefined>();
+    testState.sessionActivateOutput.mockReturnValueOnce(activation.promise);
+    const logger = createAgentStartupTimelineLogger({
+      source: 'renderer',
+      getLabel: () => 'ui-session-1',
+      log: vi.fn(),
+    });
+    const mounted = mountHookHarness({ startupTimeline: logger });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(logger.getEntries().map((entry) => entry.stage)).toContain('input-channel-ready');
+    expect(logger.getEntries().map((entry) => entry.stage)).not.toContain('surface-ready');
+    await act(async () => {
+      activation.resolve(undefined);
+      await flushMicrotasks();
+    });
+    expect(logger.getEntries().filter((entry) => entry.stage === 'surface-ready')).toHaveLength(1);
+    await mounted.unmount();
+  });
+
+  it('does not report a failed initialization as input ready', async () => {
+    testState.sessionCreate.mockRejectedValueOnce(new Error('fixture create failed'));
+    const logger = createAgentStartupTimelineLogger({
+      source: 'renderer',
+      getLabel: () => 'ui-session-1',
+      log: vi.fn(),
+    });
+    const mounted = mountHookHarness({ startupTimeline: logger });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const stages = logger.getEntries().map((entry) => entry.stage);
+    expect(stages).toContain('init-terminal-failed');
+    expect(stages).not.toContain('input-channel-ready');
+    expect(stages).not.toContain('surface-ready');
+    await mounted.unmount();
   });
 
   it('registers replay query guards without overriding general terminal mode handling', async () => {
@@ -2251,6 +2342,157 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('expedites one visible output response after terminal input', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'echo\n' });
+      await vi.advanceTimersByTimeAsync(1);
+      await flushMicrotasks();
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledWith('echo\n');
+    await mounted.unmount();
+  });
+
+  it('expedites an already scheduled output batch without losing its earlier output', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'earlier output\n',
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      testState.terminalDataHandler?.('typed-input');
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'echo\n' });
+      await vi.advanceTimersByTimeAsync(1);
+      await flushMicrotasks();
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    expect(testState.terminalWrite).toHaveBeenCalledWith('earlier output\necho\n');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    await mounted.unmount();
+  });
+
+  it('keeps subsequent autonomous output batched after an expedited input response', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'echo\n' });
+      await vi.advanceTimersByTimeAsync(1);
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'autonomous output\n',
+      });
+      await vi.advanceTimersByTimeAsync(29);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    expect(testState.terminalWrite).toHaveBeenCalledWith('echo\n');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('autonomous output\n');
+    await mounted.unmount();
+  });
+
+  it('expires the response acceleration marker before unrelated later output', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      await vi.advanceTimersByTimeAsync(1000);
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'later output\n',
+      });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledWith('later output\n');
+    await mounted.unmount();
+  });
+
+  it('keeps an expedited response behind an in-flight terminal write', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'first batch\n',
+      });
+      await vi.advanceTimersByTimeAsync(30);
+      testState.terminalDataHandler?.('typed-input');
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'echo\n' });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await flushMicrotasks();
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(2);
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('echo\n');
+    await mounted.unmount();
+  });
+
+  it('clears response acceleration when the terminal is hidden', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    testState.terminalDataHandler?.('typed-input');
+    mounted.rerender({ isActive: false, isVisible: false });
+    mounted.rerender({ isActive: true, isVisible: true });
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'later output\n',
+      });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledWith('later output\n');
+    await mounted.unmount();
   });
 
   it('waits for xterm to consume one output batch before writing the next batch', async () => {
