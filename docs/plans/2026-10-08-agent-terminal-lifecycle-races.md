@@ -70,8 +70,9 @@ IPC-boundary scenarios. Update this plan with results.
 2. Run `pnpm typecheck`, `pnpm lint`, and
    `NODE_OPTIONS=--no-experimental-webstorage pnpm test --reporter=dot`.
 3. Review changed files and lifecycle invariants. Run `git diff --check`.
-4. Integrate the verified fix into the clean primary workspace and build the x64
-   package using the existing local Electron distribution and native binaries.
+4. Build the x64 package using existing local Electron/native binaries, integrate
+   the verified source into the clean primary workspace, and synchronize its
+   verified build output while retaining the previous generated output.
 5. Test the packaged executable with fixture-owned HOME, dev runtime channel,
    and Chromium user-data directory. Do not reuse production state.
 6. Back up the current app/state, request normal quit, replace the installed
@@ -85,8 +86,8 @@ IPC-boundary scenarios. Update this plan with results.
 - [x] Guard transition ownership and make all scoped regressions pass.
 - [x] Validate Electron keyboard input and review the fix.
 - [x] Run quality gates and record full-suite status.
-- [ ] Integrate, package, and verify the isolated packaged application.
-- [ ] Replace the local application with a recoverable backup and preserve hosts.
+- [x] Integrate, package, and verify the isolated packaged application.
+- [x] Replace the local application with a recoverable backup and preserve hosts.
 
 ## Verification Record
 
@@ -117,4 +118,26 @@ IPC-boundary scenarios. Update this plan with results.
   is checked from the xterm buffer, not by a canvas pixel assertion.
 - Tested package `app.asar` SHA-256:
   `696c9ff37d983bbd44df4dfa8f294d8ef1db6d7a9104dd3d985f84caa011b93b`.
-- Local integration and installation checks are pending.
+- Local source integration: `816ad4f` was fast-forwarded into `main`. Primary
+  workspace verification passed `pnpm lint` (1516 files plus theme/test-quality
+  audits), `pnpm typecheck`, and all 184 scoped tests. No remote push was made.
+- The primary `out/` directory was synchronized from the tested build;
+  `diff -qr` confirmed equality. Its previous generated output is retained under
+  `.tmp/primary-out-backup-f7hdAp/out`.
+- Installation completed on 2026-10-08. `/Applications/Infilux.app` has the same
+  `app.asar` SHA-256 as the isolated tested package. The previous installed
+  archive hash is
+  `f8b30b991e6ba3cc78af9518b34330973f1e51e864d3db8ca12ff318d8f8920a`.
+- Normal quit stopped app PID 93314 without killing any of the ten Agent pane
+  processes. Relaunch produced PID 39296; all ten tmux clients are attached from
+  this new main process, with the same pane session names and process IDs as
+  before replacement. No production keyboard input or message was sent.
+- Recoverable backup:
+  `~/Library/Application Support/Infilux/Install Backups/lifecycle-fix-G6ZceD/`.
+  It contains the previous app bundle, settings, session state, pane identity
+  snapshots, and a SQLite `.backup`; `PRAGMA quick_check` returned `ok`.
+- The isolated packaged screenshot shows restored terminal history. The E2E
+  history assertion remains buffer-based, not a canvas-pixel assertion.
+- The application remains unsigned, matching the previous local installation.
+  This repair does not claim a signed/public release or an entirely green
+  full-suite result while the independent ImageMagick prerequisite is missing.
