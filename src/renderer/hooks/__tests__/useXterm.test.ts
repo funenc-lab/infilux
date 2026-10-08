@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAgentLaunchPlan } from '../../components/chat/agentLaunchPlan';
 import { type UseXtermOptions, useXterm } from '../useXterm';
 import { XTERM_HIBERNATION_IDLE_MS } from '../xtermHibernateController';
-import type { resolveAgentWheelPolicy } from '../xtermWheelPolicy';
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_WRITE_CHAR_LIMIT,
 } from '../xtermOutputBuffer';
 import { resolveReusableBackendSessionId } from '../xtermSessionRecovery';
+import type { resolveAgentWheelPolicy } from '../xtermWheelPolicy';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -115,10 +115,12 @@ const testState = vi.hoisted(() => ({
   latestTextarea: null as HTMLTextAreaElement | null,
   terminalFocus: vi.fn(),
   attachedWheelHandler: null as ((event: WheelEvent) => boolean | undefined) | null,
-  resolveAgentWheelPolicy: vi.fn((_input?: unknown): ReturnType<typeof resolveAgentWheelPolicy> => ({
-    action: 'delegate' as const,
-    carryY: 0,
-  })),
+  resolveAgentWheelPolicy: vi.fn(
+    (_input?: unknown): ReturnType<typeof resolveAgentWheelPolicy> => ({
+      action: 'delegate' as const,
+      carryY: 0,
+    })
+  ),
   hookProps: {} as Partial<UseXtermOptions>,
   intersectionObserve: vi.fn(),
   intersectionDisconnect: vi.fn(),
