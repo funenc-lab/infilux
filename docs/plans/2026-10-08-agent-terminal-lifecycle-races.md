@@ -49,15 +49,24 @@
    session or the currently bound session; detach persistent abandoned creations.
 5. Guard outer error cleanup and replay/output continuations. Preserve the
    existing successful input flush and startup-first-output behavior.
-6. Run all hook and AgentTerminal integration tests and confirm they pass.
+6. Guard late hibernation transcript reads before shared replay state changes.
+   Prevent another hibernation while restoration is pending, and reevaluate the
+   idle schedule when loading ends.
+7. Preserve published Agent sessions across canvas-host replacement. Record
+   publication by session ID rather than by a descriptor-independent flag.
+8. Bind replay surface completion to the current initialization epoch so both
+   initialization and output-resync callbacks cannot clear replacement loading.
+9. Run all hook and AgentTerminal integration tests and confirm they pass.
 
 ## Task 3: Validate and Deploy
 
 **Files:** Extend `e2e/agent-wheel-scroll.test.ts` if needed for deterministic
 IPC-boundary scenarios. Update this plan with results.
 
-1. Validate real keyboard input after ordinary and interrupted hibernation in an
-   isolated Electron profile using shared scenario/launch/cleanup helpers.
+1. Validate two repeated hibernation cycles with real keyboard input and retained
+   viewport history in an isolated Electron profile using shared helpers.
+   Exercise interrupted IPC boundaries deterministically in hook regressions;
+   do not add production-only timing hooks for E2E tests.
 2. Run `pnpm typecheck`, `pnpm lint`, and
    `NODE_OPTIONS=--no-experimental-webstorage pnpm test --reporter=dot`.
 3. Review changed files and lifecycle invariants. Run `git diff --check`.
@@ -72,9 +81,40 @@ IPC-boundary scenarios. Update this plan with results.
 ## Progress
 
 - [x] Capture diagnostics and establish the 70-test isolated hook baseline.
-- [ ] Persist failing lifecycle regressions.
-- [ ] Guard transition ownership and make all scoped regressions pass.
-- [ ] Validate Electron keyboard input and review the fix.
-- [ ] Run quality gates and record full-suite status.
+- [x] Persist failing lifecycle regressions.
+- [x] Guard transition ownership and make all scoped regressions pass.
+- [x] Validate Electron keyboard input and review the fix.
+- [x] Run quality gates and record full-suite status.
 - [ ] Integrate, package, and verify the isolated packaged application.
 - [ ] Replace the local application with a recoverable backup and preserve hosts.
+
+## Verification Record
+
+- The 19 initial lifecycle regressions failed against the original production
+  hook using an in-memory Vitest source override, without changing the baseline.
+- Review-driven tests reproduced obsolete replay output going to disposed
+  surface 1 instead of replacement surface 2, overlapping restoration disposal,
+  cross-host kill/detach, and stale initialization/resync clearing new loading.
+- Scoped verification: 101 `useXterm` tests and 83 AgentTerminal integration
+  tests passed (184 total), including the 31 new hook cases.
+- Final typecheck passed. The worktree root is excluded by the repository's
+  Biome ignore rules, so `pnpm lint` processed no files. The equivalent explicit
+  tracked-file Biome check processed 1515 files successfully; the renderer theme
+  and test quality audits passed. The changed E2E file and `git diff --check`
+  also passed.
+- Full suite: 3834 passed, 1 failed in 616 test files. The only failure is the
+  unchanged logo generator test because the local `magick` command is missing.
+  This is the same independent environment failure as before the repair;
+  no test was disabled or changed to conceal it.
+- Independent review covered all five changed files with no remaining blocking
+  findings, and independently passed all 184 scoped tests.
+- The final source build and x64 directory package passed. Packaging reused the
+  existing local Electron/native binaries and retained the installed app's
+  unsigned status; it did not publish a release.
+- Built and packaged Electron keyboard checks passed. The final packaged check
+  verifies two hidden-surface hibernation cycles, retained viewport history,
+  and each typed line reaching the fixture process exactly once. Viewport history
+  is checked from the xterm buffer, not by a canvas pixel assertion.
+- Tested package `app.asar` SHA-256:
+  `696c9ff37d983bbd44df4dfa8f294d8ef1db6d7a9104dd3d985f84caa011b93b`.
+- Local integration and installation checks are pending.

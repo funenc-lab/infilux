@@ -1,6 +1,11 @@
 /* @vitest-environment jsdom */
 
-import type { SessionTranscriptPage } from '@shared/types';
+import type {
+  SessionAttachOptions,
+  SessionOpenResult,
+  SessionRuntimeInfo,
+  SessionTranscriptPage,
+} from '@shared/types';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -38,31 +43,33 @@ const testState = vi.hoisted(() => ({
   },
   restartSession: null as (() => void) | null,
   sessionHandlers: null as SessionSubscriptionHandlers | null,
-  attachPromise: null as Promise<unknown> | null,
-  resolveAttach: null as ((value: unknown) => void) | null,
-  sessionCreate: vi.fn(async () => ({
-    session: {
-      sessionId: 'backend-session-1',
-      backend: 'local' as const,
-      kind: 'agent' as const,
-      cwd: '/repo/worktree',
-      persistOnDisconnect: false,
-      createdAt: 1,
-      runtimeState: 'live' as const,
-      metadata: undefined,
-    },
-  })),
-  sessionAttach: vi.fn(() => {
+  attachPromise: null as Promise<SessionOpenResult> | null,
+  resolveAttach: null as ((value: SessionOpenResult) => void) | null,
+  sessionCreate: vi.fn(
+    async (): Promise<SessionOpenResult> => ({
+      session: {
+        sessionId: 'backend-session-1',
+        backend: 'local' as const,
+        kind: 'agent' as const,
+        cwd: '/repo/worktree',
+        persistOnDisconnect: false,
+        createdAt: 1,
+        runtimeState: 'live' as const,
+        metadata: undefined,
+      },
+    })
+  ),
+  sessionAttach: vi.fn((_options: SessionAttachOptions): Promise<SessionOpenResult> => {
     testState.attachPromise ??= new Promise((resolve) => {
       testState.resolveAttach = resolve;
     });
-    return testState.attachPromise as Promise<unknown>;
+    return testState.attachPromise;
   }),
   sessionDetach: vi.fn(async () => undefined),
   sessionKill: vi.fn(async () => undefined),
   sessionResize: vi.fn(async () => undefined),
   sessionWrite: vi.fn(async () => undefined),
-  sessionGetRuntimeInfo: vi.fn(async () => null),
+  sessionGetRuntimeInfo: vi.fn(async (): Promise<SessionRuntimeInfo | null> => null),
   sessionGetTranscriptPage: vi.fn(
     async (): Promise<SessionTranscriptPage> => ({
       text: '',
@@ -234,6 +241,9 @@ vi.mock('@xterm/xterm', () => ({
       if (callback) {
         testState.terminalWriteCallbacks.push(callback);
       }
+    }
+    writeln(data: string): void {
+      this.write(`${data}\r\n`);
     }
     clear(): void {}
     focus(): void {
@@ -480,14 +490,13 @@ vi.mock('../xtermWheelPolicy', () => ({
   resolveAgentWheelPolicy: (input: unknown) => testState.resolveAgentWheelPolicy(input),
 }));
 
+const DEFAULT_TEST_COMMAND = { shell: '/bin/zsh', args: ['-lc', 'codex'] };
+
 function HookHarness() {
   const hook = useXterm({
     cwd: '/repo/worktree',
     kind: 'agent',
-    command: {
-      shell: '/bin/zsh',
-      args: ['-lc', 'codex'],
-    },
+    command: DEFAULT_TEST_COMMAND,
     ...testState.hookProps,
     onSessionOpen: testState.sessionOpen,
   });
@@ -546,6 +555,41 @@ function mountHookHarness(initialProps: Partial<UseXtermOptions> = {}) {
 async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function createDeferredResult<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function createTestSessionResult(
+  sessionId: string,
+  persistOnDisconnect = false
+): SessionOpenResult {
+  return {
+    session: {
+      sessionId,
+      backend: 'local',
+      kind: 'agent',
+      cwd: '/repo/worktree',
+      persistOnDisconnect,
+      createdAt: 1,
+      runtimeState: 'live',
+    },
+  };
+}
+
+async function enableRealSessionRecovery() {
+  const actual =
+    await vi.importActual<typeof import('../xtermSessionRecovery')>('../xtermSessionRecovery');
+  vi.mocked(resolveReusableBackendSessionId).mockImplementation(
+    actual.resolveReusableBackendSessionId
+  );
 }
 
 function queueAnimationFrames() {
@@ -610,22 +654,35 @@ describe('useXterm startup loading state', () => {
     testState.sessionHandlers = null;
     testState.attachPromise = null;
     testState.resolveAttach = null;
-    testState.sessionCreate.mockClear();
-    testState.sessionAttach.mockClear();
-    testState.sessionDetach.mockClear();
+    vi.mocked(resolveReusableBackendSessionId).mockReset();
+    vi.mocked(resolveReusableBackendSessionId).mockResolvedValue(undefined);
+    testState.sessionCreate.mockReset();
+    testState.sessionCreate.mockResolvedValue(createTestSessionResult('backend-session-1'));
+    testState.sessionAttach.mockReset();
+    testState.sessionAttach.mockImplementation(() => {
+      testState.attachPromise ??= new Promise((resolve) => {
+        testState.resolveAttach = resolve;
+      });
+      return testState.attachPromise;
+    });
+    testState.sessionDetach.mockReset();
+    testState.sessionDetach.mockResolvedValue(undefined);
     testState.sessionKill.mockClear();
     testState.sessionResize.mockClear();
     testState.sessionWrite.mockClear();
-    testState.sessionGetRuntimeInfo.mockClear();
+    testState.sessionGetRuntimeInfo.mockReset();
+    testState.sessionGetRuntimeInfo.mockResolvedValue(null);
     testState.sessionGetTranscriptPage.mockReset();
     testState.sessionGetTranscriptPage.mockResolvedValue({
       text: '',
       totalBytes: 0,
       health: 'unavailable',
     });
-    testState.sessionActivateOutput.mockClear();
+    testState.sessionActivateOutput.mockReset();
+    testState.sessionActivateOutput.mockResolvedValue(undefined);
     testState.sessionAcknowledgeOutputResync.mockClear();
-    testState.sessionSetOutputDelivery.mockClear();
+    testState.sessionSetOutputDelivery.mockReset();
+    testState.sessionSetOutputDelivery.mockResolvedValue(undefined);
     testState.tmuxScrollClient.mockClear();
     testState.tmuxScrollClient.mockResolvedValue({
       applied: true,
@@ -1388,7 +1445,7 @@ describe('useXterm startup loading state', () => {
           };
         }) => void)
       | null = null;
-    let resolveSessionAttach: ((value: unknown) => void) | null = null;
+    let resolveSessionAttach: ((value: SessionOpenResult) => void) | null = null;
     testState.sessionCreate.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -3440,6 +3497,732 @@ describe('useXterm startup loading state', () => {
       'replacement pending still pending'
     );
     await mounted.unmount();
+  });
+
+  it('does not let obsolete hibernation replay consume replacement output', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      const oldTranscript = createDeferredResult<SessionTranscriptPage>();
+      testState.sessionGetTranscriptPage.mockImplementationOnce(() => oldTranscript.promise);
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => await flushMicrotasks());
+      expect(testState.terminalInstanceCount).toBe(2);
+
+      testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      await act(async () => {
+        testState.restartSession?.();
+        await vi.advanceTimersByTimeAsync(32);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalInstanceCount).toBe(3);
+      expect(testState.terminalDispose).toHaveBeenCalledWith(1);
+      testState.terminalWrite.mockClear();
+      testState.terminalWriteInstanceIds = [];
+      act(() => {
+        testState.sessionHandlers?.onData?.({
+          sessionId: 'replacement-session',
+          data: 'replacement output awaiting its flush timer',
+        });
+      });
+      await act(async () => {
+        oldTranscript.resolve({
+          text: 'old replay',
+          totalBytes: 10,
+          health: 'complete',
+          initialParserState: 'text',
+        });
+        await flushMicrotasks();
+      });
+      expect(testState.terminalWriteInstanceIds).not.toContain(1);
+      await act(async () => await vi.advanceTimersByTimeAsync(32));
+      expect(testState.terminalWrite).toHaveBeenCalledExactlyOnceWith(
+        'replacement output awaiting its flush timer'
+      );
+      expect(testState.terminalWriteInstanceIds).toEqual([2]);
+      act(() => testState.terminalDataHandler?.('after obsolete replay'));
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'replacement-session',
+        'after obsolete replay'
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    'codex',
+    'claude',
+  ])('defers %s hibernation while its previous restoration is still pending', async (agentId) => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness({ agentId });
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      const resume = createDeferredResult<undefined>();
+      testState.sessionSetOutputDelivery.mockImplementationOnce(() => resume.promise);
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => await flushMicrotasks());
+      act(() => testState.terminalDataHandler?.('queued during unfinished restore'));
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose.mock.calls).toEqual([[0]]);
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => {
+        resume.resolve(undefined);
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      expect(testState.terminalInstanceCount).toBe(2);
+      expect(testState.terminalDataHandler).not.toBeNull();
+      expect(testState.latestSnapshot.isLoading).toBe(false);
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'backend-session-1',
+        'queued during unfinished restore'
+      );
+      expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+      expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose.mock.calls).toEqual([[0], [1]]);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('reschedules hibernation when restoration finishes on a hidden surface', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS));
+      const resume = createDeferredResult<undefined>();
+      testState.sessionSetOutputDelivery.mockImplementationOnce(() => resume.promise);
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => await flushMicrotasks());
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS));
+      expect(testState.terminalDispose.mock.calls).toEqual([[0]]);
+      await act(async () => {
+        resume.resolve(undefined);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose.mock.calls).toEqual([[0], [1]]);
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => await flushMicrotasks());
+      expect(testState.terminalInstanceCount).toBe(3);
+      expect(testState.latestSnapshot.isLoading).toBe(false);
+      act(() => testState.terminalDataHandler?.('after delayed hibernation'));
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'backend-session-1',
+        'after delayed hibernation'
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('restarts a hibernated session without restoring its obsolete binding again', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose).toHaveBeenCalledWith(0);
+      testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      await act(async () => {
+        testState.restartSession?.();
+        await vi.advanceTimersByTimeAsync(32);
+        await flushMicrotasks();
+      });
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => await flushMicrotasks());
+      act(() => {
+        testState.terminalDataHandler?.('after hibernated restart');
+        testState.sessionHandlers?.onData?.({
+          sessionId: 'replacement-session',
+          data: 'fresh output',
+        });
+      });
+      await act(async () => await vi.advanceTimersByTimeAsync(32));
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'replacement-session',
+        'after hibernated restart'
+      );
+      expect(testState.terminalWrite).toHaveBeenCalledWith('fresh output');
+      expect(testState.sessionCreate).toHaveBeenCalledTimes(2);
+      expect(testState.sessionAttach).toHaveBeenCalledTimes(2);
+      expect(testState.sessionDetach).toHaveBeenCalledWith('backend-session-1');
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    'codex',
+    'claude',
+  ])('keeps %s input bound when activation interrupts output suspension', async (agentId) => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness({ agentId });
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => await flushMicrotasks());
+
+      const suspension = createDeferredResult<undefined>();
+      testState.sessionSetOutputDelivery.mockImplementationOnce(() => suspension.promise);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose).not.toHaveBeenCalled();
+
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(async () => await flushMicrotasks());
+      act(() => testState.terminalDataHandler?.('during suspension'));
+      await act(async () => {
+        suspension.resolve(undefined);
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('after suspension'));
+
+      expect(testState.sessionWrite.mock.calls).toEqual([
+        ['backend-session-1', 'during suspension'],
+        ['backend-session-1', 'after suspension'],
+      ]);
+      expect(testState.sessionDetach).not.toHaveBeenCalled();
+      expect(testState.terminalDispose).not.toHaveBeenCalled();
+      expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+      expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+      expect(testState.latestSnapshot.isLoading).toBe(false);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    { agentId: 'codex', outcome: 'resolve' },
+    { agentId: 'claude', outcome: 'resolve' },
+    { agentId: 'codex', outcome: 'reject' },
+    { agentId: 'claude', outcome: 'reject' },
+  ])('preserves replacement input after obsolete $agentId creation $outcome', async ({
+    agentId,
+    outcome,
+  }) => {
+    const oldCreation = createDeferredResult<SessionOpenResult>();
+    testState.sessionCreate.mockImplementationOnce(() => oldCreation.promise);
+    testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+    testState.sessionAttach.mockImplementation(async ({ sessionId }) =>
+      createTestSessionResult(sessionId)
+    );
+    const onRetry = vi.fn();
+    const mounted = mountHookHarness({
+      agentId,
+      persistOnDisconnect: true,
+      hostSession: { kind: 'tmux', serverName: 'infilux', sessionName: 'agent-host' },
+      sessionCreateFallback: { onRetry },
+    });
+    try {
+      await act(async () => await flushMicrotasks());
+      await act(async () => {
+        testState.restartSession?.();
+        await flushMicrotasks();
+      });
+      const replacementHandlers = testState.sessionHandlers;
+      act(() => testState.terminalDataHandler?.('before old creation'));
+      expect(testState.sessionWrite).toHaveBeenCalledWith(
+        'replacement-session',
+        'before old creation'
+      );
+
+      await act(async () => {
+        if (outcome === 'resolve') {
+          oldCreation.resolve(createTestSessionResult('obsolete-session'));
+        } else {
+          oldCreation.reject(new Error('Failed to recover tmux server: infilux'));
+        }
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('after old creation'));
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+        'replacement-session',
+        'after old creation'
+      );
+      expect(testState.sessionHandlers).toBe(replacementHandlers);
+      expect(testState.sessionCreate).toHaveBeenCalledTimes(2);
+      expect(testState.sessionAttach).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ sessionId: 'replacement-session' })
+      );
+      expect(onRetry).not.toHaveBeenCalled();
+      expect(testState.sessionKill).not.toHaveBeenCalledWith('replacement-session');
+      act(() =>
+        replacementHandlers?.onData?.({
+          sessionId: 'replacement-session',
+          data: 'replacement output',
+        })
+      );
+      await act(
+        async () =>
+          await vi.waitFor(() =>
+            expect(testState.terminalWrite).toHaveBeenCalledWith('replacement output')
+          )
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    'resolve',
+    'reject',
+  ])('preserves the replacement and recovered host after obsolete attach %s', async (outcome) => {
+    await enableRealSessionRecovery();
+    const oldAttach = createDeferredResult<SessionOpenResult>();
+    testState.sessionGetRuntimeInfo.mockResolvedValueOnce({
+      pid: 101,
+      isAlive: true,
+      isActive: true,
+      cwd: '/repo/worktree',
+      kind: 'agent',
+    });
+    testState.sessionAttach.mockImplementationOnce(() => oldAttach.promise);
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+    testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+    const mounted = mountHookHarness({
+      backendSessionId: 'recovered-session',
+      persistOnDisconnect: true,
+    });
+    try {
+      await act(async () => await flushMicrotasks());
+      expect(testState.sessionAttach).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'recovered-session' })
+      );
+      await act(async () => {
+        testState.restartSession?.();
+        await flushMicrotasks();
+      });
+      const replacementHandlers = testState.sessionHandlers;
+      await act(async () => {
+        if (outcome === 'resolve') {
+          oldAttach.resolve(createTestSessionResult('recovered-session', true));
+        } else {
+          oldAttach.reject(new Error('Session not found'));
+        }
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('replacement after obsolete attach'));
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+        'replacement-session',
+        'replacement after obsolete attach'
+      );
+      expect(testState.sessionHandlers).toBe(replacementHandlers);
+      expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+      expect(testState.sessionKill).not.toHaveBeenCalled();
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    'local',
+    'remote',
+  ] as const)('keeps replacement input queued while an obsolete %s creation completes', async (backend) => {
+    const resultFor = (sessionId: string): SessionOpenResult => ({
+      session: { ...createTestSessionResult(sessionId).session, backend },
+    });
+    const oldCreation = createDeferredResult<SessionOpenResult>();
+    const replacementCreation = createDeferredResult<SessionOpenResult>();
+    testState.sessionCreate.mockImplementationOnce(() => oldCreation.promise);
+    testState.sessionCreate.mockImplementationOnce(() => replacementCreation.promise);
+    testState.sessionAttach.mockResolvedValueOnce(resultFor('replacement-session'));
+    const mounted = mountHookHarness({
+      cwd: backend === 'remote' ? '/__enso_remote__/connection-1/workspace' : '/repo/worktree',
+    });
+    try {
+      await act(async () => await flushMicrotasks());
+      await act(async () => {
+        testState.restartSession?.();
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('new input'));
+      await act(async () => {
+        oldCreation.resolve(resultFor('obsolete-session'));
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.(' still pending'));
+      expect(testState.sessionWrite).not.toHaveBeenCalled();
+      expect(testState.latestSnapshot.isLoading).toBe(true);
+      await act(async () => {
+        replacementCreation.resolve(resultFor('replacement-session'));
+        await flushMicrotasks();
+      });
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'replacement-session',
+        'new input still pending'
+      );
+      expect(testState.sessionKill).not.toHaveBeenCalledWith('replacement-session');
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not terminate a created session that the replacement has already adopted', async () => {
+    const oldCreation = createDeferredResult<SessionOpenResult>();
+    testState.sessionCreate.mockImplementationOnce(() => oldCreation.promise);
+    testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('shared-session', true));
+    testState.sessionAttach.mockImplementation(async ({ sessionId }) =>
+      createTestSessionResult(sessionId, true)
+    );
+    const mounted = mountHookHarness({ persistOnDisconnect: true });
+    try {
+      await act(async () => await flushMicrotasks());
+      await act(async () => {
+        testState.restartSession?.();
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        oldCreation.resolve(createTestSessionResult('shared-session', true));
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('adopted session input'));
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'shared-session',
+        'adopted session input'
+      );
+      expect(testState.sessionKill).not.toHaveBeenCalled();
+      expect(testState.sessionDetach).not.toHaveBeenCalled();
+      expect(testState.sessionOpen).toHaveBeenCalledTimes(1);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('cancels pending hibernation when a transcript selection appears', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => await flushMicrotasks());
+      const suspension = createDeferredResult<undefined>();
+      testState.sessionSetOutputDelivery.mockImplementationOnce(() => suspension.promise);
+      await act(async () => await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS));
+      testState.terminalHasSelection = true;
+      await act(async () => {
+        suspension.resolve(undefined);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose).not.toHaveBeenCalled();
+      expect(testState.sessionSetOutputDelivery).toHaveBeenLastCalledWith(
+        'backend-session-1',
+        true
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not let obsolete runtime discovery start a new session', async () => {
+    await enableRealSessionRecovery();
+    const runtimeInfo = createDeferredResult<SessionRuntimeInfo | null>();
+    testState.sessionGetRuntimeInfo.mockImplementationOnce(() => runtimeInfo.promise);
+    testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+    const mounted = mountHookHarness({ backendSessionId: 'missing-session' });
+    try {
+      await act(async () => await flushMicrotasks());
+      expect(testState.sessionGetRuntimeInfo).toHaveBeenCalledExactlyOnceWith('missing-session');
+      await act(async () => {
+        testState.restartSession?.();
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        runtimeInfo.resolve(null);
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('after obsolete discovery'));
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+        'replacement-session',
+        'after obsolete discovery'
+      );
+      expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not dispose a replacement surface when an obsolete detach completes', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => await flushMicrotasks());
+      const oldDetach = createDeferredResult<undefined>();
+      testState.sessionDetach.mockImplementationOnce(() => oldDetach.promise);
+      testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      await act(async () => {
+        testState.restartSession?.();
+        await flushMicrotasks();
+        testState.restartSession?.();
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('before obsolete detach'));
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+        'replacement-session',
+        'before obsolete detach'
+      );
+      await act(async () => {
+        oldDetach.resolve(undefined);
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('after obsolete detach'));
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+        'replacement-session',
+        'after obsolete detach'
+      );
+      expect(testState.terminalDispose).toHaveBeenCalledExactlyOnceWith(0);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('ignores an obsolete output activation error instead of clearing the replacement', async () => {
+    const oldActivation = createDeferredResult<undefined>();
+    testState.sessionActivateOutput.mockImplementationOnce(() => oldActivation.promise);
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => await flushMicrotasks());
+      testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      await act(async () => {
+        testState.restartSession?.();
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        oldActivation.reject(new Error('Output activation failed'));
+        await flushMicrotasks();
+      });
+      act(() => testState.terminalDataHandler?.('after obsolete activation'));
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+        'replacement-session',
+        'after obsolete activation'
+      );
+      expect(testState.latestSnapshot.isLoading).toBe(false);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    false,
+    true,
+  ])('cleans up only an abandoned creation with persistence=%s after unmount', async (persistOnDisconnect) => {
+    const creation = createDeferredResult<SessionOpenResult>();
+    testState.sessionCreate.mockImplementationOnce(() => creation.promise);
+    testState.sessionAttach.mockResolvedValueOnce(
+      createTestSessionResult('abandoned-session', persistOnDisconnect)
+    );
+    const mounted = mountHookHarness({ persistOnDisconnect });
+    await act(async () => await flushMicrotasks());
+    await mounted.unmount();
+    await act(async () => {
+      creation.resolve(createTestSessionResult('abandoned-session', persistOnDisconnect));
+      await flushMicrotasks();
+    });
+    expect(testState.sessionAttach).not.toHaveBeenCalled();
+    expect(testState.sessionOpen).not.toHaveBeenCalled();
+    expect(testState.sessionWrite).not.toHaveBeenCalled();
+    if (persistOnDisconnect) {
+      expect(testState.sessionDetach).toHaveBeenCalledExactlyOnceWith('abandoned-session');
+      expect(testState.sessionKill).not.toHaveBeenCalled();
+    } else {
+      expect(testState.sessionKill).toHaveBeenCalledExactlyOnceWith('abandoned-session');
+    }
+  });
+
+  it.each([
+    { persistOnDisconnect: false, outcome: 'resolve' },
+    { persistOnDisconnect: true, outcome: 'resolve' },
+    { persistOnDisconnect: false, outcome: 'reject' },
+    { persistOnDisconnect: true, outcome: 'reject' },
+  ])('preserves a published agent session adopted by a replacement host ($persistOnDisconnect, $outcome)', async ({
+    persistOnDisconnect,
+    outcome,
+  }) => {
+    const oldAttach = createDeferredResult<SessionOpenResult>();
+    const onSessionIdChange = vi.fn();
+    testState.sessionCreate.mockResolvedValueOnce(
+      createTestSessionResult('moved-session', persistOnDisconnect)
+    );
+    testState.sessionAttach.mockImplementationOnce(() => oldAttach.promise);
+    const original = mountHookHarness({ persistOnDisconnect, onSessionIdChange });
+    await act(async () => await flushMicrotasks());
+    expect(onSessionIdChange).toHaveBeenCalledExactlyOnceWith('moved-session');
+    await original.unmount();
+
+    await enableRealSessionRecovery();
+    testState.sessionGetRuntimeInfo.mockResolvedValue({
+      pid: 101,
+      isAlive: true,
+      isActive: true,
+      kind: 'agent',
+      cwd: '/repo/worktree',
+    });
+    testState.sessionAttach.mockResolvedValueOnce(
+      createTestSessionResult('moved-session', persistOnDisconnect)
+    );
+    const replacement = mountHookHarness({
+      backendSessionId: 'moved-session',
+      persistOnDisconnect,
+    });
+    try {
+      await act(async () => await flushMicrotasks());
+      act(() => testState.terminalDataHandler?.('after host move'));
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'moved-session',
+        'after host move'
+      );
+      await act(async () => {
+        if (outcome === 'resolve') {
+          oldAttach.resolve(createTestSessionResult('moved-session', persistOnDisconnect));
+        } else {
+          oldAttach.reject(new Error('Old host attach failed'));
+        }
+        await flushMicrotasks();
+      });
+      expect(testState.sessionKill).not.toHaveBeenCalled();
+      expect(testState.sessionDetach).not.toHaveBeenCalled();
+      act(() => testState.terminalDataHandler?.('after old host finishes'));
+      expect(testState.sessionWrite.mock.calls).toEqual([
+        ['moved-session', 'after host move'],
+        ['moved-session', 'after old host finishes'],
+      ]);
+      expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+      expect(testState.latestSnapshot.isLoading).toBe(false);
+    } finally {
+      await replacement.unmount();
+    }
+  });
+
+  it.each([
+    'attach',
+    'transcript',
+    'activate',
+    'resync',
+  ])('does not clear replacement loading when obsolete %s finishes during detach', async (stage) => {
+    const oldAttach = createDeferredResult<SessionOpenResult>();
+    const oldTranscript = createDeferredResult<SessionTranscriptPage>();
+    const oldActivation = createDeferredResult<undefined>();
+    if (stage === 'attach') {
+      testState.sessionAttach.mockImplementationOnce(() => oldAttach.promise);
+    } else {
+      testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    }
+    if (stage === 'transcript') {
+      testState.sessionGetTranscriptPage.mockImplementationOnce(() => oldTranscript.promise);
+    }
+    if (stage === 'activate') {
+      testState.sessionActivateOutput.mockImplementationOnce(() => oldActivation.promise);
+    }
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => await flushMicrotasks());
+      if (stage === 'resync') {
+        await act(async () => {
+          testState.sessionHandlers?.onResync?.({
+            sessionId: 'backend-session-1',
+            replay: 'obsolete resync replay',
+          });
+          await flushMicrotasks();
+        });
+        expect(testState.terminalWriteCallbacks).toHaveLength(1);
+      }
+      vi.useFakeTimers();
+      const oldDetach = createDeferredResult<undefined>();
+      testState.sessionDetach.mockImplementationOnce(() => oldDetach.promise);
+      testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('replacement-session'));
+      await act(async () => {
+        testState.restartSession?.();
+        await vi.advanceTimersByTimeAsync(32);
+        await flushMicrotasks();
+      });
+      expect(testState.latestSnapshot.isLoading).toBe(true);
+      expect(testState.terminalInstanceCount).toBe(1);
+      await act(async () => {
+        if (stage === 'attach') {
+          oldAttach.resolve(createTestSessionResult('backend-session-1'));
+        } else if (stage === 'transcript') {
+          oldTranscript.resolve({ text: '', totalBytes: 0, health: 'unavailable' });
+        } else if (stage === 'resync') {
+          testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+            callback();
+          });
+        } else {
+          oldActivation.resolve(undefined);
+        }
+        await flushMicrotasks();
+      });
+      expect(testState.latestSnapshot.isLoading).toBe(true);
+      await act(async () => {
+        oldDetach.resolve(undefined);
+        await flushMicrotasks();
+      });
+      expect(testState.latestSnapshot.isLoading).toBe(false);
+      act(() => testState.terminalDataHandler?.('after delayed detach'));
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'replacement-session',
+        'after delayed detach'
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not create a session after runtime discovery completes on an unmounted surface', async () => {
+    await enableRealSessionRecovery();
+    const runtimeInfo = createDeferredResult<SessionRuntimeInfo | null>();
+    testState.sessionGetRuntimeInfo.mockImplementationOnce(() => runtimeInfo.promise);
+    const mounted = mountHookHarness({ backendSessionId: 'missing-session' });
+    await act(async () => await flushMicrotasks());
+    expect(testState.sessionGetRuntimeInfo).toHaveBeenCalledExactlyOnceWith('missing-session');
+    await mounted.unmount();
+    await act(async () => {
+      runtimeInfo.resolve(null);
+      await flushMicrotasks();
+    });
+    expect(testState.sessionCreate).not.toHaveBeenCalled();
   });
 
   it('scrolls tmux-backed agent output through the host scrollback', async () => {

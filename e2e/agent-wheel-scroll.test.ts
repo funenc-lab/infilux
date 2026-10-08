@@ -128,6 +128,9 @@ describe.sequential('electron agent transcript interactions', () => {
       await waitForRepositoryAndWorktree(launch.page, scenario);
       await openSeededSession(launch.page, scenario);
       await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await expect
+        .poll(async () => await readVisibleTerminalText(launch.page, scenario), { timeout: 30000 })
+        .toContain('TRANSCRIPT-LINE-');
       await launch.page.clock.install();
 
       for (let cycle = 0; cycle < 2; cycle += 1) {
@@ -142,6 +145,12 @@ describe.sequential('electron agent transcript interactions', () => {
         await launch.page.getByRole('button', { name: 'Agent', exact: true }).focus();
         await launch.page.keyboard.press('Enter');
         await resolveTerminalLocator(launch.page, scenario).waitFor({ state: 'visible' });
+        await launch.page.clock.runFor(64);
+        await expect
+          .poll(async () => await readVisibleTerminalText(launch.page, scenario), {
+            timeout: 30000,
+          })
+          .toContain('TRANSCRIPT-LINE-');
         await clickTerminalAt(launch.page, scenario, { xRatio: 0.45, yRatio: 0.2 });
         const typedLine = `restored-keyboard-cycle-${cycle}`;
         await launch.page.keyboard.type(typedLine);

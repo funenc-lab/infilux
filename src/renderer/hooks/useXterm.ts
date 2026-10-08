@@ -592,6 +592,7 @@ export function useXterm({
   const terminalWriteIdleWaitersRef = useRef(new Set<() => void>());
   const terminalReplaySurfaceRef = useRef<{
     generation: number;
+    initAttemptId: number;
     restore: () => void;
     terminal: Terminal;
   } | null>(null);
@@ -875,6 +876,7 @@ export function useXterm({
       terminalReplaySurfaceRef.current = {
         ...currentSurface,
         generation,
+        initAttemptId: initAttemptIdRef.current,
       };
       return generation;
     }
@@ -883,6 +885,7 @@ export function useXterm({
     const container = containerRef.current;
     terminalReplaySurfaceRef.current = {
       generation,
+      initAttemptId: initAttemptIdRef.current,
       restore: container ? hideXtermReplaySurface(container) : () => undefined,
       terminal,
     };
@@ -893,9 +896,11 @@ export function useXterm({
     (terminal: Terminal, generation: number | null): boolean => {
       const currentSurface = terminalReplaySurfaceRef.current;
       return (
+        !isUnmountedRef.current &&
         generation !== null &&
         currentSurface?.terminal === terminal &&
-        currentSurface.generation === generation
+        currentSurface.generation === generation &&
+        currentSurface.initAttemptId === initAttemptIdRef.current
       );
     },
     []
@@ -921,6 +926,12 @@ export function useXterm({
 
   const finishTerminalReplaySurface = useCallback(
     (terminal?: Terminal, generation?: number | null): boolean => {
+      if (
+        isUnmountedRef.current ||
+        terminalReplaySurfaceRef.current?.initAttemptId !== initAttemptIdRef.current
+      ) {
+        return false;
+      }
       const revealed = revealTerminalReplaySurface(terminal, generation);
       if (revealed) {
         setIsLoading(false);
@@ -1500,6 +1511,8 @@ export function useXterm({
     firstOutputWaitersRef.current.clear();
     pendingTerminalInputRef.current = '';
     isSessionCreationPendingRef.current = false;
+    isHibernatedRef.current = false;
+    hibernatedSurfaceStateRef.current = null;
     wheelCarryRef.current = 0;
     clearPendingHostScroll();
     setSearchState(createEmptyTerminalSearchState());
@@ -1613,16 +1626,37 @@ export function useXterm({
 
       let terminal = terminalRef.current;
       let terminalReplaySurfaceGeneration: number | null = null;
-
-      if (terminal) {
-        await resetSessionBinding();
-        disposeTerminal();
-        terminal = null;
-
-        if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
-          setIsLoading(false);
+      let createdSession: SessionDescriptor | null = null;
+      let publishedCreatedSessionId: string | null = null;
+      const isCurrentInitAttempt = () =>
+        !isUnmountedRef.current &&
+        initAttemptId === initAttemptIdRef.current &&
+        terminalRef.current === terminal;
+      const cleanupAbandonedCreatedSession = async () => {
+        const abandonedSession = createdSession;
+        if (
+          !abandonedSession ||
+          ptyIdRef.current === abandonedSession.sessionId ||
+          (kind === 'agent' && publishedCreatedSessionId === abandonedSession.sessionId)
+        ) {
           return;
         }
+        createdSession = null;
+        // A persistent host can already be in use by the replacement client.
+        if (abandonedSession.persistOnDisconnect) {
+          await window.electronAPI.session.detach(abandonedSession.sessionId).catch(() => {});
+        } else {
+          await window.electronAPI.session.kill(abandonedSession.sessionId).catch(() => {});
+        }
+      };
+
+      if (terminal || (!restoreHibernatedSurface && ptyIdRef.current)) {
+        await resetSessionBinding();
+        if (!isCurrentInitAttempt()) {
+          return;
+        }
+        disposeTerminal();
+        terminal = null;
       }
 
       if (!terminal) {
@@ -1642,12 +1676,10 @@ export function useXterm({
               cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
             });
           });
-          containerReadyCleanupRef.current = null;
-
-          if (isUnmountedRef.current || initAttemptId !== initAttemptIdRef.current) {
-            setIsLoading(false);
+          if (!isCurrentInitAttempt()) {
             return;
           }
+          containerReadyCleanupRef.current = null;
         }
 
         const container = containerRef.current;
@@ -2004,6 +2036,14 @@ export function useXterm({
             sessionId,
             replaySnapshotRef.current
           );
+          if (
+            !isCurrentInitAttempt() ||
+            ptyIdRef.current !== sessionId ||
+            !isTerminalReplaySurfaceCurrent(terminal, terminalReplaySurfaceGeneration)
+          ) {
+            finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
+            return;
+          }
           const replayApplied = await writeInitialTerminalContent(terminal, replay, replayViewport);
           if (
             !replayApplied ||
@@ -2300,8 +2340,14 @@ export function useXterm({
         ) => {
           agentStartupLoggerRef.current?.markStage(`${stagePrefix}-start`);
           const created = await window.electronAPI.session.create(sessionCreateOptions);
+          createdSession = created.session;
+          if (!isCurrentInitAttempt()) {
+            return created;
+          }
           agentStartupLoggerRef.current?.markStage(`${stagePrefix}-created`);
           const createdSessionId = created.session.sessionId;
+          // Published Agent sessions can move to another canvas host in this window.
+          publishedCreatedSessionId = createdSessionId;
           setCurrentSessionId(createdSessionId);
           subscribeToSession(createdSessionId);
           if (isRemoteVirtualPath(sessionCreateOptions.cwd ?? '')) {
@@ -2320,6 +2366,9 @@ export function useXterm({
           ]).finally(() => {
             firstOutputWaiter.dispose();
           });
+          if (!isCurrentInitAttempt()) {
+            return created;
+          }
           if (attached.type === 'first-output') {
             agentStartupLoggerRef.current?.markStage(`${stagePrefix}-attach-bypassed-on-output`);
             return created;
@@ -2333,6 +2382,7 @@ export function useXterm({
             return await createAndAttachSessionWithOptions(createOptions, 'session-create');
           } catch (error) {
             if (
+              !isCurrentInitAttempt() ||
               !shouldRetrySessionCreateWithoutHost({
                 error,
                 kind,
@@ -2372,17 +2422,26 @@ export function useXterm({
               : {}),
           },
         });
+        if (!isCurrentInitAttempt()) {
+          return;
+        }
 
         if (reusableBackendSessionId) {
           try {
             setCurrentSessionId(reusableBackendSessionId);
             subscribeToSession(reusableBackendSessionId);
             const result = await attachToSession(reusableBackendSessionId);
+            if (!isCurrentInitAttempt()) {
+              return;
+            }
             agentStartupLoggerRef.current?.markStage('session-attached');
             session = result.session;
             replay = result.replay;
             reusedExistingSession = true;
           } catch (error) {
+            if (!isCurrentInitAttempt()) {
+              return;
+            }
             agentStartupLoggerRef.current?.markStage('attach-existing-failed');
             console.warn('[xterm] Failed to attach existing session, creating a new one:', error);
             sessionEventsCleanupRef.current?.();
@@ -2401,13 +2460,8 @@ export function useXterm({
           throw new Error('Failed to initialize terminal session');
         }
 
-        if (isUnmountedRef.current || createRequestId !== createRequestIdRef.current) {
-          sessionEventsCleanupRef.current?.();
-          sessionEventsCleanupRef.current = null;
-          ptyIdRef.current = null;
-          pendingTerminalInputRef.current = '';
-          isSessionCreationPendingRef.current = false;
-          await window.electronAPI.session.kill(session.sessionId).catch(() => {});
+        if (!isCurrentInitAttempt() || createRequestId !== createRequestIdRef.current) {
+          await cleanupAbandonedCreatedSession();
           finishTerminalReplaySurface(terminal, terminalReplaySurfaceGeneration);
           return;
         }
@@ -2491,6 +2545,10 @@ export function useXterm({
 
         // Focus is handled by the isActive effect after loading ends.
       } catch (error) {
+        if (!isCurrentInitAttempt()) {
+          await cleanupAbandonedCreatedSession();
+          return;
+        }
         agentStartupLoggerRef.current?.markStage('init-terminal-failed');
         sessionEventsCleanupRef.current?.();
         sessionEventsCleanupRef.current = null;
@@ -2577,6 +2635,7 @@ export function useXterm({
     if (
       !terminal ||
       !sessionId ||
+      isHibernationRestoreInProgressRef.current ||
       isActiveRef.current ||
       isVisibleRef.current ||
       isStaticContentModeRef.current ||
@@ -2585,11 +2644,10 @@ export function useXterm({
       return;
     }
 
-    hibernatedSurfaceStateRef.current = {
+    const surfaceState: HibernatedXtermSurfaceState = {
       searchState: searchStateRef.current,
       viewportY: terminal.buffer.active.viewportY,
     };
-    isHibernatedRef.current = true;
     flushReplaySnapshotWithPendingOutput(true);
 
     await window.electronAPI.session.setOutputDelivery(sessionId, false).catch((error) => {
@@ -2599,17 +2657,20 @@ export function useXterm({
     if (
       isUnmountedRef.current ||
       terminalRef.current !== terminal ||
-      isActiveRef.current ||
-      isVisibleRef.current
+      ptyIdRef.current !== sessionId
     ) {
-      isHibernatedRef.current = false;
-      hibernatedSurfaceStateRef.current = null;
+      return;
+    }
+    if (isActiveRef.current || isVisibleRef.current || terminal.hasSelection()) {
       await window.electronAPI.session.setOutputDelivery(sessionId, true).catch((error) => {
         console.warn('[xterm] Failed to restore session output delivery:', error);
       });
       return;
     }
 
+    // A paused surface is not hibernated until its disposal can commit.
+    hibernatedSurfaceStateRef.current = surfaceState;
+    isHibernatedRef.current = true;
     disposeTerminal();
   }, [disposeTerminal, flushReplaySnapshotWithPendingOutput]);
 
@@ -2632,6 +2693,9 @@ export function useXterm({
         return;
       }
       if (decision.kind === 'hibernate') {
+        if (isLoading && isHibernationRestoreInProgressRef.current) {
+          return;
+        }
         void hibernateTerminal();
         return;
       }
@@ -2648,6 +2712,7 @@ export function useXterm({
     clearHibernationTimer,
     hibernateTerminal,
     isActive,
+    isLoading,
     isVisible,
     resumeHibernatedTerminal,
     staticContent,

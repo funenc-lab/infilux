@@ -27,9 +27,21 @@ Use the existing initialization generation and terminal identity as the owner
 check. Validate them after detach, runtime lookup, creation, attach, and before
 error cleanup or fallback. An obsolete attempt must not change current refs,
 subscriptions, loading state, or input queues. It may clean up only a session it
-created that is not currently bound: kill an ephemeral session, but detach a
-persistent session to preserve its host. Never kill an existing recovered session
-because an obsolete attach completed.
+created that is not currently bound and has not been published as an Agent
+session: kill an unpublished ephemeral session, but detach an unpublished
+persistent session to preserve its host. Published Agent sessions can be adopted
+by another canvas host in the same window; the old hook must not kill or detach
+them. Never kill an existing recovered session because an obsolete attach
+completed. Track publication by session ID so a fallback creation does not
+inherit ownership from an earlier descriptor.
+
+Independent review reproduced adjacent failures in late hibernation transcript
+reads, overlapping restoration and hibernation, cross-host attach cleanup, and
+late initialization/resync completion while a replacement is waiting for
+detach. Bind replay surfaces to the existing initialization epoch, reject late
+transcript reads before they enter shared replay state, and postpone hibernation
+while restoration is in progress. Reevaluate the existing idle schedule when
+loading ends; do not add another session state source.
 
 ## Alternatives
 
