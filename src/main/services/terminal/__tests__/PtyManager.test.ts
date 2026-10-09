@@ -366,7 +366,7 @@ describe('PtyManager utilities', () => {
       throw new Error('Missing PTY instance');
     }
 
-    manager.write(id, 'pwd\n');
+    expect(manager.write(id, 'pwd\n')).toBe(true);
     manager.resize(id, 120, 50);
     expect(pty.write).toHaveBeenCalledWith('pwd\n');
     expect(pty.resize).toHaveBeenCalledWith(120, 50);
@@ -385,7 +385,7 @@ describe('PtyManager utilities', () => {
     expect(pty.dataListenerCount()).toBe(0);
     expect(pty.exitListenerCount()).toBe(0);
 
-    manager.write(id, 'ignored');
+    expect(manager.write(id, 'ignored')).toBe(false);
     manager.resize(id, 80, 24);
     expect(pty.write).toHaveBeenCalledTimes(1);
     expect(pty.resize).toHaveBeenCalledTimes(1);

@@ -51,6 +51,8 @@ import {
 interface ManagedSessionRecord extends SessionDescriptor {
   attachedWindowIds: Set<number>;
   localRuntime?: 'pty' | 'supervisor';
+  supervisorInputEpoch?: number;
+  remoteInputEpoch?: number;
   connectionId?: string;
   hostSession?: SessionCreateOptions['hostSession'];
   runtimeState?: SessionRuntimeState;
@@ -324,7 +326,7 @@ export class SessionManager {
           }
         );
         const record = this.registerRemoteSession(windowId, existing.connectionId, result.session);
-        this.setSessionRuntimeState(record.sessionId, 'live');
+        this.markRemoteSessionLive(record.sessionId);
         this.replaceReplayBuffer(record, result.replay ?? '');
         return {
           session: this.toDescriptor(record),
@@ -380,7 +382,7 @@ export class SessionManager {
         }
       );
       const record = this.registerRemoteSession(windowId, connectionId, result.session);
-      this.setSessionRuntimeState(record.sessionId, 'live');
+      this.markRemoteSessionLive(record.sessionId);
       this.replaceReplayBuffer(record, result.replay ?? '');
       return {
         session: this.toDescriptor(record),
@@ -526,40 +528,58 @@ export class SessionManager {
   }
 
   write(sessionId: string, data: string): void {
+    void this.writeInput(sessionId, data).catch(() => undefined);
+  }
+
+  async writeInput(sessionId: string, data: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      return;
+      throw new Error('Session not found');
+    }
+    if (session.runtimeState && session.runtimeState !== 'live') {
+      throw new Error('Session input is not ready');
     }
 
     if (session.backend === 'remote' && session.connectionId) {
-      if (session.runtimeState && session.runtimeState !== 'live') {
-        return;
-      }
       const { connectionId } = session;
-      void this.ensureRemoteSubscriptions(connectionId)
-        .then(() =>
-          remoteConnectionManager.call(connectionId, 'session:write', { sessionId, data })
-        )
-        .catch(() => {
+      const inputEpoch = session.remoteInputEpoch ?? 0;
+      try {
+        await this.ensureRemoteSubscriptions(connectionId);
+        if (this.sessions.get(sessionId) !== session || session.runtimeState !== 'live') {
+          throw new Error('Session input is not ready');
+        }
+        await remoteConnectionManager.call(connectionId, 'session:write', { sessionId, data });
+      } catch (error) {
+        if (
+          this.sessions.get(sessionId) === session &&
+          (session.remoteInputEpoch ?? 0) === inputEpoch
+        ) {
           this.setSessionRuntimeState(sessionId, 'reconnecting');
-        });
+        }
+        throw error;
+      }
       return;
     }
 
     if (session.localRuntime === 'supervisor') {
-      void Promise.resolve(localSupervisorRuntime.writeSession(sessionId, data)).catch(() => {
-        this.emitState(
-          {
-            sessionId,
-            state: 'dead',
-          },
-          new Set(session.attachedWindowIds)
-        );
-      });
+      const inputEpoch = session.supervisorInputEpoch ?? 0;
+      try {
+        await localSupervisorRuntime.writeSession(sessionId, data);
+      } catch (error) {
+        if (
+          this.sessions.get(sessionId) === session &&
+          (session.supervisorInputEpoch ?? 0) === inputEpoch
+        ) {
+          this.setSessionRuntimeState(sessionId, 'dead');
+        }
+        throw error;
+      }
       return;
     }
 
-    this.localPtyManager.write(sessionId, data);
+    if (!this.localPtyManager.write(sessionId, data)) {
+      throw new Error('Session PTY is unavailable');
+    }
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
@@ -1205,6 +1225,10 @@ export class SessionManager {
     session.localRuntime = 'supervisor';
     this.replaceReplayBuffer(session, result.replay ?? '');
     session.streamState = 'live';
+    if (this.sessions.get(session.sessionId) === session) {
+      session.supervisorInputEpoch = (session.supervisorInputEpoch ?? 0) + 1;
+      this.setSessionRuntimeState(session.sessionId, result.session.runtimeState ?? 'live');
+    }
     return {
       session: this.toDescriptor(session),
       replay: result.replay,
@@ -1253,6 +1277,7 @@ export class SessionManager {
       }
     );
     const record = this.registerRemoteSession(windowId, connectionId, result.session);
+    this.markRemoteSessionLive(record.sessionId);
     this.replaceReplayBuffer(record, result.replay ?? '');
     return {
       session: this.toDescriptor(record),
@@ -1787,6 +1812,8 @@ export class SessionManager {
       session.persistOnDisconnect = snapshot.session.persistOnDisconnect;
       session.createdAt = snapshot.session.createdAt;
       session.metadata = snapshot.session.metadata;
+      session.supervisorInputEpoch = (session.supervisorInputEpoch ?? 0) + 1;
+      this.setSessionRuntimeState(session.sessionId, snapshot.session.runtimeState ?? 'live');
       this.handleUpstreamOutputResync(session, {
         sessionId: session.sessionId,
         replay: snapshot.replay ?? '',
@@ -2028,7 +2055,7 @@ export class SessionManager {
                 sessionId: session.sessionId,
                 replayLength: replay.length,
               });
-              this.setSessionRuntimeState(session.sessionId, 'live');
+              this.markRemoteSessionLive(session.sessionId);
               return;
             } catch {
               if (this.sessions.get(session.sessionId) !== session) {
@@ -2273,14 +2300,23 @@ export class SessionManager {
 
   private setSessionRuntimeState(sessionId: string, state: SessionRuntimeState): void {
     const session = this.sessions.get(sessionId);
-    if (!session || session.backend !== 'remote') {
+    if (!session || (session.backend !== 'remote' && session.localRuntime !== 'supervisor')) {
       return;
     }
-    if (session.runtimeState === state) {
+    if ((session.runtimeState ?? 'live') === state) {
       return;
     }
     session.runtimeState = state;
     this.emitState({ sessionId, state });
+  }
+
+  private markRemoteSessionLive(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.backend !== 'remote') {
+      return;
+    }
+    session.remoteInputEpoch = (session.remoteInputEpoch ?? 0) + 1;
+    this.setSessionRuntimeState(sessionId, 'live');
   }
 
   private cleanupPersistentSessionRecord(session: ManagedSessionRecord): void {

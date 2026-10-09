@@ -543,6 +543,7 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_DETACH, sessionId),
     kill: (sessionId: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_KILL, sessionId),
+    // Confirms transport acceptance, not agent processing or echo rendering.
     write: (sessionId: string, data: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_WRITE, sessionId, data),
     resize: (sessionId: string, size: SessionResizeOptions): Promise<void> =>

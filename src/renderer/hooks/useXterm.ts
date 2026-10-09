@@ -109,6 +109,9 @@ const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
 const TERMINAL_OUTPUT_BATCH_DELAY_MS = 30;
 const INTERACTIVE_RESPONSE_WINDOW_MS = 500;
+const INTERACTIVE_RESPONSE_BURST_MS = 50;
+const INTERACTIVE_RESPONSE_EVENT_LIMIT = 4;
+const INTERACTIVE_RESPONSE_CHAR_LIMIT = 64 * 1024;
 const PENDING_TERMINAL_INPUT_CHAR_LIMIT = 1024 * 1024;
 
 interface TerminalInputRef {
@@ -250,11 +253,13 @@ export interface UseXtermOptions {
   staticContent?: XtermStaticContent;
   onExit?: () => void;
   onData?: (data: string) => void;
+  onInputError?: () => void;
   onReplaySnapshotChange?: (snapshot: string | undefined, capturedAt: number | undefined) => void;
   onCustomKey?: (
     event: KeyboardEvent,
     ptyId: string,
-    getCurrentLine?: () => string | null
+    getCurrentLine: () => string | null,
+    writeInput: (data: string) => void
   ) => boolean;
   onTitleChange?: (title: string) => void;
   onInit?: (ptyId: string) => void;
@@ -417,6 +422,7 @@ export function useXterm({
   staticContent,
   onExit,
   onData,
+  onInputError,
   onReplaySnapshotChange,
   onCustomKey,
   onTitleChange,
@@ -495,6 +501,10 @@ export function useXterm({
   onExitRef.current = onExit;
   const onDataRef = useRef(onData);
   onDataRef.current = onData;
+  const onInputErrorRef = useRef(onInputError);
+  onInputErrorRef.current = onInputError;
+  const inputSendSequenceRef = useRef(0);
+  const inputFailureRef = useRef({ reported: false, sequence: 0 });
   const onReplaySnapshotChangeRef = useRef(onReplaySnapshotChange);
   onReplaySnapshotChangeRef.current = onReplaySnapshotChange;
   const onCustomKeyRef = useRef(onCustomKey);
@@ -624,7 +634,16 @@ export function useXterm({
   );
   const pendingTerminalExitRef = useRef(false);
   const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const interactiveResponseDeadlineRef = useRef(0);
+  const pendingOutputFlushRef = useRef<{
+    interactive: boolean;
+    notBefore: number;
+  } | null>(null);
+  const interactiveResponseRef = useRef<{
+    inputDeadline: number;
+    burstDeadline: number | null;
+    remainingEvents: number;
+    remainingChars: number;
+  } | null>(null);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
   const pendingHostScrollRef = useRef<PendingHostScrollRequest | null>(null);
@@ -661,11 +680,42 @@ export function useXterm({
   }, [recoveredReplaySnapshot]);
 
   const sendTerminalInput = useCallback((sessionId: string, data: string) => {
-    window.electronAPI.session.write(sessionId, data);
-    interactiveResponseDeadlineRef.current =
+    const attemptId = initAttemptIdRef.current;
+    const sequence = ++inputSendSequenceRef.current;
+    const isCurrentSend = () =>
+      !isUnmountedRef.current &&
+      attemptId === initAttemptIdRef.current &&
+      ptyIdRef.current === sessionId;
+    const reportFailure = () => {
+      if (!isCurrentSend()) return;
+      inputFailureRef.current.sequence = Math.max(inputFailureRef.current.sequence, sequence);
+      if (sequence === inputSendSequenceRef.current) {
+        interactiveResponseRef.current = null;
+      }
+      if (inputFailureRef.current.reported) return;
+      inputFailureRef.current.reported = true;
+      console.warn('[xterm] Input delivery could not be confirmed', { sessionId });
+      onInputErrorRef.current?.();
+    };
+    try {
+      void Promise.resolve(window.electronAPI.session.write(sessionId, data)).then(() => {
+        if (isCurrentSend() && sequence > inputFailureRef.current.sequence) {
+          inputFailureRef.current.reported = false;
+        }
+      }, reportFailure);
+    } catch {
+      reportFailure();
+      return;
+    }
+    interactiveResponseRef.current =
       isVisibleRef.current && !isHibernatedRef.current
-        ? Date.now() + INTERACTIVE_RESPONSE_WINDOW_MS
-        : 0;
+        ? {
+            inputDeadline: Date.now() + INTERACTIVE_RESPONSE_WINDOW_MS,
+            burstDeadline: null,
+            remainingEvents: INTERACTIVE_RESPONSE_EVENT_LIMIT,
+            remainingChars: INTERACTIVE_RESPONSE_CHAR_LIMIT,
+          }
+        : null;
     if (!agentStartupFirstInputLoggedRef.current) {
       agentStartupFirstInputLoggedRef.current = true;
       agentStartupLoggerRef.current?.markStage('first-input-sent');
@@ -1121,6 +1171,9 @@ export function useXterm({
       if (!outputBuffer.hasPending) {
         return false;
       }
+      if (Date.now() < (pendingOutputFlushRef.current?.notBefore ?? 0)) {
+        return false;
+      }
 
       if (
         !terminal ||
@@ -1143,6 +1196,7 @@ export function useXterm({
         terminalOutputBacklogWarningRef.current = false;
       }
       isFlushPendingRef.current = false;
+      pendingOutputFlushRef.current = null;
       const writeGeneration = terminalWriteGenerationRef.current;
       terminalWriteInFlightRef.current = true;
       terminalWriteInFlightIdentityRef.current = {
@@ -1249,7 +1303,8 @@ export function useXterm({
       initialTerminalWriteInProgressRef.current = false;
       initialTerminalWriteGenerationRef.current += 1;
       isFlushPendingRef.current = false;
-      interactiveResponseDeadlineRef.current = 0;
+      pendingOutputFlushRef.current = null;
+      interactiveResponseRef.current = null;
       terminalWriteGenerationRef.current += 1;
       viewportSyncControllerRef.current.reset();
       pendingTerminalExitRef.current = false;
@@ -1652,7 +1707,8 @@ export function useXterm({
         options?.restoreHibernatedSurface && isHibernatedRef.current && ptyIdRef.current
       );
       const initAttemptId = ++initAttemptIdRef.current;
-      interactiveResponseDeadlineRef.current = 0;
+      interactiveResponseRef.current = null;
+      inputFailureRef.current.reported = false;
       containerReadyCleanupRef.current?.();
       containerReadyCleanupRef.current = null;
       if (staticContent) {
@@ -2058,7 +2114,7 @@ export function useXterm({
             if (!term) return null;
             return resolveCurrentTerminalInputLine(term);
           };
-          return onCustomKeyRef.current(event, ptyIdRef.current, getCurrentLine);
+          return onCustomKeyRef.current(event, ptyIdRef.current, getCurrentLine, write);
         }
         return true;
       });
@@ -2285,21 +2341,43 @@ export function useXterm({
               appendReplaySnapshot(event.data);
 
               if (isHibernatedRef.current || !isVisibleRef.current) {
-                interactiveResponseDeadlineRef.current = 0;
+                interactiveResponseRef.current = null;
                 return;
               }
 
-              const expediteResponse =
-                interactiveResponseDeadlineRef.current > 0 &&
-                Date.now() <= interactiveResponseDeadlineRef.current;
-              interactiveResponseDeadlineRef.current = 0;
-              // Expedite one response while keeping normal streaming output batched.
-              if (expediteResponse && dataFlushTimerRef.current) {
+              const response = interactiveResponseRef.current;
+              const now = Date.now();
+              const expediteResponse = Boolean(
+                response &&
+                  now <= response.inputDeadline &&
+                  (response.burstDeadline === null || now <= response.burstDeadline) &&
+                  response.remainingEvents > 0 &&
+                  event.data.length <= response.remainingChars &&
+                  now >= (pendingOutputFlushRef.current?.notBefore ?? 0)
+              );
+              const deferInteractiveResponse =
+                !expediteResponse && pendingOutputFlushRef.current?.interactive === true;
+              if (response && expediteResponse) {
+                response.burstDeadline ??= Math.min(
+                  response.inputDeadline,
+                  now + INTERACTIVE_RESPONSE_BURST_MS
+                );
+                response.remainingEvents -= 1;
+                response.remainingChars -= event.data.length;
+              } else {
+                interactiveResponseRef.current = null;
+              }
+              // Background output may precede echo; expedite only a bounded response burst.
+              if ((expediteResponse || deferInteractiveResponse) && dataFlushTimerRef.current) {
                 clearTimeout(dataFlushTimerRef.current);
                 dataFlushTimerRef.current = null;
               }
-              if (!isFlushPendingRef.current || expediteResponse) {
+              if (!isFlushPendingRef.current || expediteResponse || deferInteractiveResponse) {
                 isFlushPendingRef.current = true;
+                pendingOutputFlushRef.current = {
+                  interactive: expediteResponse,
+                  notBefore: deferInteractiveResponse ? now + TERMINAL_OUTPUT_BATCH_DELAY_MS : 0,
+                };
                 dataFlushTimerRef.current = setTimeout(
                   () => {
                     dataFlushTimerRef.current = null;
@@ -2982,7 +3060,7 @@ export function useXterm({
 
   useEffect(() => {
     if (!isVisible) {
-      interactiveResponseDeadlineRef.current = 0;
+      interactiveResponseRef.current = null;
     }
     const sessionId = ptyIdRef.current;
     if (!sessionId || staticContent) {
@@ -3047,6 +3125,8 @@ export function useXterm({
         window.electronAPI.session.detach(ptyIdRef.current).catch(() => {});
       }
       ptyIdRef.current = null;
+      // The final unmount drain must not lose output behind the interactive delay gate.
+      pendingOutputFlushRef.current = null;
       flushBufferedTerminalOutput(terminalRef.current);
       disposeTerminal();
     };

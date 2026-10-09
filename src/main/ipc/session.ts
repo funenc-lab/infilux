@@ -377,7 +377,7 @@ export function registerSessionHandlers(): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.SESSION_WRITE, async (_, sessionId: string, data: string) => {
-    sessionManager.write(sessionId, data);
+    await sessionManager.writeInput(sessionId, data);
   });
 
   ipcMain.handle(

@@ -809,11 +809,13 @@ export class PtyManager {
     return id;
   }
 
-  write(id: string, data: string): void {
+  write(id: string, data: string): boolean {
     const session = this.sessions.get(id);
-    if (session) {
-      session.pty.write(data);
+    if (!session) {
+      return false;
     }
+    session.pty.write(data);
+    return true;
   }
 
   resize(id: string, cols: number, rows: number): void {

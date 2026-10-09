@@ -12,10 +12,13 @@
 
 ## Progress
 
-- [ ] Transport and enhanced-input acceptance
-- [ ] Renderer notification and custom-key ownership
-- [ ] Bounded multi-event response acceleration
-- [ ] Isolated Electron regression and quality gates
+- [x] Transport and enhanced-input acceptance
+- [x] Renderer notification and custom-key ownership
+- [x] Bounded multi-event response acceleration, bounded demotion, and cleanup drain
+- [x] Remote/supervisor recovery epochs and late-failure isolation
+- [x] Focused regression, typecheck, formatting, and production build gates
+- [x] Isolated Electron regression after the final build
+- [ ] Full suite once the ImageMagick (`magick`) prerequisite is available
 
 ### Task 1: Transport Acceptance
 
@@ -32,6 +35,8 @@
    src/main/services/session/__tests__/AgentInputService.test.ts
    src/main/services/terminal/__tests__/PtyManager.test.ts
    src/main/ipc/__tests__/session.test.ts src/main/ipc/__tests__/agentInput.test.ts`.
+5. Address review regressions with same-session transaction ordering, independent
+   sessions, and continued dispatch after failure without implicit replay.
 
 ### Task 2: Failure Feedback
 
@@ -44,6 +49,8 @@
    failure sequence. Reuse existing toast primitives and generic English copy.
 4. Supply the guarded `write` function to custom-key handlers; use it for LF.
 5. Run the focused hook/component suites and verify feedback is observable.
+6. Guard attachment/enhanced dispatch rejection and activation callbacks by an
+   input epoch; test unmount and switching away/back. Reuse existing i18n copy.
 
 ### Task 3: Bounded Response Burst
 
@@ -67,3 +74,6 @@
 4. Request read-only review of the changed implementation and tests.
 5. Record results and residual native-IME/provider/long-soak gaps. Keep the
    installed production app untouched and report any environmental gate failure.
+
+See `docs/plans/2026-10-09-agent-input-reliability-verification.md` for the
+current evidence and explicit acceptance boundaries.

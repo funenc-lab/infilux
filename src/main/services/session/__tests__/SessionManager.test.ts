@@ -107,7 +107,7 @@ const sessionTestDoubles = vi.hoisted(() => {
       this.callbacks.delete(sessionId);
       return 'exited';
     });
-    readonly write = vi.fn();
+    readonly write = vi.fn(() => true);
     readonly resize = vi.fn();
     readonly getProcessActivity = vi.fn(async () => false);
     readonly getProcessInfo = vi.fn(async (sessionId: string) => {
@@ -821,6 +821,269 @@ describe('SessionManager', () => {
 
     expect(pty.destroyAll).toHaveBeenCalledTimes(1);
     expect(pty.destroyAllAndWait).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects acknowledged input for a missing session', async () => {
+    const manager = new SessionManager();
+    await expect(manager.writeInput('missing', 'a')).rejects.toThrow('Session not found');
+  });
+
+  it('rejects acknowledged input for a local session whose PTY disappeared', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const opened = await manager.create(1, { cwd: '/repo' });
+    sessionTestDoubles.ptyInstances[0].write.mockReturnValueOnce(false);
+    await expect(manager.writeInput(opened.session.sessionId, 'a')).rejects.toThrow('PTY');
+  });
+
+  it.each([
+    'reconnecting',
+    'dead',
+  ] as const)('rejects acknowledged input when the runtime is %s', async (state) => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-input', '/workspace');
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValue({
+      session: makeRemoteDescriptor({ sessionId: 'remote-input', runtimeState: state }),
+      replay: '',
+    });
+    await manager.attach(1, { sessionId: 'remote-input', cwd: remotePath });
+    const managedSession = getManagedSessions(manager).get('remote-input');
+    if (!managedSession) throw new Error('Missing attached session');
+    managedSession.runtimeState = state;
+    await expect(manager.writeInput('remote-input', 'a')).rejects.toThrow('not ready');
+    expect(
+      sessionTestDoubles.remoteConnectionManager.call.mock.calls.filter(
+        ([, method]) => method === 'session:write'
+      )
+    ).toHaveLength(0);
+  });
+
+  it('awaits remote input acceptance and propagates failed transport without retry', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-input', '/workspace');
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValue({
+      session: makeRemoteDescriptor({ sessionId: 'remote-input' }),
+      replay: '',
+    });
+    await manager.attach(1, { sessionId: 'remote-input', cwd: remotePath });
+    let rejectWrite: ((error: Error) => void) | undefined;
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementationOnce(
+      () =>
+        new Promise<never>((_, reject) => {
+          rejectWrite = reject;
+        })
+    );
+    let completed = false;
+    const request = manager.writeInput('remote-input', 'a');
+    void request.then(
+      () => {
+        completed = true;
+      },
+      () => undefined
+    );
+    const rejection = expect(request).rejects.toThrow('write rejected');
+    await flushAsyncWork();
+    expect(completed).toBe(false);
+    rejectWrite?.(new Error('write rejected'));
+    await rejection;
+    expect(getWindowSendCalls(1)).toContainEqual([
+      IPC_CHANNELS.SESSION_STATE,
+      { sessionId: 'remote-input', state: 'reconnecting' },
+    ]);
+    expect(
+      sessionTestDoubles.remoteConnectionManager.call.mock.calls.filter(
+        ([, method]) => method === 'session:write'
+      )
+    ).toHaveLength(1);
+  });
+
+  it('propagates supervisor input rejection while preserving dead-state notification', async () => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+      sessionTestDoubles.supervisorWriteSession.mockRejectedValueOnce(new Error('write rejected'));
+      await expect(manager.writeInput(opened.session.sessionId, 'a')).rejects.toThrow(
+        'write rejected'
+      );
+      expect(getWindowSendCalls(1)).toContainEqual([
+        IPC_CHANNELS.SESSION_STATE,
+        { sessionId: opened.session.sessionId, state: 'dead' },
+      ]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it.each([
+    'reattach',
+    'subscription recovery',
+  ] as const)('accepts new input after supervisor %s succeeds following a write failure', async (recoveryKind) => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+      const sessionId = opened.session.sessionId;
+      sessionTestDoubles.supervisorWriteSession.mockRejectedValueOnce(new Error('write rejected'));
+      await expect(manager.writeInput(sessionId, 'uncertain')).rejects.toThrow('write rejected');
+
+      if (recoveryKind === 'reattach') {
+        await manager.attach(1, { sessionId });
+      } else {
+        const onDisconnect = sessionTestDoubles.supervisorOnDisconnect.mock.calls[0]?.[0] as
+          | (() => void)
+          | undefined;
+        onDisconnect?.();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(sessionTestDoubles.supervisorRestoreSubscription).toHaveBeenCalledTimes(1);
+      }
+
+      expect(manager.getSessionDescriptor(sessionId)?.runtimeState).toBe('live');
+      expect(getWindowSendCalls(1)).toContainEqual([
+        IPC_CHANNELS.SESSION_STATE,
+        { sessionId, state: 'live' },
+      ]);
+      await expect(manager.writeInput(sessionId, 'new input')).resolves.toBeUndefined();
+      expect(sessionTestDoubles.supervisorWriteSession.mock.calls).toEqual([
+        [sessionId, 'uncertain'],
+        [sessionId, 'new input'],
+      ]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it.each([
+    'reattach',
+    'subscription recovery',
+  ] as const)('keeps supervisor input live when an older write fails after successful %s', async (recoveryKind) => {
+    createWindow(1);
+    const manager = new SessionManager();
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    try {
+      const opened = await manager.create(1, {
+        cwd: 'C:/repo',
+        kind: 'agent',
+        persistOnDisconnect: true,
+      });
+      const sessionId = opened.session.sessionId;
+      let rejectWrite: ((error: Error) => void) | undefined;
+      sessionTestDoubles.supervisorWriteSession.mockReturnValueOnce(
+        new Promise<void>((_resolve, reject) => {
+          rejectWrite = reject;
+        })
+      );
+      const oldWrite = manager.writeInput(sessionId, 'uncertain');
+      const rejection = expect(oldWrite).rejects.toThrow('late failure');
+
+      if (recoveryKind === 'reattach') {
+        await manager.attach(1, { sessionId });
+      } else {
+        const onDisconnect = sessionTestDoubles.supervisorOnDisconnect.mock.calls[0]?.[0] as
+          | (() => void)
+          | undefined;
+        onDisconnect?.();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(sessionTestDoubles.supervisorRestoreSubscription).toHaveBeenCalledTimes(1);
+      }
+      await manager.writeInput(sessionId, 'new input');
+      rejectWrite?.(new Error('late failure'));
+      await rejection;
+
+      await expect(manager.writeInput(sessionId, 'after late failure')).resolves.toBeUndefined();
+      expect(getWindowSendCalls(1)).not.toContainEqual([
+        IPC_CHANNELS.SESSION_STATE,
+        { sessionId, state: 'dead' },
+      ]);
+      expect(sessionTestDoubles.supervisorWriteSession.mock.calls).toEqual([
+        [sessionId, 'uncertain'],
+        [sessionId, 'new input'],
+        [sessionId, 'after late failure'],
+      ]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it.each([
+    'reattach',
+    'connection recovery',
+  ] as const)('keeps remote input live when an older write fails after successful %s', async (recoveryKind) => {
+    createWindow(1);
+    createWindow(2);
+    const manager = new SessionManager();
+    const remotePath = toRemoteVirtualPath('conn-late-write', '/workspace');
+    sessionTestDoubles.remoteConnectionManager.call.mockResolvedValue({
+      session: makeRemoteDescriptor({ sessionId: 'remote-late-write' }),
+      replay: '',
+    });
+    await manager.attach(1, { sessionId: 'remote-late-write', cwd: remotePath });
+
+    let rejectWrite: ((error: Error) => void) | undefined;
+    let writeCalls = 0;
+    sessionTestDoubles.remoteConnectionManager.call.mockImplementation((_connectionId, method) => {
+      if (method === 'session:write') {
+        writeCalls += 1;
+        if (writeCalls === 1) {
+          return new Promise<never>((_, reject) => {
+            rejectWrite = reject;
+          });
+        }
+        return Promise.resolve(undefined);
+      }
+      const descriptor = makeRemoteDescriptor({ sessionId: 'remote-late-write' });
+      if (method === 'session:list') return Promise.resolve([descriptor]);
+      return Promise.resolve({ session: descriptor, replay: '' });
+    });
+
+    const oldWrite = manager.writeInput('remote-late-write', 'uncertain');
+    const rejection = expect(oldWrite).rejects.toThrow('late failure');
+    await flushAsyncWork();
+
+    if (recoveryKind === 'reattach') {
+      await manager.attach(2, { sessionId: 'remote-late-write', cwd: remotePath });
+    } else {
+      const processRemoteStatusChange = getPrivateMethod<
+        [string, { connected: boolean; recoverable?: boolean }],
+        Promise<void>
+      >(manager, 'processRemoteStatusChange');
+      await processRemoteStatusChange('conn-late-write', { connected: false, recoverable: true });
+      await processRemoteStatusChange('conn-late-write', { connected: true, recoverable: true });
+    }
+    expect(manager.getSessionDescriptor('remote-late-write')?.runtimeState).toBe('live');
+    const stateEventsBeforeFailure = getWindowSendCalls(1).filter(
+      ([channel]) => channel === IPC_CHANNELS.SESSION_STATE
+    ).length;
+    rejectWrite?.(new Error('late failure'));
+    await rejection;
+
+    expect(manager.getSessionDescriptor('remote-late-write')?.runtimeState).toBe('live');
+    await expect(
+      manager.writeInput('remote-late-write', 'after late failure')
+    ).resolves.toBeUndefined();
+    expect(
+      getWindowSendCalls(1).filter(([channel]) => channel === IPC_CHANNELS.SESSION_STATE)
+    ).toHaveLength(stateEventsBeforeFailure);
+    expect(
+      sessionTestDoubles.remoteConnectionManager.call.mock.calls
+        .filter(([, method]) => method === 'session:write')
+        .map(([, , payload]) => payload)
+    ).toEqual([
+      { sessionId: 'remote-late-write', data: 'uncertain' },
+      { sessionId: 'remote-late-write', data: 'after late failure' },
+    ]);
   });
 
   it('ensures tmux host health before creating persistent local unix agent sessions', async () => {

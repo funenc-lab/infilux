@@ -32,8 +32,8 @@ describe('AgentInputService', () => {
     vi.restoreAllMocks();
   });
 
-  it('writes plain text without submitting when submit is omitted', () => {
-    service.dispatch({
+  it('writes plain text without submitting when submit is omitted', async () => {
+    await service.dispatch({
       sessionId: 'session-1',
       text: '@/tmp/diagram.png',
     });
@@ -43,7 +43,7 @@ describe('AgentInputService', () => {
     expect(getSessionDescriptor).toHaveBeenCalledWith('session-1');
   });
 
-  it('uses native terminal paste semantics for native-input agent sessions', () => {
+  it('uses native terminal paste semantics for native-input agent sessions', async () => {
     getSessionDescriptor.mockReturnValueOnce(
       makeSessionDescriptor({
         agentId: 'claude-hapi',
@@ -52,7 +52,7 @@ describe('AgentInputService', () => {
       })
     );
 
-    service.dispatch({
+    const dispatch = service.dispatch({
       sessionId: 'session-1',
       text: 'Review this\nThen continue',
       submit: true,
@@ -66,15 +66,16 @@ describe('AgentInputService', () => {
       '\x1b[200~Review this\nThen continue\x1b[201~'
     );
 
-    vi.advanceTimersByTime(149);
+    await vi.advanceTimersByTimeAsync(149);
     expect(write).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await dispatch;
     expect(write).toHaveBeenCalledTimes(2);
     expect(write).toHaveBeenNthCalledWith(2, 'session-1', '\r');
   });
 
-  it('falls back to raw multiline writes for non-native providers', () => {
+  it('falls back to raw multiline writes for non-native providers', async () => {
     getSessionDescriptor.mockReturnValueOnce(
       makeSessionDescriptor({
         agentId: 'cursor',
@@ -83,7 +84,7 @@ describe('AgentInputService', () => {
       })
     );
 
-    service.dispatch({
+    await service.dispatch({
       sessionId: 'session-1',
       text: 'Review this\nThen continue',
     });
@@ -92,8 +93,8 @@ describe('AgentInputService', () => {
     expect(write).toHaveBeenCalledWith('session-1', 'Review this\nThen continue');
   });
 
-  it('uses the request agent hint when live session metadata is unavailable', () => {
-    service.dispatch({
+  it('uses the request agent hint when live session metadata is unavailable', async () => {
+    await service.dispatch({
       sessionId: 'session-1',
       agentId: 'codex',
       text: 'Review this\nThen continue',
@@ -103,7 +104,7 @@ describe('AgentInputService', () => {
     expect(write).toHaveBeenCalledWith('session-1', '\x1b[200~Review this\nThen continue\x1b[201~');
   });
 
-  it('submits immediately when submit delay is not positive', () => {
+  it('submits immediately when submit delay is not positive', async () => {
     getSessionDescriptor.mockReturnValueOnce(
       makeSessionDescriptor({
         agentId: 'codex',
@@ -112,7 +113,7 @@ describe('AgentInputService', () => {
       })
     );
 
-    service.dispatch({
+    await service.dispatch({
       sessionId: 'session-1',
       text: 'Summarize changes',
       submit: true,
@@ -124,8 +125,8 @@ describe('AgentInputService', () => {
     expect(write).toHaveBeenNthCalledWith(2, 'session-1', '\r');
   });
 
-  it('ignores empty text payloads', () => {
-    service.dispatch({
+  it('ignores empty text payloads', async () => {
+    await service.dispatch({
       sessionId: 'session-1',
       text: '',
       submit: true,
@@ -136,12 +137,143 @@ describe('AgentInputService', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
-  it('rejects missing session ids', () => {
-    expect(() =>
+  it('rejects missing session ids', async () => {
+    await expect(
       service.dispatch({
         sessionId: '',
         text: 'hello',
       })
-    ).toThrow('session id');
+    ).rejects.toThrow('session id');
+  });
+
+  it('does not submit before an asynchronous text write is accepted', async () => {
+    let accept: (() => void) | undefined;
+    write.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        accept = resolve;
+      })
+    );
+    const dispatch = service.dispatch({ sessionId: 'session-1', text: 'hello', submit: true });
+    expect(write.mock.calls).toEqual([['session-1', 'hello']]);
+    accept?.();
+    await dispatch;
+    expect(write.mock.calls).toEqual([
+      ['session-1', 'hello'],
+      ['session-1', '\r'],
+    ]);
+  });
+
+  it('does not submit or retry after asynchronous text write failure', async () => {
+    const failure = Promise.reject(new Error('text rejected'));
+    void failure.catch(() => undefined);
+    write.mockReturnValueOnce(failure);
+    await expect(
+      service.dispatch({ sessionId: 'session-1', text: 'hello', submit: true })
+    ).rejects.toThrow('text rejected');
+    await vi.runAllTimersAsync();
+    expect(write.mock.calls).toEqual([['session-1', 'hello']]);
+  });
+
+  it('returns delayed submit failure rather than reporting early success', async () => {
+    const failure = Promise.reject(new Error('submit rejected'));
+    void failure.catch(() => undefined);
+    write.mockReturnValueOnce(undefined).mockReturnValueOnce(failure);
+    const dispatch = service.dispatch({
+      sessionId: 'session-1',
+      text: 'hello',
+      submit: true,
+      submitDelayMs: 100,
+    });
+    const rejection = expect(dispatch).rejects.toThrow('submit rejected');
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    expect(write.mock.calls).toEqual([
+      ['session-1', 'hello'],
+      ['session-1', '\r'],
+    ]);
+  });
+
+  it('serializes concurrent text and submit transactions for the same session', async () => {
+    let acceptFirst: (() => void) | undefined;
+    write.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        acceptFirst = resolve;
+      })
+    );
+    const first = service.dispatch({ sessionId: 'session-1', text: 'first', submit: true });
+    const second = service.dispatch({ sessionId: 'session-1', text: 'second', submit: true });
+    const callsBeforeAcceptance = [...write.mock.calls];
+    acceptFirst?.();
+    await Promise.all([first, second]);
+
+    expect(callsBeforeAcceptance).toEqual([['session-1', 'first']]);
+    expect(write.mock.calls).toEqual([
+      ['session-1', 'first'],
+      ['session-1', '\r'],
+      ['session-1', 'second'],
+      ['session-1', '\r'],
+    ]);
+  });
+
+  it('keeps delayed submission inside the same-session transaction', async () => {
+    const first = service.dispatch({
+      sessionId: 'session-1',
+      text: 'first',
+      submit: true,
+      submitDelayMs: 100,
+    });
+    const second = service.dispatch({ sessionId: 'session-1', text: 'second', submit: true });
+    await vi.advanceTimersByTimeAsync(100);
+    await Promise.all([first, second]);
+
+    expect(write.mock.calls).toEqual([
+      ['session-1', 'first'],
+      ['session-1', '\r'],
+      ['session-1', 'second'],
+      ['session-1', '\r'],
+    ]);
+  });
+
+  it('allows another session to submit while the first session waits for acceptance', async () => {
+    let acceptFirst: (() => void) | undefined;
+    write.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        acceptFirst = resolve;
+      })
+    );
+    const first = service.dispatch({ sessionId: 'session-1', text: 'first', submit: true });
+    await service.dispatch({ sessionId: 'session-2', text: 'second', submit: true });
+    const callsBeforeAcceptance = [...write.mock.calls];
+    acceptFirst?.();
+    await first;
+
+    expect(callsBeforeAcceptance).toEqual([
+      ['session-1', 'first'],
+      ['session-2', 'second'],
+      ['session-2', '\r'],
+    ]);
+  });
+
+  it('continues queued input after failure without retrying uncertain text', async () => {
+    let rejectFirst: ((error: Error) => void) | undefined;
+    write.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectFirst = reject;
+      })
+    );
+    const first = service.dispatch({ sessionId: 'session-1', text: 'first', submit: true });
+    const rejection = expect(first).rejects.toThrow('reply lost');
+    const second = service.dispatch({ sessionId: 'session-1', text: 'second', submit: true });
+    const callsBeforeFailure = [...write.mock.calls];
+    rejectFirst?.(new Error('reply lost'));
+    await rejection;
+    await second;
+
+    expect(callsBeforeFailure).toEqual([['session-1', 'first']]);
+    expect(write.mock.calls).toEqual([
+      ['session-1', 'first'],
+      ['session-1', 'second'],
+      ['session-1', '\r'],
+    ]);
   });
 });

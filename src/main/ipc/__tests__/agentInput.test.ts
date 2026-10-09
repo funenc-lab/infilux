@@ -79,4 +79,22 @@ describe('agentInput IPC handlers', () => {
     await expect(handler({}, null)).rejects.toThrow('Invalid agent input dispatch request');
     expect(agentInputTestDoubles.dispatch).not.toHaveBeenCalled();
   });
+
+  it('returns an asynchronous dispatch rejection to the renderer', async () => {
+    const { registerAgentInputHandlers } = await import('../agentInput');
+    registerAgentInputHandlers();
+    const failure = Promise.reject(new Error('submit rejected'));
+    void failure.catch(() => undefined);
+    agentInputTestDoubles.dispatch.mockReturnValueOnce(failure);
+    await expect(
+      getHandler(IPC_CHANNELS.AGENT_INPUT_DISPATCH)(
+        {},
+        {
+          sessionId: 'session-1',
+          text: 'message',
+          submit: true,
+        }
+      )
+    ).rejects.toThrow('submit rejected');
+  });
 });

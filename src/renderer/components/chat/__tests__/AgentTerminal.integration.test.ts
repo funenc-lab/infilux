@@ -123,7 +123,7 @@ const testState = vi.hoisted(() => ({
       reason: 'bridge-disabled',
     })),
     ensureWorkspaceTrusted: vi.fn(async () => true),
-    agentInputDispatch: vi.fn(async () => undefined),
+    agentInputDispatch: vi.fn<() => Promise<void>>(async () => undefined),
     contextMenuShow: vi.fn(async (_items?: unknown) => null as string | null),
     sessionGetActivity: vi.fn(async () => false),
     tmuxScrollClient: vi.fn(async () => ({
@@ -247,12 +247,11 @@ vi.mock('@/hooks/xtermClipboard', () => ({
   writeClipboardText: testState.clipboard.writeClipboardText,
 }));
 
-vi.mock('@/i18n', () => ({
-  useI18n: () => ({
-    t: (value: string, vars?: Record<string, string | number>) =>
-      value.replace(/\{\{(\w+)\}\}/g, (_match, key) => String(vars?.[key] ?? '')),
-  }),
-}));
+vi.mock('@/i18n', () => {
+  const t = (value: string, vars?: Record<string, string | number>) =>
+    value.replace(/\{\{(\w+)\}\}/g, (_match, key) => String(vars?.[key] ?? ''));
+  return { useI18n: () => ({ t }) };
+});
 
 vi.mock('@/lib/electronNotification', () => ({
   showRendererNotification: testState.showRendererNotification,
@@ -1038,7 +1037,131 @@ describe('AgentTerminal integration', () => {
       '[AgentTerminal] Failed to dispatch agent input',
       dispatchError
     );
+    expect(testState.toastAdd).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
 
+    await mounted.unmount();
+  });
+
+  it.each([
+    'enhanced input',
+    'attachment',
+  ] as const)('ignores a pending %s failure after unmount', async (inputKind) => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let rejectDispatch: ((error: Error) => void) | undefined;
+    testState.electronAPI.agentInputDispatch.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectDispatch = reject;
+      })
+    );
+    const registerSender = vi.fn();
+    const mounted = await mountAgentTerminal({ onRegisterEnhancedInputSender: registerSender });
+    await act(async () => {
+      if (inputKind === 'enhanced input') {
+        const sender = registerSender.mock.calls.at(-1)?.[1] as (
+          content: string,
+          attachments: []
+        ) => boolean;
+        expect(sender('pending input', [])).toBe(true);
+      } else {
+        getXtermContainer().dispatchEvent(createImageSignalPasteEvent());
+      }
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+    expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledTimes(1);
+    await mounted.unmount();
+    testState.toastAdd.mockClear();
+    rejectDispatch?.(new Error('reply lost'));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(testState.toastAdd).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'enhanced input',
+    'attachment',
+  ] as const)('ignores a pending %s failure after switching away and back to the session', async (inputKind) => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let rejectDispatch: ((error: Error) => void) | undefined;
+    testState.electronAPI.agentInputDispatch.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectDispatch = reject;
+      })
+    );
+    const registerSender = vi.fn();
+    const mounted = await mountAgentTerminal({ onRegisterEnhancedInputSender: registerSender });
+    try {
+      await act(async () => {
+        if (inputKind === 'enhanced input') {
+          const sender = registerSender.mock.calls.at(-1)?.[1] as (
+            content: string,
+            attachments: []
+          ) => boolean;
+          expect(sender('pending input', [])).toBe(true);
+        } else {
+          getXtermContainer().dispatchEvent(createImageSignalPasteEvent());
+        }
+        await flushMicrotasks();
+        await flushMicrotasks();
+      });
+      expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledTimes(1);
+      await mounted.rerender({ backendSessionId: 'backend-session-2' });
+      await mounted.rerender({ backendSessionId: 'backend-session-1' });
+      testState.toastAdd.mockClear();
+      rejectDispatch?.(new Error('reply lost'));
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(testState.toastAdd).not.toHaveBeenCalled();
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    'unmount',
+    'session change',
+  ] as const)('does not activate a stale enhanced input after %s', async (contextChange) => {
+    let acceptDispatch: (() => void) | undefined;
+    testState.electronAPI.agentInputDispatch.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        acceptDispatch = resolve;
+      })
+    );
+    const registerSender = vi.fn();
+    const onActivated = vi.fn();
+    const mounted = await mountAgentTerminal({
+      activated: false,
+      onActivated,
+      onRegisterEnhancedInputSender: registerSender,
+    });
+    const sender = registerSender.mock.calls.at(-1)?.[1] as (
+      content: string,
+      attachments: []
+    ) => boolean;
+    expect(sender('pending input', [])).toBe(true);
+    if (contextChange === 'unmount') {
+      await mounted.unmount();
+    } else {
+      await mounted.rerender({ id: 'ui-session-2', backendSessionId: 'backend-session-2' });
+    }
+    try {
+      acceptDispatch?.();
+      await flushMicrotasks();
+      expect(onActivated).not.toHaveBeenCalled();
+    } finally {
+      if (contextChange !== 'unmount') await mounted.unmount();
+    }
+  });
+
+  it('provides visible feedback for terminal keyboard delivery failure', async () => {
+    const mounted = await mountAgentTerminal();
+    testState.useXtermOptions.at(-1)?.onInputError?.();
+    expect(testState.toastAdd).toHaveBeenCalledWith({
+      type: 'error',
+      title: 'Failed to send message',
+    });
     await mounted.unmount();
   });
 
@@ -2112,6 +2235,51 @@ describe('AgentTerminal integration', () => {
     });
 
     await mounted.unmount();
+  });
+
+  it('does not automatically resend an attachment after delivery becomes uncertain', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    testState.electronAPI.agentInputDispatch.mockRejectedValueOnce(new Error('reply lost'));
+    const mounted = await mountAgentTerminal();
+    try {
+      await act(async () => {
+        getXtermContainer().dispatchEvent(createImageSignalPasteEvent());
+        await flushMicrotasks();
+        await flushMicrotasks();
+      });
+      expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledTimes(1);
+      const options = testState.useXtermOptions.at(-1);
+      await act(async () => {
+        options?.onCustomKey?.(
+          new KeyboardEvent('keydown', { key: 'Enter' }),
+          'backend-session-1',
+          () => null,
+          testState.xtermResult.write
+        );
+        options?.onData?.('streaming output'.repeat(20));
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        options?.onCustomKey?.(
+          new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }),
+          'backend-session-1',
+          () => null,
+          testState.xtermResult.write
+        );
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(testState.agentSessionsStore.setOutputState).toHaveBeenCalledWith(
+        'ui-session-1',
+        'idle',
+        true
+      );
+      expect(testState.electronAPI.agentInputDispatch).toHaveBeenCalledTimes(1);
+      expect(testState.toastAdd).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    } finally {
+      await mounted.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it('pastes macOS native clipboard image signals from the terminal without requiring Escape', async () => {

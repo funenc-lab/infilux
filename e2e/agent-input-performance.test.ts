@@ -91,7 +91,12 @@ async function installInputEchoProbe(page: Page): Promise<void> {
   });
 }
 
-async function measureEcho(page: Page, text: string, insertUnicode = false): Promise<number> {
+async function measureEcho(
+  page: Page,
+  text: string,
+  insertUnicode = false,
+  submitKey = 'Enter'
+): Promise<number> {
   const expectedCount = await page.evaluate((echo) => {
     const probe = (window as ProbeWindow).__INFILUX_E2E_INPUT_ECHO_PROBE__;
     if (!probe) throw new Error('Input echo probe is not installed');
@@ -101,7 +106,7 @@ async function measureEcho(page: Page, text: string, insertUnicode = false): Pro
   }, text);
   if (insertUnicode) await page.keyboard.insertText(text);
   else await page.keyboard.type(text);
-  await page.keyboard.press('Enter');
+  await page.keyboard.press(submitKey);
   await expect
     .poll(
       () =>
@@ -190,6 +195,11 @@ describe.sequential('electron Agent input performance', () => {
       for (let index = 0; index < 12; index += 1)
         initialSamples.push(await measureEcho(page, `initial-echo-${index}`));
 
+      const streamedSamples: number[] = [];
+      for (let index = 0; index < 12; index += 1)
+        streamedSamples.push(await measureEcho(page, `streamed-echo-${index}`));
+      const shiftEnterEchoMs = await measureEcho(page, 'shift-enter-echo', false, 'Shift+Enter');
+
       const switchedSamples: number[] = [];
       for (let index = 0; index < 3; index += 1) {
         await activatePanel(page, 'File');
@@ -220,6 +230,9 @@ describe.sequential('electron Agent input performance', () => {
       const unicodeEchoMs = await measureEcho(page, unicodeText, true);
       const lines = (await readProbeLog(scenario.probeLogPath)).split(/\r?\n/u);
       expect(lines.filter((line) => line === `TEXT:${unicodeText}`)).toHaveLength(1);
+      expect(lines.filter((line) => line === 'TEXT:shift-enter-echo')).toHaveLength(1);
+      for (let index = 0; index < 12; index += 1)
+        expect(lines.filter((line) => line === `TEXT:streamed-echo-${index}`)).toHaveLength(1);
       const afterRuntime = await captureRuntime(page);
       const diagnostics = await page.evaluate(() => window.electronAPI.log.getDiagnostics(250));
       const stages = diagnostics.lines.flatMap((line) => {
@@ -239,6 +252,8 @@ describe.sequential('electron Agent input performance', () => {
         hideToSurfaceDisposalMs,
         restoreToVisibleHistoryMs,
         initial: summarize(initialSamples),
+        streamed: summarize(streamedSamples),
+        shiftEnterEchoMs,
         switched: summarize(switchedSamples),
         restored: summarize(restoredSamples),
         unicodeEchoMs,
@@ -262,7 +277,7 @@ describe.sequential('electron Agent input performance', () => {
       );
       await page.screenshot({ path: join('.tmp/e2e', `agent-input-performance-${label}.png`) });
       console.info(
-        `[agent-input-performance] ${JSON.stringify({ label, initial: report.initial, switched: report.switched, restored: report.restored, unicodeEchoMs, launchToFirstWindowMs, openToVisibleHistoryMs, restoreToVisibleHistoryMs })}`
+        `[agent-input-performance] ${JSON.stringify({ label, initial: report.initial, streamed: report.streamed, shiftEnterEchoMs, switched: report.switched, restored: report.restored, unicodeEchoMs, launchToFirstWindowMs, openToVisibleHistoryMs, restoreToVisibleHistoryMs })}`
       );
     } catch (error) {
       throw new Error(

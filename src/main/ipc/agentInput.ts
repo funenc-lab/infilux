@@ -40,6 +40,6 @@ function validateAgentInputDispatchRequest(request: unknown): AgentInputDispatch
 
 export function registerAgentInputHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.AGENT_INPUT_DISPATCH, async (_, request: unknown) => {
-    agentInputService.dispatch(validateAgentInputDispatchRequest(request));
+    await agentInputService.dispatch(validateAgentInputDispatchRequest(request));
   });
 }

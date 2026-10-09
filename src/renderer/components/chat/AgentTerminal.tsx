@@ -843,6 +843,19 @@ export function AgentTerminal({
     recoveryState === 'missing-host-session' &&
     hasResolvedProviderSessionId(id, sessionId);
   const inputDispatchSessionId = backendSessionId ?? null;
+  const inputDispatchEpochRef = useRef<{
+    sessionId: string | null;
+    uiSessionId: string | undefined;
+  } | null>(null);
+  useEffect(() => {
+    inputDispatchEpochRef.current = {
+      sessionId: inputDispatchSessionId,
+      uiSessionId: terminalSessionId,
+    };
+    return () => {
+      inputDispatchEpochRef.current = null;
+    };
+  }, [inputDispatchSessionId, terminalSessionId]);
   const agentCapabilityPolicies = useMemo(() => {
     const directProjectPolicy = repoPath ? getClaudeProjectPolicy(repoPath) : null;
     const directWorktreePolicy = cwd ? getClaudeWorktreePolicy(cwd) : null;
@@ -1046,6 +1059,13 @@ export function AgentTerminal({
     });
   }, [agentCommand, id, inputDispatchSessionId, isRemoteExecution, sessionId, t]);
 
+  const handleInputError = useCallback(() => {
+    toastManager.add({
+      type: 'error',
+      title: t('Failed to send message'),
+    });
+  }, [t]);
+
   const dispatchTerminalAttachmentInsert = useCallback(
     (nextAttachments: AgentAttachmentItem[]) => {
       if (nextAttachments.length === 0 || !inputDispatchSessionId) {
@@ -1057,6 +1077,10 @@ export function AgentTerminal({
         return false;
       }
 
+      const inputDispatchEpoch = inputDispatchEpochRef.current;
+      if (!inputDispatchEpoch || inputDispatchEpoch.sessionId !== inputDispatchSessionId) {
+        return false;
+      }
       void window.electronAPI.agentInput
         .dispatch({
           sessionId: inputDispatchSessionId,
@@ -1065,16 +1089,14 @@ export function AgentTerminal({
           submit: false,
         })
         .catch((error) => {
+          if (inputDispatchEpoch !== inputDispatchEpochRef.current) return;
           console.error('[AgentTerminal] Failed to insert agent attachment text', error);
-          pendingTerminalAttachmentInsertRef.current = mergeAgentAttachments(
-            pendingTerminalAttachmentInsertRef.current,
-            nextAttachments.map((attachment) => attachment.path)
-          );
+          handleInputError();
         });
       terminalFocusRef.current?.();
       return true;
     },
-    [agentId, inputDispatchSessionId]
+    [agentId, handleInputError, inputDispatchSessionId]
   );
 
   const queueTerminalAttachmentInsert = useCallback((nextAttachments: AgentAttachmentItem[]) => {
@@ -1781,7 +1803,12 @@ export function AgentTerminal({
   // Also detect Enter key press to mark session as activated
   // biome-ignore lint/correctness/useExhaustiveDependencies: terminal is accessed via try-catch for safety and defined after this callback
   const handleCustomKey = useCallback(
-    (event: KeyboardEvent, ptyId: string) => {
+    (
+      event: KeyboardEvent,
+      ptyId: string,
+      _getCurrentLine: () => string | null,
+      writeInput: (data: string) => void
+    ) => {
       if (isNativeImeCompositionKeyEvent(event)) {
         return true;
       }
@@ -1789,7 +1816,7 @@ export function AgentTerminal({
       // Handle Shift+Enter for newline - must be before keydown check to block both keydown and keypress
       if (event.key === 'Enter' && event.shiftKey) {
         if (event.type === 'keydown' && runtimeStateRef.current === 'live') {
-          window.electronAPI.session.write(ptyId, '\x0a');
+          writeInput('\x0a');
         }
         return false;
       }
@@ -2015,6 +2042,7 @@ export function AgentTerminal({
     recoveredReplaySnapshot: replaySnapshot,
     onExit: handleExit,
     onData: handleData,
+    onInputError: handleInputError,
     onReplaySnapshotChange,
     onCustomKey: handleCustomKey,
     onTitleChange: handleTitleChange,
@@ -2621,6 +2649,10 @@ export function AgentTerminal({
         return false;
       }
 
+      const inputDispatchEpoch = inputDispatchEpochRef.current;
+      if (!inputDispatchEpoch || inputDispatchEpoch.sessionId !== inputDispatchSessionId) {
+        return false;
+      }
       void window.electronAPI.agentInput
         .dispatch({
           sessionId: inputDispatchSessionId,
@@ -2630,15 +2662,18 @@ export function AgentTerminal({
           submitDelayMs: delay,
         })
         .then(() => {
+          if (inputDispatchEpoch !== inputDispatchEpochRef.current) return;
           onSent?.();
         })
         .catch((error) => {
+          if (inputDispatchEpoch !== inputDispatchEpochRef.current) return;
           console.error('[AgentTerminal] Failed to dispatch agent input', error);
+          handleInputError();
         });
       terminalFocusRef.current?.();
       return true;
     },
-    [inputDispatchSessionId, agentId, isReadOnlyTranscript]
+    [inputDispatchSessionId, agentId, isReadOnlyTranscript, handleInputError]
   );
 
   // Handle enhanced input send

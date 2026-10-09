@@ -57,6 +57,34 @@ describe('createAgentWheelProbeScenario', () => {
     }
   });
 
+  it('places separate background output before streaming performance echoes', async () => {
+    const scenario = await createAgentWheelProbeScenario({ echoInput: true });
+    try {
+      await runProbeLine(scenario, 'streamed-echo-fixture');
+      const capturePane = () =>
+        execFileSync(
+          'tmux',
+          [
+            '-S',
+            buildManagedTmuxSocketPath(scenario.homeDir, 'infilux-dev'),
+            'capture-pane',
+            '-p',
+            '-t',
+            buildPersistentAgentHostSessionKey(scenario.uiSessionId, 'dev'),
+          ],
+          { encoding: 'utf8' }
+        );
+      await expect.poll(capturePane, { timeout: 3000 }).toContain('ECHO:streamed-echo-fixture');
+      const pane = capturePane();
+      expect(pane.indexOf('BACKGROUND:streamed-echo-fixture')).toBeGreaterThanOrEqual(0);
+      expect(pane.indexOf('BACKGROUND:streamed-echo-fixture')).toBeLessThan(
+        pane.indexOf('ECHO:streamed-echo-fixture')
+      );
+    } finally {
+      await scenario.cleanup();
+    }
+  });
+
   it('creates a local repo fixture and browser snapshot for a seeded transcript probe session', async () => {
     const scenario = await createAgentWheelProbeScenario();
 

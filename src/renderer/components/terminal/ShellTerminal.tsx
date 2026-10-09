@@ -1,6 +1,7 @@
 import { isRemoteVirtualPath } from '@shared/utils/remotePath';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toastManager } from '@/components/ui/toast';
 import { useTerminalScrollToBottom } from '@/hooks/useTerminalScrollToBottom';
 import { useXterm } from '@/hooks/useXterm';
 import { copyTerminalSelectionToClipboard, readClipboardText } from '@/hooks/xtermClipboard';
@@ -39,16 +40,31 @@ export function ShellTerminal({
   const runtimeStateRef = useRef<'live' | 'reconnecting' | 'dead'>('live');
   const isRemoteExecution = Boolean(cwd && isRemoteVirtualPath(cwd));
 
+  const handleInputError = useCallback(() => {
+    toastManager.add({
+      type: 'error',
+      title: t('Failed to send message'),
+    });
+  }, [t]);
+
   // Handle Shift+Enter for newline (send LF character)
-  const handleCustomKey = useCallback((event: KeyboardEvent, ptyId: string) => {
-    if (event.key === 'Enter' && event.shiftKey) {
-      if (event.type === 'keydown' && runtimeStateRef.current === 'live') {
-        window.electronAPI.session.write(ptyId, '\x0a');
+  const handleCustomKey = useCallback(
+    (
+      event: KeyboardEvent,
+      _ptyId: string,
+      _getCurrentLine: () => string | null,
+      writeInput: (data: string) => void
+    ) => {
+      if (event.key === 'Enter' && event.shiftKey) {
+        if (event.type === 'keydown' && runtimeStateRef.current === 'live') {
+          writeInput('\x0a');
+        }
+        return false; // Prevent default Enter behavior
       }
-      return false; // Prevent default Enter behavior
-    }
-    return true;
-  }, []);
+      return true;
+    },
+    []
+  );
 
   const {
     containerRef,
@@ -68,6 +84,7 @@ export function ShellTerminal({
     isActive,
     initialCommand,
     onExit,
+    onInputError: handleInputError,
     onTitleChange,
     onInit,
     onSessionIdChange,

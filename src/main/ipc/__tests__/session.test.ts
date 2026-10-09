@@ -180,6 +180,7 @@ vi.mock('../../services/session/SessionManager', () => ({
     detach: sessionTestDoubles.detach,
     kill: sessionTestDoubles.kill,
     write: sessionTestDoubles.write,
+    writeInput: sessionTestDoubles.write,
     resize: sessionTestDoubles.resize,
     list: sessionTestDoubles.list,
     getActivity: sessionTestDoubles.getActivity,
@@ -347,6 +348,39 @@ describe('session IPC handlers', () => {
 
     expect(sessionTestDoubles.destroyAllLocal).toHaveBeenCalledTimes(1);
     expect(sessionTestDoubles.destroyAllLocalAndWait).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps input IPC pending until transport acceptance', async () => {
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    let accept: (() => void) | undefined;
+    sessionTestDoubles.write.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        accept = resolve;
+      })
+    );
+    let completed = false;
+    const request = Promise.resolve(
+      getHandler(IPC_CHANNELS.SESSION_WRITE)({}, 'session-1', 'a')
+    ).then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    accept?.();
+    await request;
+    expect(completed).toBe(true);
+  });
+
+  it('propagates input transport rejection through IPC', async () => {
+    const { registerSessionHandlers } = await import('../session');
+    registerSessionHandlers();
+    const failure = Promise.reject(new Error('transport rejected'));
+    void failure.catch(() => undefined);
+    sessionTestDoubles.write.mockReturnValueOnce(failure);
+    await expect(getHandler(IPC_CHANNELS.SESSION_WRITE)({}, 'session-1', 'a')).rejects.toThrow(
+      'transport rejected'
+    );
   });
 
   it('preserves shell-config launch options and scopes plain Codex history to its worktree', async () => {

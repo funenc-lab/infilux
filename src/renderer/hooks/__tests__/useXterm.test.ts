@@ -670,7 +670,8 @@ describe('useXterm startup loading state', () => {
     testState.sessionDetach.mockResolvedValue(undefined);
     testState.sessionKill.mockClear();
     testState.sessionResize.mockClear();
-    testState.sessionWrite.mockClear();
+    testState.sessionWrite.mockReset();
+    testState.sessionWrite.mockResolvedValue(undefined);
     testState.sessionGetRuntimeInfo.mockReset();
     testState.sessionGetRuntimeInfo.mockResolvedValue(null);
     testState.sessionGetTranscriptPage.mockReset();
@@ -2344,6 +2345,56 @@ describe('useXterm startup loading state', () => {
     expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
   });
 
+  it('flushes a demoted interactive output batch when unmounted before its delay expires', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const onData = vi.fn();
+    const mounted = mountHookHarness({ onData });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
+    await act(async () => {
+      testState.terminalDataHandler?.('typed input');
+      for (const data of ['output-1\n', 'output-2\n', 'output-3\n', 'output-4\n', 'output-5\n']) {
+        testState.sessionHandlers?.onData?.({
+          sessionId: 'backend-session-1',
+          data,
+        });
+      }
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', 'typed input');
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    expect(Date.now()).toBe(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29);
+      await flushMicrotasks();
+    });
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+
+    await mounted.unmount();
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith(
+      'output-1\noutput-2\noutput-3\noutput-4\noutput-5\n'
+    );
+    expect(onData).toHaveBeenCalledWith('output-1\noutput-2\noutput-3\noutput-4\noutput-5\n');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+  });
+
   it('expedites one visible output response after terminal input', async () => {
     testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
     const mounted = mountHookHarness();
@@ -2358,6 +2409,129 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
     expect(testState.terminalWrite).toHaveBeenCalledWith('echo\n');
+    await mounted.unmount();
+  });
+
+  it('reports rejected input once without replaying the failed text', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const onInputError = vi.fn();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failure = Promise.reject(new Error('private input was rejected'));
+    void failure.catch(() => undefined);
+    testState.sessionWrite.mockReturnValue(failure);
+    const mounted = mountHookHarness({ onInputError });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      testState.terminalDataHandler?.('private input');
+      testState.terminalDataHandler?.('second input');
+      await flushMicrotasks();
+    });
+    expect(onInputError).toHaveBeenCalledTimes(1);
+    expect(onInputError).toHaveBeenCalledWith();
+    expect(testState.sessionWrite.mock.calls).toEqual([
+      ['backend-session-1', 'private input'],
+      ['backend-session-1', 'second input'],
+    ]);
+    expect(testState.latestSnapshot.runtimeState).toBe('live');
+    expect(JSON.stringify(warning.mock.calls)).not.toContain('private input');
+    await mounted.unmount();
+  });
+
+  it('does not let an older successful send clear a newer failure notification', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const onInputError = vi.fn();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const oldSend = createDeferredResult<undefined>();
+    const failure = Promise.reject(new Error('write rejected'));
+    void failure.catch(() => undefined);
+    testState.sessionWrite.mockReturnValueOnce(oldSend.promise).mockReturnValue(failure);
+    const mounted = mountHookHarness({ onInputError });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      testState.terminalDataHandler?.('first');
+      testState.terminalDataHandler?.('second');
+      await flushMicrotasks();
+      oldSend.resolve(undefined);
+      await flushMicrotasks();
+      testState.terminalDataHandler?.('third');
+      await flushMicrotasks();
+    });
+    expect(onInputError).toHaveBeenCalledTimes(1);
+    testState.sessionWrite.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      testState.terminalDataHandler?.('accepted');
+      await flushMicrotasks();
+      testState.terminalDataHandler?.('failed again');
+      await flushMicrotasks();
+    });
+    expect(onInputError).toHaveBeenCalledTimes(2);
+    await mounted.unmount();
+  });
+
+  it('ignores input failure after its terminal has unmounted', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const onInputError = vi.fn();
+    const send = createDeferredResult<undefined>();
+    void send.promise.catch(() => undefined);
+    testState.sessionWrite.mockReturnValueOnce(send.promise);
+    const mounted = mountHookHarness({ onInputError });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      testState.terminalDataHandler?.('before unmount');
+    });
+    await mounted.unmount();
+    send.reject(new Error('write rejected'));
+    await flushMicrotasks();
+    expect(onInputError).not.toHaveBeenCalled();
+    expect(testState.sessionWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores input failure from an obsolete session initialization attempt', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-2'));
+    testState.sessionCreate.mockResolvedValueOnce(createTestSessionResult('backend-session-2'));
+    const onInputError = vi.fn();
+    const send = createDeferredResult<undefined>();
+    void send.promise.catch(() => undefined);
+    testState.sessionWrite.mockReturnValueOnce(send.promise);
+    const mounted = mountHookHarness({ onInputError });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      testState.terminalDataHandler?.('old');
+    });
+    mounted.rerender({ onInputError, cwd: '/repo/other' });
+    await act(async () => {
+      await flushMicrotasks();
+      send.reject(new Error('old failure'));
+      await flushMicrotasks();
+    });
+    expect(onInputError).not.toHaveBeenCalled();
+    await mounted.unmount();
+  });
+
+  it('supplies the guarded input writer to custom key handlers', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness({
+      onCustomKey: (_event, _sessionId, _getCurrentLine, writeInput) => {
+        writeInput('\x0a');
+        return false;
+      },
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(
+      testState.customKeyHandler?.(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true }))
+    ).toBe(false);
+    expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', '\x0a');
     await mounted.unmount();
   });
 
@@ -2388,7 +2562,7 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('keeps subsequent autonomous output batched after an expedited input response', async () => {
+  it('keeps autonomous output batched after the brief input response window', async () => {
     testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
     const mounted = mountHookHarness();
     await act(async () => {
@@ -2402,6 +2576,7 @@ describe('useXterm startup loading state', () => {
       testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
         callback();
       });
+      await vi.advanceTimersByTimeAsync(50);
       testState.sessionHandlers?.onData?.({
         sessionId: 'backend-session-1',
         data: 'autonomous output\n',
@@ -2414,6 +2589,253 @@ describe('useXterm startup loading state', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(testState.terminalWrite).toHaveBeenLastCalledWith('autonomous output\n');
+    await mounted.unmount();
+  });
+
+  it('expedites echo even when background output arrives first', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'background\n' });
+      await vi.advanceTimersByTimeAsync(1);
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await vi.advanceTimersByTimeAsync(25);
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'echo\n' });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite.mock.calls.map(([data]) => data)).toEqual([
+      'background\n',
+      'echo\n',
+    ]);
+    await mounted.unmount();
+  });
+
+  it('limits an accelerated response burst to four output events', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      for (let index = 0; index < 4; index += 1) {
+        testState.sessionHandlers?.onData?.({
+          sessionId: 'backend-session-1',
+          data: `response-${index}\n`,
+        });
+        await vi.advanceTimersByTimeAsync(1);
+        testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+          callback();
+        });
+      }
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'autonomous\n' });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29);
+    });
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('autonomous\n');
+    await mounted.unmount();
+  });
+
+  it('keeps oversized output normally batched despite recent input', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'a'.repeat(64 * 1024 + 1),
+      });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledWith('a'.repeat(64 * 1024));
+    await mounted.unmount();
+  });
+
+  it.each([
+    'event limit',
+    'character limit',
+  ] as const)('normally batches coalesced output that exceeds the accelerated %s', async (limitKind) => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      vi.useFakeTimers();
+      const chunks =
+        limitKind === 'event limit'
+          ? ['one\n', 'two\n', 'three\n', 'four\n', 'five\n']
+          : ['small\n', 'large'.repeat(16 * 1024)];
+      await act(async () => {
+        testState.terminalDataHandler?.('typed-input');
+        for (const data of chunks) {
+          testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data });
+        }
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(testState.terminalWrite).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(29);
+      });
+      expect(testState.terminalWrite).toHaveBeenCalledWith(chunks.join('').slice(0, 64 * 1024));
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it.each([
+    'event limit',
+    'character limit',
+  ] as const)('keeps excess %s output batched when an earlier writer finishes', async (limitKind) => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      vi.useFakeTimers();
+      const chunks =
+        limitKind === 'event limit' ? ['one\n', 'two\n', 'three\n', 'four\n'] : ['small\n'];
+      const excess = limitKind === 'event limit' ? 'five\n' : 'large'.repeat(16 * 1024);
+      await act(async () => {
+        testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'earlier\n' });
+        await vi.advanceTimersByTimeAsync(30);
+        testState.terminalDataHandler?.('typed-input');
+        for (const data of chunks) {
+          testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data });
+        }
+        await vi.advanceTimersByTimeAsync(1);
+        testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: excess });
+        testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+          callback();
+        });
+        await vi.advanceTimersByTimeAsync(29);
+      });
+      expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(testState.terminalWrite).toHaveBeenLastCalledWith(
+        [...chunks, excess].join('').slice(0, 64 * 1024)
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('limits accelerated character volume across multiple small output events', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'a'.repeat(32 * 1024),
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'b'.repeat(32 * 1024 + 1),
+      });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29);
+    });
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('b'.repeat(32 * 1024 + 1));
+    await mounted.unmount();
+  });
+
+  it('keeps excess output batched when the initial replay writer finishes', async () => {
+    testState.sessionAttach.mockResolvedValueOnce({
+      ...createTestSessionResult('backend-session-1'),
+      replay: 'history\n',
+    });
+    const mounted = mountHookHarness();
+    try {
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      const initialWriteCount = testState.terminalWrite.mock.calls.length;
+      expect(initialWriteCount).toBeGreaterThan(0);
+      vi.useFakeTimers();
+      await act(async () => {
+        testState.terminalDataHandler?.('typed-input');
+        testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'small\n' });
+        await vi.advanceTimersByTimeAsync(1);
+        testState.sessionHandlers?.onData?.({
+          sessionId: 'backend-session-1',
+          data: 'large'.repeat(16 * 1024),
+        });
+        testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+          callback();
+        });
+        await vi.advanceTimersByTimeAsync(29);
+      });
+      expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', 'typed-input');
+      expect(testState.terminalWrite).toHaveBeenCalledTimes(initialWriteCount);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(testState.terminalWrite).toHaveBeenLastCalledWith(
+        `small\n${'large'.repeat(16 * 1024)}`.slice(0, 64 * 1024)
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not extend the original input deadline when its first response is late', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      testState.terminalDataHandler?.('typed-input');
+      await vi.advanceTimersByTimeAsync(480);
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'first\n' });
+      await vi.advanceTimersByTimeAsync(1);
+      testState.terminalWriteCallbacks.splice(0).forEach((callback) => {
+        callback();
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      testState.sessionHandlers?.onData?.({ sessionId: 'backend-session-1', data: 'late\n' });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29);
+    });
+    expect(testState.terminalWrite).toHaveBeenLastCalledWith('late\n');
     await mounted.unmount();
   });
 
