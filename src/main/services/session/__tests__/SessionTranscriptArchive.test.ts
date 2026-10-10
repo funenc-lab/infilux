@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SessionTranscriptArchive } from '../SessionTranscriptArchive';
+import {
+  DEFAULT_SESSION_TRANSCRIPT_APPEND_DELAY_MS,
+  DEFAULT_SESSION_TRANSCRIPT_PENDING_APPEND_BYTES,
+  SessionTranscriptArchive,
+} from '../SessionTranscriptArchive';
 
 const transcriptArchiveTestState = vi.hoisted(() => ({
   rejectLegacyWholeFileRead: false,
@@ -78,6 +82,11 @@ describe('SessionTranscriptArchive', () => {
         totalBytes: 11,
       }
     );
+  });
+
+  it('uses a bounded batching window for high-volume agent output', () => {
+    expect(DEFAULT_SESSION_TRANSCRIPT_APPEND_DELAY_MS).toBeGreaterThanOrEqual(200);
+    expect(DEFAULT_SESSION_TRANSCRIPT_PENDING_APPEND_BYTES).toBeGreaterThanOrEqual(2 * 1024 * 1024);
   });
 
   it('returns persisted output for terminal replay without waiting for a buffered append', async () => {

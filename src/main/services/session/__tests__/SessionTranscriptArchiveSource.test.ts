@@ -88,6 +88,8 @@ describe('getSessionTranscriptArchiveRuntimeSource', () => {
     const source = getSessionTranscriptArchiveRuntimeSource();
 
     expect(source).toContain('const sessionTranscriptPendingAppends = new Map();');
+    expect(source).toContain('const SESSION_TRANSCRIPT_APPEND_DELAY_MS = 250;');
+    expect(source).toContain('const SESSION_TRANSCRIPT_PENDING_APPEND_BYTES = 2 * 1024 * 1024;');
     expect(source).toContain('function queueSessionTranscriptAppend(sessionId, chunk) {');
     expect(source).toContain('await flushPendingSessionTranscriptAppend(normalizedSessionId);');
   });
