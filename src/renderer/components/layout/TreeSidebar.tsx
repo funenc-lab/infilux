@@ -1269,9 +1269,7 @@ export function TreeSidebar({
   );
   const groupedRepositoryPagination = useGroupedRepositoryPagination({
     groupIds: allProjectSectionIds,
-    resetKey: `${activeGroupId}\u0000${repositoriesInActiveGroup
-      .map((repository) => normalizePath(repository.path))
-      .join('\u0001')}`,
+    resetKey: activeGroupId,
   });
   const groupedSections = useMemo(
     () =>

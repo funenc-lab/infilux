@@ -8,6 +8,7 @@ interface RepositoryVisibilityInput {
   selectedRepo: string | null;
   activeRepositoryPaths: readonly string[];
   retainedRepositoryPaths: readonly string[];
+  displayedRepositoryPaths?: readonly string[];
   inactiveLimit: number;
   searchActive: boolean;
 }
@@ -70,6 +71,7 @@ export function resolveRepositoryVisibility({
   selectedRepo,
   activeRepositoryPaths,
   retainedRepositoryPaths,
+  displayedRepositoryPaths = [],
   inactiveLimit,
   searchActive,
 }: RepositoryVisibilityInput): RepositoryVisibilityResult {
@@ -86,6 +88,9 @@ export function resolveRepositoryVisibility({
   }
 
   const retainedPaths = toNormalizedPathSet(retainedRepositoryPaths);
+  const displayedOrder = new Map(
+    displayedRepositoryPaths.map((repositoryPath, index) => [normalizePath(repositoryPath), index])
+  );
   const indexedInactiveRepositories = repositories
     .map((repository, index) => ({ repository, index }))
     .filter(({ repository }) => !forcedPaths.has(normalizePath(repository.path)));
@@ -100,6 +105,11 @@ export function resolveRepositoryVisibility({
   const recentInactiveRepositories = indexedInactiveRepositories
     .filter(({ repository }) => !retainedInactivePaths.has(normalizePath(repository.path)))
     .sort((left, right) => {
+      const leftDisplayedIndex = displayedOrder.get(normalizePath(left.repository.path));
+      const rightDisplayedIndex = displayedOrder.get(normalizePath(right.repository.path));
+      if (leftDisplayedIndex !== undefined || rightDisplayedIndex !== undefined) {
+        return (leftDisplayedIndex ?? Infinity) - (rightDisplayedIndex ?? Infinity);
+      }
       const leftAccessedAt = normalizeRepositoryLastAccessedAt(left.repository.lastAccessedAt) ?? 0;
       const rightAccessedAt =
         normalizeRepositoryLastAccessedAt(right.repository.lastAccessedAt) ?? 0;
@@ -127,6 +137,11 @@ export function resolveRepositoryVisibility({
     .sort((left, right) => {
       const leftPath = normalizePath(left.repository.path);
       const rightPath = normalizePath(right.repository.path);
+      const leftDisplayedIndex = displayedOrder.get(leftPath);
+      const rightDisplayedIndex = displayedOrder.get(rightPath);
+      if (leftDisplayedIndex !== undefined || rightDisplayedIndex !== undefined) {
+        return (leftDisplayedIndex ?? Infinity) - (rightDisplayedIndex ?? Infinity);
+      }
       const leftPriority =
         leftPath === normalizedSelectedRepo ? 0 : forcedPaths.has(leftPath) ? 1 : 2;
       const rightPriority =

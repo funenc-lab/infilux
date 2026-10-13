@@ -39,26 +39,24 @@ interface ProgressiveRepositoryVisibilityResult {
 }
 
 interface ProgressiveRepositoryState {
-  inventoryKey: string;
+  scopeKey: string;
   inactiveLimit: number;
   retainedRepositoryPaths: string[];
+  displayedRepositoryPaths: string[];
+  inventoryRepositoryPaths: string[];
 }
 
 function createInitialState(
-  inventoryKey: string,
+  scopeKey: string,
   initialInactiveLimit: number
 ): ProgressiveRepositoryState {
   return {
-    inventoryKey,
+    scopeKey,
     inactiveLimit: initialInactiveLimit,
     retainedRepositoryPaths: [],
+    displayedRepositoryPaths: [],
+    inventoryRepositoryPaths: [],
   };
-}
-
-function buildRepositoryInventoryKey(repositories: readonly Repository[]): string {
-  return repositories
-    .map((repository) => `${repository.id}\u0000${normalizePath(repository.path)}`)
-    .join('\u0001');
 }
 
 export function useProgressiveRepositoryVisibility({
@@ -70,18 +68,38 @@ export function useProgressiveRepositoryVisibility({
   resetKey = '',
 }: ProgressiveRepositoryVisibilityInput): ProgressiveRepositoryVisibilityResult {
   const normalizedInitialInactiveLimit = Math.max(0, Math.floor(initialInactiveLimit));
-  const inventoryKey = useMemo(
-    () =>
-      `${resetKey}\u0002${normalizedInitialInactiveLimit}\u0002${buildRepositoryInventoryKey(repositories)}`,
-    [normalizedInitialInactiveLimit, repositories, resetKey]
-  );
+  const scopeKey = `${resetKey}\u0002${normalizedInitialInactiveLimit}\u0002${searchActive}`;
   const [progress, setProgress] = useState<ProgressiveRepositoryState>(() =>
-    createInitialState(inventoryKey, normalizedInitialInactiveLimit)
+    createInitialState(scopeKey, normalizedInitialInactiveLimit)
   );
   const effectiveProgress =
-    progress.inventoryKey === inventoryKey
+    progress.scopeKey === scopeKey
       ? progress
-      : createInitialState(inventoryKey, normalizedInitialInactiveLimit);
+      : createInitialState(scopeKey, normalizedInitialInactiveLimit);
+  const inventoryRepositoryPaths = useMemo(
+    () => repositories.map((repository) => normalizePath(repository.path)),
+    [repositories]
+  );
+  const displayedRepositoryPaths = useMemo(() => {
+    const currentPaths = new Set(inventoryRepositoryPaths);
+    const previousPaths = new Set(effectiveProgress.inventoryRepositoryPaths);
+    const previousCommonPaths = effectiveProgress.inventoryRepositoryPaths.filter((path) =>
+      currentPaths.has(path)
+    );
+    const currentCommonPaths = inventoryRepositoryPaths.filter((path) => previousPaths.has(path));
+    const inventoryReordered = previousCommonPaths.some(
+      (path, index) => path !== currentCommonPaths[index]
+    );
+    if (!inventoryReordered) {
+      return effectiveProgress.displayedRepositoryPaths;
+    }
+    const displayedPaths = new Set(effectiveProgress.displayedRepositoryPaths);
+    return inventoryRepositoryPaths.filter((path) => displayedPaths.has(path));
+  }, [
+    effectiveProgress.displayedRepositoryPaths,
+    effectiveProgress.inventoryRepositoryPaths,
+    inventoryRepositoryPaths,
+  ]);
   const visibility = useMemo(
     () =>
       resolveRepositoryVisibility({
@@ -89,12 +107,14 @@ export function useProgressiveRepositoryVisibility({
         selectedRepo,
         activeRepositoryPaths,
         retainedRepositoryPaths: effectiveProgress.retainedRepositoryPaths,
+        displayedRepositoryPaths,
         inactiveLimit: effectiveProgress.inactiveLimit,
         searchActive,
       }),
     [
       activeRepositoryPaths,
       effectiveProgress.inactiveLimit,
+      displayedRepositoryPaths,
       effectiveProgress.retainedRepositoryPaths,
       repositories,
       searchActive,
@@ -103,63 +123,76 @@ export function useProgressiveRepositoryVisibility({
   );
 
   useEffect(() => {
-    if (searchActive) {
-      setProgress((current) =>
-        current.inventoryKey === inventoryKey
-          ? current
-          : createInitialState(inventoryKey, normalizedInitialInactiveLimit)
-      );
-      return;
-    }
-
+    const repositoryPaths = new Set(inventoryRepositoryPaths);
+    const nextDisplayedRepositoryPaths = visibility.repositories.map((repository) =>
+      normalizePath(repository.path)
+    );
     setProgress((current) => {
       const base =
-        current.inventoryKey === inventoryKey
+        current.scopeKey === scopeKey
           ? current
-          : createInitialState(inventoryKey, normalizedInitialInactiveLimit);
-      const retainedPaths = new Set(base.retainedRepositoryPaths.map(normalizePath));
-      let changed = current.inventoryKey !== inventoryKey;
+          : createInitialState(scopeKey, normalizedInitialInactiveLimit);
+      const retainedPaths = new Set(
+        base.retainedRepositoryPaths.filter((path) => repositoryPaths.has(path))
+      );
 
       const forcedRepositoryPaths = selectedRepo
         ? [...activeRepositoryPaths, selectedRepo]
         : activeRepositoryPaths;
-      for (const repositoryPathInput of forcedRepositoryPaths) {
-        const repositoryPath = normalizePath(repositoryPathInput);
-        if (!retainedPaths.has(repositoryPath)) {
-          retainedPaths.add(repositoryPath);
-          changed = true;
+      if (!searchActive) {
+        for (const repositoryPathInput of forcedRepositoryPaths) {
+          const repositoryPath = normalizePath(repositoryPathInput);
+          if (repositoryPaths.has(repositoryPath)) {
+            retainedPaths.add(repositoryPath);
+          }
         }
       }
 
-      if (!changed) {
+      if (
+        current.scopeKey === scopeKey &&
+        retainedPaths.size === base.retainedRepositoryPaths.length &&
+        [...retainedPaths].every((path, index) => path === base.retainedRepositoryPaths[index]) &&
+        nextDisplayedRepositoryPaths.length === base.displayedRepositoryPaths.length &&
+        nextDisplayedRepositoryPaths.every(
+          (path, index) => path === base.displayedRepositoryPaths[index]
+        ) &&
+        inventoryRepositoryPaths.length === base.inventoryRepositoryPaths.length &&
+        inventoryRepositoryPaths.every(
+          (path, index) => path === base.inventoryRepositoryPaths[index]
+        )
+      ) {
         return current;
       }
 
       return {
         ...base,
         retainedRepositoryPaths: [...retainedPaths],
+        displayedRepositoryPaths: nextDisplayedRepositoryPaths,
+        inventoryRepositoryPaths,
       };
     });
   }, [
     activeRepositoryPaths,
-    inventoryKey,
     normalizedInitialInactiveLimit,
+    inventoryRepositoryPaths,
+    scopeKey,
     searchActive,
     selectedRepo,
+    visibility.repositories,
   ]);
 
   const showMore = useCallback(() => {
     setProgress((current) => {
       const base =
-        current.inventoryKey === inventoryKey
+        current.scopeKey === scopeKey
           ? current
-          : createInitialState(inventoryKey, normalizedInitialInactiveLimit);
+          : createInitialState(scopeKey, normalizedInitialInactiveLimit);
       return {
         ...base,
         inactiveLimit: base.inactiveLimit + INACTIVE_REPOSITORY_BATCH_SIZE,
       };
     });
-  }, [inventoryKey, normalizedInitialInactiveLimit]);
+  }, [scopeKey, normalizedInitialInactiveLimit]);
 
   return {
     ...visibility,
@@ -172,26 +205,29 @@ export function useGroupedRepositoryPagination({
   groupIds,
   resetKey = '',
 }: GroupedRepositoryPaginationInput): GroupedRepositoryPaginationResult {
-  const groupInventoryKey = useMemo(
-    () => `${resetKey}\u0002${[...groupIds].sort().join('\u0001')}`,
-    [groupIds, resetKey]
-  );
   const [pagination, setPagination] = useState(() => ({
-    inventoryKey: groupInventoryKey,
+    scopeKey: resetKey,
     limits: {} as Record<string, number>,
   }));
   const effectivePagination =
-    pagination.inventoryKey === groupInventoryKey
+    pagination.scopeKey === resetKey
       ? pagination
-      : { inventoryKey: groupInventoryKey, limits: {} as Record<string, number> };
+      : { scopeKey: resetKey, limits: {} as Record<string, number> };
 
   useEffect(() => {
-    setPagination((current) =>
-      current.inventoryKey === groupInventoryKey
+    setPagination((current) => {
+      if (current.scopeKey !== resetKey) {
+        return { scopeKey: resetKey, limits: {} };
+      }
+      const validGroupIds = new Set(groupIds);
+      const limits = Object.fromEntries(
+        Object.entries(current.limits).filter(([groupId]) => validGroupIds.has(groupId))
+      );
+      return Object.keys(limits).length === Object.keys(current.limits).length
         ? current
-        : { inventoryKey: groupInventoryKey, limits: {} }
-    );
-  }, [groupInventoryKey]);
+        : { ...current, limits };
+    });
+  }, [groupIds, resetKey]);
 
   const getPage = useCallback(
     (groupId: string, totalCount: number): GroupedRepositoryPage => {
@@ -213,9 +249,9 @@ export function useGroupedRepositoryPagination({
     (groupId: string) => {
       setPagination((current) => {
         const base =
-          current.inventoryKey === groupInventoryKey
+          current.scopeKey === resetKey
             ? current
-            : { inventoryKey: groupInventoryKey, limits: {} as Record<string, number> };
+            : { scopeKey: resetKey, limits: {} as Record<string, number> };
         const currentLimit = base.limits[groupId] ?? INITIAL_INACTIVE_REPOSITORY_LIMIT;
 
         return {
@@ -227,7 +263,7 @@ export function useGroupedRepositoryPagination({
         };
       });
     },
-    [groupInventoryKey]
+    [resetKey]
   );
 
   return { getPage, showMore };
