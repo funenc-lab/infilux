@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { XtermOutputBuffer } from '../xtermOutputBuffer';
+import {
+  resolveXtermOutputBatchDelay,
+  XTERM_ACTIVE_OUTPUT_BATCH_DELAY_MS,
+  XTERM_BACKGROUND_OUTPUT_BATCH_DELAY_MS,
+  XtermOutputBuffer,
+} from '../xtermOutputBuffer';
 
 describe('XtermOutputBuffer', () => {
+  it('uses the short output delay for the active terminal and a longer delay for background terminals', () => {
+    expect(resolveXtermOutputBatchDelay(true)).toBe(XTERM_ACTIVE_OUTPUT_BATCH_DELAY_MS);
+    expect(resolveXtermOutputBatchDelay(false)).toBe(XTERM_BACKGROUND_OUTPUT_BATCH_DELAY_MS);
+    expect(XTERM_BACKGROUND_OUTPUT_BATCH_DELAY_MS).toBeGreaterThan(
+      XTERM_ACTIVE_OUTPUT_BATCH_DELAY_MS
+    );
+  });
+
   it('drains appended chunks in order without exceeding the requested write size', () => {
     const buffer = new XtermOutputBuffer();
     buffer.append('first ');

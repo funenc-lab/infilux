@@ -49,6 +49,7 @@ import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermConta
 import { XtermHibernateController } from './xtermHibernateController';
 import { XtermHostScrollController } from './xtermHostScrollController';
 import {
+  resolveXtermOutputBatchDelay,
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK,
   XtermOutputBuffer,
@@ -107,8 +108,8 @@ const FILE_PATH_REGEX =
 const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 const REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS = 500;
+const REPLAY_SNAPSHOT_APPEND_BATCH_CHAR_LIMIT = 256 * 1024;
 const HOST_SCROLL_FLUSH_DELAY_MS = 16;
-const TERMINAL_OUTPUT_BATCH_DELAY_MS = 30;
 const INTERACTIVE_RESPONSE_WINDOW_MS = 500;
 const INTERACTIVE_RESPONSE_BURST_MS = 50;
 const INTERACTIVE_RESPONSE_EVENT_LIMIT = 4;
@@ -585,6 +586,7 @@ export function useXterm({
   };
   // Track if this terminal should respond to global shortcuts
   const isActiveRef = useRef(isActive);
+  const wasActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
   const isVisibleRef = useRef(isVisible);
   isVisibleRef.current = isVisible;
@@ -683,6 +685,9 @@ export function useXterm({
     useRef<TerminalReplayTailState['initialParserState']>('text');
   const replaySnapshotFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const replaySnapshotAppendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingReplaySnapshotChunksRef = useRef<string[]>([]);
+  const pendingReplaySnapshotCharCountRef = useRef(0);
+
   const clearPendingHostScroll = useCallback(() => {
     if (hostScrollFlushTimerRef.current) {
       clearTimeout(hostScrollFlushTimerRef.current);
@@ -940,17 +945,40 @@ export function useXterm({
     replaySnapshotAppendTimerRef.current = null;
   }, []);
 
+  const flushPendingReplaySnapshotAppend = useCallback(() => {
+    const pendingChunks = pendingReplaySnapshotChunksRef.current;
+    if (pendingChunks.length === 0) {
+      pendingReplaySnapshotCharCountRef.current = 0;
+      return;
+    }
+
+    pendingReplaySnapshotChunksRef.current = [];
+    pendingReplaySnapshotCharCountRef.current = 0;
+    const nextSnapshot = appendPersistentAgentReplaySnapshotState(
+      {
+        replay: replaySnapshotRef.current,
+        initialParserState: replaySnapshotParserStateRef.current,
+      },
+      pendingChunks.join('')
+    );
+    replaySnapshotRef.current = nextSnapshot.replay;
+    replaySnapshotParserStateRef.current = nextSnapshot.initialParserState;
+  }, []);
+
   const flushReplaySnapshotWithPendingOutput = useCallback(
     (immediate = false) => {
       clearReplaySnapshotAppendTimer();
+      flushPendingReplaySnapshotAppend();
       flushReplaySnapshot(immediate);
     },
-    [clearReplaySnapshotAppendTimer, flushReplaySnapshot]
+    [clearReplaySnapshotAppendTimer, flushPendingReplaySnapshotAppend, flushReplaySnapshot]
   );
 
   const replaceReplaySnapshot = useCallback(
     (nextSnapshot: string | undefined) => {
       clearReplaySnapshotAppendTimer();
+      pendingReplaySnapshotChunksRef.current = [];
+      pendingReplaySnapshotCharCountRef.current = 0;
       const normalized = appendPersistentAgentReplaySnapshotState(
         { replay: '', initialParserState: 'text' },
         nextSnapshot ?? ''
@@ -974,25 +1002,26 @@ export function useXterm({
         return;
       }
 
-      const nextSnapshot = appendPersistentAgentReplaySnapshotState(
-        {
-          replay: replaySnapshotRef.current,
-          initialParserState: replaySnapshotParserStateRef.current,
-        },
-        chunk
-      );
-      replaySnapshotRef.current = nextSnapshot.replay;
-      replaySnapshotParserStateRef.current = nextSnapshot.initialParserState;
+      pendingReplaySnapshotChunksRef.current.push(chunk);
+      pendingReplaySnapshotCharCountRef.current += chunk.length;
+      if (pendingReplaySnapshotCharCountRef.current >= REPLAY_SNAPSHOT_APPEND_BATCH_CHAR_LIMIT) {
+        clearReplaySnapshotAppendTimer();
+        flushPendingReplaySnapshotAppend();
+        flushReplaySnapshot(true);
+        return;
+      }
+
       if (replaySnapshotAppendTimerRef.current) {
         return;
       }
 
       replaySnapshotAppendTimerRef.current = setTimeout(() => {
         replaySnapshotAppendTimerRef.current = null;
+        flushPendingReplaySnapshotAppend();
         flushReplaySnapshot(true);
       }, REPLAY_SNAPSHOT_APPEND_FLUSH_INTERVAL_MS);
     },
-    [flushReplaySnapshot]
+    [clearReplaySnapshotAppendTimer, flushPendingReplaySnapshotAppend, flushReplaySnapshot]
   );
 
   const refreshTerminalViewport = useCallback(() => {
@@ -2532,14 +2561,16 @@ export function useXterm({
                 isFlushPendingRef.current = true;
                 pendingOutputFlushRef.current = {
                   interactive: expediteResponse,
-                  notBefore: deferInteractiveResponse ? now + TERMINAL_OUTPUT_BATCH_DELAY_MS : 0,
+                  notBefore: deferInteractiveResponse
+                    ? now + resolveXtermOutputBatchDelay(isActiveRef.current)
+                    : 0,
                 };
                 dataFlushTimerRef.current = setTimeout(
                   () => {
                     dataFlushTimerRef.current = null;
                     flushBufferedTerminalOutput(terminalRef.current);
                   },
-                  expediteResponse ? 0 : TERMINAL_OUTPUT_BATCH_DELAY_MS
+                  expediteResponse ? 0 : resolveXtermOutputBatchDelay(isActiveRef.current)
                 );
               }
             },
@@ -2799,6 +2830,7 @@ export function useXterm({
           return;
         }
         agentStartupLoggerRef.current?.markStage('transcript-replay-loaded');
+        flushReplaySnapshotWithPendingOutput();
         const liveReplaySnapshot = replaySnapshotRef.current;
         const persistedReplaySnapshot = resolveRecoveredReplaySnapshotPersistence({
           attachedReplay: replay,
@@ -2809,7 +2841,9 @@ export function useXterm({
           hasRenderableRenderedData: hasRenderableRenderedDataRef.current,
           liveReplaySnapshot,
         });
-        replaceReplaySnapshot(persistedReplaySnapshot);
+        if (shouldApplyReplay || !hasReceivedDataRef.current) {
+          replaceReplaySnapshot(persistedReplaySnapshot);
+        }
 
         if (shouldApplyReplay && restoredReplay) {
           hasReceivedDataRef.current = true;
@@ -3222,6 +3256,9 @@ export function useXterm({
   }, [clearReplaySnapshotAppendTimer, flushReplaySnapshotWithPendingOutput]);
 
   useEffect(() => {
+    const becameActive = isActive && !wasActiveRef.current;
+    wasActiveRef.current = isActive;
+
     if (!isVisible) {
       interactiveResponseRef.current = null;
     }
@@ -3235,6 +3272,13 @@ export function useXterm({
         resumeHibernatedTerminal();
       }
       return;
+    }
+
+    if (becameActive) {
+      if (pendingOutputFlushRef.current) {
+        pendingOutputFlushRef.current.notBefore = 0;
+      }
+      flushBufferedTerminalOutputRef.current(terminalRef.current);
     }
 
     void window.electronAPI.session.setOutputDelivery(sessionId, isVisible).catch((error) => {

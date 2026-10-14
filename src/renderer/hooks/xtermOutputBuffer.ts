@@ -1,6 +1,12 @@
 export const XTERM_OUTPUT_WRITE_CHAR_LIMIT = 64 * 1024;
 export const XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK = 4 * 1024 * 1024;
 export const XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK = 1 * 1024 * 1024;
+export const XTERM_ACTIVE_OUTPUT_BATCH_DELAY_MS = 30;
+export const XTERM_BACKGROUND_OUTPUT_BATCH_DELAY_MS = 120;
+
+export function resolveXtermOutputBatchDelay(isActive: boolean): number {
+  return isActive ? XTERM_ACTIVE_OUTPUT_BATCH_DELAY_MS : XTERM_BACKGROUND_OUTPUT_BATCH_DELAY_MS;
+}
 
 function isHighSurrogate(value: number): boolean {
   return value >= 0xd800 && value <= 0xdbff;

@@ -1,18 +1,13 @@
 import { resolveTmuxServerNameForPersistentAgentHostSessionKey } from '@shared/utils/runtimeIdentity';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { buildPersistentAgentSessionRecord } from '@/components/chat/agentSessionPersistenceRecord';
+import type { Session } from '@/components/chat/SessionBar';
 import { isSessionPersistable } from '@/lib/agentSessionPersistence';
 import { getRendererEnvironment } from '@/lib/electronEnvironment';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
-import {
-  type AgentSessionPersistenceCoordinator,
-  createAgentSessionPersistenceCoordinator,
-} from './agentSessionPersistenceCoordinator';
+import { createAgentSessionPersistenceCoordinator } from './agentSessionPersistenceCoordinator';
 
 export function useAgentSessionPersistence(): void {
-  const sessions = useAgentSessionsStore((state) => state.sessions);
-  const coordinatorRef = useRef<AgentSessionPersistenceCoordinator | null>(null);
-
   useEffect(() => {
     const environment = getRendererEnvironment();
     const coordinator = createAgentSessionPersistenceCoordinator({
@@ -54,17 +49,34 @@ export function useAgentSessionPersistence(): void {
       },
     });
 
-    coordinatorRef.current = coordinator;
+    let pendingSessions: readonly Session[] | undefined;
+    let disposed = false;
+    const unsubscribe = useAgentSessionsStore.subscribe(
+      (state) => state.sessions,
+      (sessions) => {
+        const synchronizationScheduled = pendingSessions !== undefined;
+        pendingSessions = sessions;
+        if (synchronizationScheduled) {
+          return;
+        }
+
+        // Preserve batching for activation and title updates from the same input event.
+        queueMicrotask(() => {
+          const latestSessions = pendingSessions;
+          pendingSessions = undefined;
+          if (!disposed && latestSessions) {
+            coordinator.synchronize(latestSessions);
+          }
+        });
+      },
+      { fireImmediately: true }
+    );
 
     return () => {
+      disposed = true;
+      pendingSessions = undefined;
+      unsubscribe();
       coordinator.dispose();
-      if (coordinatorRef.current === coordinator) {
-        coordinatorRef.current = null;
-      }
     };
   }, []);
-
-  useEffect(() => {
-    coordinatorRef.current?.synchronize(sessions);
-  }, [sessions]);
 }

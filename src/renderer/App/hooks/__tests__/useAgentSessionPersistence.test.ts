@@ -50,6 +50,64 @@ function makeRecord(session: Session): PersistentAgentSessionRecord {
 }
 
 describe('agent session persistence coordinator', () => {
+  it('does not serialize unchanged session records on repeated notifications', async () => {
+    const coordinator = createAgentSessionPersistenceCoordinator({
+      buildRecord: makeRecord,
+      isPersistable: () => true,
+      markPersistent: async () => undefined,
+      abandon: async () => undefined,
+    });
+    const sessions = [makeSession('session-a'), makeSession('session-b')];
+    coordinator.synchronize(sessions);
+    await coordinator.flush();
+
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      for (let notification = 0; notification < 6; notification += 1) {
+        coordinator.synchronize([...sessions]);
+      }
+      await coordinator.flush();
+
+      expect(stringify).not.toHaveBeenCalled();
+    } finally {
+      stringify.mockRestore();
+      coordinator.dispose();
+    }
+  });
+
+  it('does not serialize other session records when one session changes', async () => {
+    const persistedRecords: PersistentAgentSessionRecord[] = [];
+    const coordinator = createAgentSessionPersistenceCoordinator({
+      buildRecord: makeRecord,
+      isPersistable: () => true,
+      markPersistent: async (record) => {
+        persistedRecords.push(record);
+      },
+      abandon: async () => undefined,
+    });
+    const sessionA = makeSession('session-a');
+    const sessionB = makeSession('session-b');
+    coordinator.synchronize([sessionA, sessionB]);
+    await coordinator.flush();
+    persistedRecords.length = 0;
+
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      coordinator.synchronize([sessionA, { ...sessionB, name: 'Renamed session' }]);
+      await coordinator.flush();
+
+      expect(stringify.mock.calls.map(([value]) => value)).not.toContainEqual(
+        expect.objectContaining({ uiSessionId: 'session-a' })
+      );
+      expect(persistedRecords).toEqual([
+        expect.objectContaining({ uiSessionId: 'session-b', displayName: 'Renamed session' }),
+      ]);
+    } finally {
+      stringify.mockRestore();
+      coordinator.dispose();
+    }
+  });
+
   it('deduplicates six equivalent notifications and rebuilds only the changed session', async () => {
     const buildRecord = vi.fn(makeRecord);
     const markPersistent = vi.fn(async (_record: PersistentAgentSessionRecord) => undefined);
@@ -119,8 +177,9 @@ describe('agent session persistence coordinator', () => {
   });
 });
 
-function PersistenceHarness() {
+function PersistenceHarness({ onRender }: { onRender?: () => void }) {
   useAgentSessionPersistence();
+  onRender?.();
   return React.createElement('div');
 }
 
@@ -155,6 +214,119 @@ describe('useAgentSessionPersistence', () => {
     });
     useAgentSessionsStore.setState({ sessions: [] });
     container.remove();
+  });
+
+  it('persists replay updates without re-rendering its owner', async () => {
+    const onRender = vi.fn();
+    await act(async () => {
+      root.render(React.createElement(PersistenceHarness, { onRender }));
+    });
+    onRender.mockClear();
+    markPersistent.mockClear();
+
+    await act(async () => {
+      useAgentSessionsStore.getState().updateSession('strict-mode-session', {
+        replaySnapshot: 'Updated terminal output',
+        replaySnapshotCapturedAt: 1_000,
+      });
+    });
+
+    expect(markPersistent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'strict-mode-session',
+        metadata: expect.objectContaining({
+          persistentAgentSession: expect.objectContaining({
+            replaySnapshot: 'Updated terminal output',
+            replaySnapshotCapturedAt: 1_000,
+          }),
+        }),
+      })
+    );
+    expect(onRender).not.toHaveBeenCalled();
+  });
+
+  it('persists only the final state when activation and the first title update together', async () => {
+    useAgentSessionsStore.setState({
+      sessions: [{ ...makeSession('strict-mode-session'), activated: false }],
+    });
+    await act(async () => {
+      root.render(React.createElement(PersistenceHarness));
+    });
+    expect(markPersistent).not.toHaveBeenCalled();
+
+    await act(async () => {
+      const { updateSession } = useAgentSessionsStore.getState();
+      updateSession('strict-mode-session', { activated: true });
+      updateSession('strict-mode-session', {
+        name: 'First user prompt',
+        titleSource: 'enhanced-input',
+      });
+    });
+
+    expect(markPersistent).toHaveBeenCalledTimes(1);
+    expect(markPersistent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiSessionId: 'strict-mode-session',
+        activated: true,
+        displayName: 'First user prompt',
+      })
+    );
+  });
+
+  it('persists updates from separate input turns', async () => {
+    await act(async () => {
+      root.render(React.createElement(PersistenceHarness));
+    });
+    markPersistent.mockClear();
+
+    await act(async () => {
+      useAgentSessionsStore
+        .getState()
+        .updateSession('strict-mode-session', { name: 'First title' });
+    });
+    await act(async () => {
+      useAgentSessionsStore
+        .getState()
+        .updateSession('strict-mode-session', { name: 'Second title' });
+    });
+
+    expect(markPersistent.mock.calls.map(([record]) => record.displayName)).toEqual([
+      'First title',
+      'Second title',
+    ]);
+  });
+
+  it('cancels pending synchronization when its owner unmounts', async () => {
+    await act(async () => {
+      root.render(React.createElement(PersistenceHarness));
+    });
+    markPersistent.mockClear();
+
+    act(() => {
+      useAgentSessionsStore.getState().updateSession('strict-mode-session', { name: 'Discarded' });
+      root.render(null);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(markPersistent).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes from persistence updates when its owner unmounts', async () => {
+    await act(async () => {
+      root.render(React.createElement(PersistenceHarness));
+    });
+    await act(async () => {
+      root.render(null);
+    });
+    markPersistent.mockClear();
+
+    await act(async () => {
+      useAgentSessionsStore.getState().updateSession('strict-mode-session', { name: 'Renamed' });
+    });
+
+    expect(markPersistent).not.toHaveBeenCalled();
   });
 
   it('cancels the discarded StrictMode setup queue before the replacement setup persists', async () => {

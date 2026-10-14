@@ -5,6 +5,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repository, RepositoryGroup, TabId } from '@/App/constants';
+import { useAgentSessionsStore } from '@/stores/agentSessions';
 import { useWebInspector } from '../../hooks/useWebInspector';
 import { useOpenPathListener } from '../hooks';
 
@@ -47,7 +48,6 @@ const rehydrateTempWorkspaces = vi.fn();
 const openTempRename = vi.fn();
 const openTempDelete = vi.fn();
 const setPendingScript = vi.fn();
-const setAgentActiveId = vi.fn();
 const clearEditorWorktreeState = vi.fn();
 const clearWorktreeActivity = vi.fn();
 const closeAgentSessions = vi.fn();
@@ -93,6 +93,7 @@ const WORKTREE: GitWorktree = {
 let worktreeListData: GitWorktree[] = [WORKTREE];
 
 const GROUPS: RepositoryGroup[] = [];
+const mainContentRender = vi.fn();
 const REPOSITORIES: Repository[] = [
   {
     id: 'repo-local',
@@ -311,8 +312,9 @@ vi.mock('../../components/layout/DeferredMainContent', () => ({
     onStartupBlockingReady: (key: 'file-panel') => void;
     onSwitchRepository: (repoPath: string) => void;
     showFallback?: boolean;
-  }) =>
-    React.createElement(
+  }) => {
+    mainContentRender();
+    return React.createElement(
       'div',
       {
         'data-testid': 'deferred-main-content',
@@ -336,7 +338,8 @@ vi.mock('../../components/layout/DeferredMainContent', () => ({
         },
         'switch-todo-repository'
       )
-    ),
+    );
+  },
 }));
 
 vi.mock('../../components/layout/DeferredRepositorySidebar', () => ({
@@ -492,16 +495,6 @@ vi.mock('../../hooks/useWorktree', () => ({
   }),
 }));
 
-vi.mock('../../stores/agentSessions', () => ({
-  useAgentSessionsStore: (
-    selector: (state: { sessions: []; setActiveId: typeof setAgentActiveId }) => unknown
-  ) =>
-    selector({
-      sessions: [],
-      setActiveId: setAgentActiveId,
-    }),
-}));
-
 vi.mock('../../stores/agentStatus', () => ({
   initAgentStatusListener: () => vi.fn(),
 }));
@@ -635,6 +628,23 @@ describe('App integration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    const storedValues = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      get length() {
+        return storedValues.size;
+      },
+      key: (index: number) => [...storedValues.keys()][index] ?? null,
+      getItem: (key: string) => storedValues.get(key) ?? null,
+      setItem: (key: string, value: string) => storedValues.set(key, value),
+      removeItem: (key: string) => storedValues.delete(key),
+      clear: () => storedValues.clear(),
+    });
+    useAgentSessionsStore.setState({
+      sessions: [],
+      activeIds: {},
+      groupStates: {},
+      runtimeStates: {},
+    });
 
     repoState.repositories = [...REPOSITORIES];
     repoState.selectedRepo = '/repo';
@@ -683,6 +693,10 @@ describe('App integration', () => {
         worktree: {
           list: listWorktrees,
         },
+        agentSession: {
+          markPersistent: vi.fn(async () => undefined),
+          abandon: vi.fn(async () => undefined),
+        },
       },
     });
   });
@@ -697,6 +711,37 @@ describe('App integration', () => {
     root = null;
     container = null;
     Reflect.deleteProperty(window, 'electronAPI');
+    useAgentSessionsStore.setState({ sessions: [] });
+    vi.unstubAllGlobals();
+  });
+
+  it('does not re-render the workspace when only terminal replay changes', async () => {
+    useAgentSessionsStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          name: 'Codex',
+          agentId: 'codex',
+          agentCommand: 'codex',
+          initialized: true,
+          activated: true,
+          persistenceEnabled: true,
+          repoPath: '/repo',
+          cwd: WORKTREE.path,
+        },
+      ],
+    });
+    ({ container, root } = await renderApp());
+    mainContentRender.mockClear();
+
+    await act(async () => {
+      useAgentSessionsStore.getState().updateSession('session-a', {
+        replaySnapshot: 'New terminal output',
+        replaySnapshotCapturedAt: 1_000,
+      });
+    });
+
+    expect(mainContentRender).not.toHaveBeenCalled();
   });
 
   it('dismisses the startup shell once the active main panel is ready', async () => {

@@ -34,6 +34,8 @@ function stripPersistentAgentSessionMetadata(
 
 type DiffPersistentAgentSessionRecordsOptions = {
   previousSnapshotBySessionId: Map<string, string>;
+  // Opt-in identity reuse requires immutable records aligned with the previous snapshots.
+  previousRecordBySessionId?: ReadonlyMap<string, PersistentAgentSessionRecord>;
   records: PersistentAgentSessionRecord[];
 };
 
@@ -98,6 +100,7 @@ function shouldPersistReplaySnapshotChange(
 
 export function diffPersistentAgentSessionRecords({
   previousSnapshotBySessionId,
+  previousRecordBySessionId,
   records,
 }: DiffPersistentAgentSessionRecordsOptions): {
   changedRecords: PersistentAgentSessionRecord[];
@@ -110,8 +113,13 @@ export function diffPersistentAgentSessionRecords({
   const nextSnapshotBySessionId = new Map<string, string>();
 
   for (const record of records) {
-    const snapshot = serializePersistentAgentSessionRecordSnapshot(record);
     const previousSnapshot = previousSnapshotBySessionId.get(record.uiSessionId);
+    if (previousSnapshot && previousRecordBySessionId?.get(record.uiSessionId) === record) {
+      nextSnapshotBySessionId.set(record.uiSessionId, previousSnapshot);
+      continue;
+    }
+
+    const snapshot = serializePersistentAgentSessionRecordSnapshot(record);
     if (!previousSnapshot) {
       nextSnapshotBySessionId.set(record.uiSessionId, snapshot);
       changedRecords.push(record);

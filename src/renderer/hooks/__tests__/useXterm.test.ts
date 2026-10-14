@@ -28,6 +28,10 @@ declare global {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+const replaySnapshotTestState = vi.hoisted(() => ({
+  appendCalls: 0,
+}));
+
 interface SessionSubscriptionHandlers {
   onData?: (event: { sessionId: string; data: string }) => void;
   onResync?: (event: { sessionId: string; replay: string }) => void;
@@ -166,6 +170,21 @@ const testState = vi.hoisted(() => ({
     contextLossHandler: (() => void) | null;
   }>,
 }));
+
+vi.mock('@shared/utils/persistentAgentSession', async () => {
+  const actual = await vi.importActual<typeof import('@shared/utils/persistentAgentSession')>(
+    '@shared/utils/persistentAgentSession'
+  );
+  return {
+    ...actual,
+    appendPersistentAgentReplaySnapshotState: vi.fn(
+      (...args: Parameters<typeof actual.appendPersistentAgentReplaySnapshotState>) => {
+        replaySnapshotTestState.appendCalls += 1;
+        return actual.appendPersistentAgentReplaySnapshotState(...args);
+      }
+    ),
+  };
+});
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
@@ -663,6 +682,7 @@ function getRegisteredCsiHandler(identifier: Record<string, string>) {
 
 describe('useXterm startup loading state', () => {
   beforeEach(() => {
+    replaySnapshotTestState.appendCalls = 0;
     testState.latestSnapshot = {
       isLoading: false,
       runtimeState: 'live',
@@ -1379,6 +1399,7 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
     onReplaySnapshotChange.mockClear();
+    replaySnapshotTestState.appendCalls = 0;
     vi.useFakeTimers();
 
     await act(async () => {
@@ -1392,6 +1413,8 @@ describe('useXterm startup loading state', () => {
       });
       await flushMicrotasks();
     });
+
+    expect(replaySnapshotTestState.appendCalls).toBe(0);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30);
@@ -1417,11 +1440,99 @@ describe('useXterm startup loading state', () => {
       await flushMicrotasks();
     });
 
+    expect(replaySnapshotTestState.appendCalls).toBe(1);
     expect(onReplaySnapshotChange).toHaveBeenCalledTimes(1);
     expect(onReplaySnapshotChange).toHaveBeenLastCalledWith(
       'first output\nsecond output\n',
       expect.any(Number)
     );
+
+    await mounted.unmount();
+  });
+
+  it('drains retained replay output when a sustained burst reaches the batch budget', async () => {
+    const onReplaySnapshotChange = vi.fn();
+    const mounted = mountHookHarness({ onReplaySnapshotChange });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    await act(async () => {
+      testState.resolveAttach?.({
+        session: {
+          sessionId: 'backend-session-1',
+          backend: 'local',
+          kind: 'agent',
+          cwd: '/repo/worktree',
+          persistOnDisconnect: false,
+          createdAt: 1,
+          runtimeState: 'live',
+          metadata: undefined,
+        },
+        replay: '',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await flushMicrotasks();
+    });
+    replaySnapshotTestState.appendCalls = 0;
+    onReplaySnapshotChange.mockClear();
+    vi.useFakeTimers();
+
+    const burstChunks = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((value) =>
+      value.repeat(64 * 1024)
+    );
+    await act(async () => {
+      for (const chunk of burstChunks.slice(0, 4)) {
+        testState.sessionHandlers?.onData?.({
+          sessionId: 'backend-session-1',
+          data: chunk,
+        });
+      }
+      await flushMicrotasks();
+    });
+
+    expect(replaySnapshotTestState.appendCalls).toBe(1);
+    expect(onReplaySnapshotChange).toHaveBeenCalledTimes(1);
+    expect(onReplaySnapshotChange).toHaveBeenLastCalledWith(
+      burstChunks.slice(2, 4).join(''),
+      expect.any(Number)
+    );
+
+    await act(async () => {
+      for (const chunk of burstChunks.slice(4, 7)) {
+        testState.sessionHandlers?.onData?.({
+          sessionId: 'backend-session-1',
+          data: chunk,
+        });
+      }
+      await flushMicrotasks();
+    });
+
+    expect(replaySnapshotTestState.appendCalls).toBe(1);
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: burstChunks.slice(7).join(''),
+      });
+      await flushMicrotasks();
+    });
+
+    expect(replaySnapshotTestState.appendCalls).toBe(2);
+    expect(onReplaySnapshotChange).toHaveBeenCalledTimes(2);
+    expect(onReplaySnapshotChange).toHaveBeenLastCalledWith(
+      burstChunks.slice(6).join(''),
+      expect.any(Number)
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await flushMicrotasks();
+    });
+
+    expect(replaySnapshotTestState.appendCalls).toBe(2);
+    expect(onReplaySnapshotChange).toHaveBeenCalledTimes(2);
 
     await mounted.unmount();
   });
@@ -2016,6 +2127,48 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('does not replay archived output over live data awaiting its first terminal write', async () => {
+    const transcript = createDeferredResult<SessionTranscriptPage>();
+    const onReplaySnapshotChange = vi.fn();
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    testState.sessionGetTranscriptPage.mockReturnValueOnce(transcript.promise);
+    const mounted = mountHookHarness({ onReplaySnapshotChange });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionGetTranscriptPage).toHaveBeenCalledTimes(1);
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+
+    await act(async () => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'live output\n',
+      });
+      transcript.resolve({
+        text: 'archived output\n',
+        totalBytes: 16,
+        health: 'complete',
+        initialParserState: 'text',
+      });
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30);
+      await flushMicrotasks();
+    });
+
+    expect(testState.terminalWrite.mock.calls.map(([data]) => data)).toEqual(['live output\n']);
+
+    await mounted.unmount();
+    expect(onReplaySnapshotChange).toHaveBeenLastCalledWith('live output\n', expect.any(Number));
+  });
+
   it('keeps restored replay hidden until xterm has written it and then starts at the bottom', async () => {
     const mounted = mountHookHarness();
 
@@ -2405,6 +2558,33 @@ describe('useXterm startup loading state', () => {
     });
 
     expect(testState.terminalWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes background output immediately when the terminal becomes active', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness({ isActive: false, isVisible: true });
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(testState.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(testState.sessionAttach).toHaveBeenCalledTimes(1);
+    expect(testState.sessionHandlers?.onData).toBeTypeOf('function');
+    vi.useFakeTimers();
+    act(() => {
+      testState.sessionHandlers?.onData?.({
+        sessionId: 'backend-session-1',
+        data: 'background output\n',
+      });
+    });
+    expect(testState.terminalWrite).not.toHaveBeenCalled();
+
+    mounted.rerender({ isActive: true });
+
+    expect(testState.terminalWrite).toHaveBeenCalledWith('background output\n');
+
+    await mounted.unmount();
   });
 
   it('flushes a demoted interactive output batch when unmounted before its delay expires', async () => {

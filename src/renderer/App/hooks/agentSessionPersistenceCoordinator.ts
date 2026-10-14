@@ -64,6 +64,7 @@ export function createAgentSessionPersistenceCoordinator(
       const { changedRecords, removedRecords, removedSessionIds, nextSnapshotBySessionId } =
         diffPersistentAgentSessionRecords({
           previousSnapshotBySessionId,
+          previousRecordBySessionId: recordBySessionId,
           records: [...nextRecordBySessionId.values()],
         });
 

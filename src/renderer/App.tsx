@@ -99,6 +99,7 @@ import { WindowTitleBar } from './components/layout/WindowTitleBar';
 import { resolveWorktreePanelSnapshot } from './components/layout/worktreePanelSnapshot';
 import { StartupShell } from './components/StartupShell';
 import { addToast, toastManager } from './components/ui/toast';
+import { useAgentSessionSummaries } from './hooks/useAgentSessionSummaries';
 import { useAutoFetchListener, useGitBranches, useGitInit } from './hooks/useGit';
 import { useWebInspector } from './hooks/useWebInspector';
 import {
@@ -537,7 +538,7 @@ export default function App() {
   const worktreeError = useWorktreeStore((s) => s.error);
   const setWorktreeError = useWorktreeStore((s) => s.setError);
   const setAgentActiveId = useAgentSessionsStore((state) => state.setActiveId);
-  const agentSessions = useAgentSessionsStore((state) => state.sessions);
+  const agentSessions = useAgentSessionSummaries();
   const activeEditorTabPath = useEditorStore((s) => s.activeTabPath);
   const currentEditorWorktreePath = useEditorStore((s) => s.currentWorktreePath);
   const clearEditorWorktreeState = useEditorStore((s) => s.clearWorktreeState);

@@ -11,6 +11,7 @@ import {
   type SessionActivityState,
 } from '@/components/chat/sessionActivityState';
 import type { SettingsCategory } from '@/components/settings/constants';
+import { useAgentSessionSummaries } from '@/hooks/useAgentSessionSummaries';
 import { buildPolledLiveSubagentCwds, useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useI18n } from '@/i18n';
 import { getRendererPlatform } from '@/lib/electronEnvironment';
@@ -190,7 +191,7 @@ export function MainContent({
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
-  const sessions = useAgentSessionsStore((state) => state.sessions);
+  const sessions = useAgentSessionSummaries();
   const activeIds = useAgentSessionsStore((state) => state.activeIds);
   const sessionRuntimeStates = useAgentSessionsStore((state) => state.runtimeStates);
   const activeSessionId = useMemo(() => {
