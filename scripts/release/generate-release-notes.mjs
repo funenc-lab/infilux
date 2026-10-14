@@ -61,6 +61,10 @@ function main() {
   const repositorySlug = requireArg(args, 'repository');
   const assetFile = requireArg(args, 'asset-file');
   const outputFile = args.get('output');
+  const macosSigning = args.get('macos-signing') || 'signed';
+  if (macosSigning !== 'signed' && macosSigning !== 'unsigned') {
+    throw new Error('macOS signing mode must be signed or unsigned');
+  }
 
   const assets = resolveReleaseDownloadAssets(readAssetNames(assetFile));
   const markdown = buildReleaseNotesMarkdown({
@@ -69,6 +73,7 @@ function main() {
     repositorySlug,
     commitSubjects: readCommitSubjects(previousTag, tag),
     assets,
+    macosSigning,
   });
 
   if (outputFile) {

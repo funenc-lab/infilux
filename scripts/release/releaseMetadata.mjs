@@ -115,7 +115,11 @@ export function buildReleaseNotesMarkdown({
   repositorySlug,
   commitSubjects,
   assets,
+  macosSigning = 'signed',
 }) {
+  if (macosSigning !== 'signed' && macosSigning !== 'unsigned') {
+    throw new Error('macOS signing mode must be signed or unsigned');
+  }
   const sections = collectCommitSections(commitSubjects);
   const lines = ['## Updates', ''];
 
@@ -141,6 +145,17 @@ export function buildReleaseNotesMarkdown({
       lines.push(`- ${entry}`);
     }
     lines.push('');
+  }
+
+  if (macosSigning === 'unsigned') {
+    lines.push(
+      '## macOS Installation',
+      '',
+      "These macOS builds are not signed with an Apple Developer ID and are not notarized. Apple Silicon includes only a certificate-free ad-hoc signature required by macOS. Gatekeeper may require approval before the app can open. Only approve builds you trust; see [Apple's installation guidance](https://support.apple.com/en-us/102445).",
+      '',
+      'Install and update macOS manually using the DMG for your architecture. In-app automatic updates are not supported for these unsigned builds.',
+      ''
+    );
   }
 
   lines.push('---', '', '## Downloads', '', '| Platform | File |', '|------|------|');

@@ -14,7 +14,6 @@ const applePassword = `APPLE_PASSWORD: ${expressionOpen} secrets.APPLE_PASSWORD 
 const appleAppSpecificPassword = `APPLE_APP_SPECIFIC_PASSWORD: ${expressionOpen} secrets.APPLE_PASSWORD ${expressionClose}`;
 const appleTeamId = `APPLE_TEAM_ID: ${expressionOpen} secrets.APPLE_TEAM_ID ${expressionClose}`;
 const macArchPlaceholder = '$' + '{{ matrix.arch }}';
-const forceUnsignedCondition = `if [[ "${shellExpressionOpen}force_unsigned${shellExpressionClose}" == "true" ]]; then`;
 const resolvedSigningIdentity = `CSC_NAME: ${expressionOpen} env.APPLE_SIGNING_IDENTITY_RESOLVED ${expressionClose}`;
 const legacySigningIdentity = `CSC_NAME: ${expressionOpen} secrets.APPLE_SIGNING_IDENTITY ${expressionClose}`;
 const signingIdentityFallback =
@@ -39,7 +38,10 @@ describe('build workflow macOS signing policy', () => {
     );
   });
 
-  it('uses the organization Apple signing secret names without a release-wide unsigned override', () => {
+  it('uses organization Apple signing secrets only through an explicit signing request', () => {
+    expect(workflowSource).toContain(
+      "sign_macos:\n        description: 'Sign and notarize macOS bundles for this manual build'\n        required: false\n        default: false\n        type: boolean"
+    );
     expect(workflowSource).toContain('allow_unsigned_macos:');
     expect(workflowSource).toContain(appleId);
     expect(workflowSource).toContain(applePassword);
@@ -51,27 +53,47 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).not.toContain('secrets.APPLE_API_KEY_P8');
   });
 
-  it('supports unsigned macOS fallback only for untagged builds', () => {
+  it('supports macOS releases without Developer ID signing, notarization, or hardened runtime', () => {
     expect(workflowSource).toContain(`Build macOS (${macArchPlaceholder}) unsigned`);
     expect(workflowSource).toContain("CSC_IDENTITY_AUTO_DISCOVERY: 'false'");
-    expect(workflowSource).toContain('-c.mac.identity=null -c.mac.notarize=false --publish never');
     expect(workflowSource).toContain(
-      `if: ${expressionOpen} !startsWith(github.ref, 'refs/tags/') && (steps.macos_signing.outputs.ready != 'true' || steps.import_apple_certificate.outcome != 'success') ${expressionClose}`
+      `-c.mac.identity="${expressionOpen} matrix.arch == 'arm64' && '-' || 'null' ${expressionClose}" -c.mac.notarize=false -c.mac.hardenedRuntime=false -c.dmg.sign=false --publish never`
     );
+    expect(workflowSource).toContain(
+      `if: ${expressionOpen} steps.macos_signing.outputs.unsigned_allowed == 'true' ${expressionClose}`
+    );
+    expect(workflowSource).not.toContain('Only untagged manual builds may be unsigned.');
   });
 
-  it('allows manually forcing unsigned macOS builds only without a release tag', () => {
-    expect(workflowSource).toContain('force_unsigned="true"');
-    expect(workflowSource).toContain(forceUnsignedCondition);
-    expect(workflowSource).toContain(
-      `if [[ "${shellExpressionOpen}IS_TAG_BUILD}" == "true" && "${shellExpressionOpen}WORKFLOW_ALLOW_UNSIGNED_MACOS}" == "true" ]]; then`
+  it('preserves certificate-free ARM64 signatures and checks the packaged executable can run', () => {
+    const verificationStep = workflowSource.indexOf('name: Verify unsigned macOS app');
+    const publishStep = workflowSource.indexOf('name: Publish verified macOS artifacts');
+    const verificationSource = workflowSource.slice(verificationStep, publishStep);
+
+    expect(verificationSource).toContain(
+      'codesign --verify --deep --strict --verbose=2 "$app_path"'
     );
-    expect(workflowSource).toContain(
-      'macOS signing is being skipped because unsigned output was explicitly requested.'
+    expect(verificationSource).toContain('Signature=adhoc');
+    expect(verificationSource).toContain(
+      'ELECTRON_RUN_AS_NODE=1 "$app_path/Contents/MacOS/Infilux"'
     );
+    expect(verificationSource).toContain('process.arch !== process.env.BUILD_ARCH');
+    expect(verificationSource).not.toContain('APPLE_');
   });
 
-  it('stops a tagged macOS build before packaging if signing is unavailable', () => {
+  it('uses a tested policy CLI and propagates manual signing inputs', () => {
+    expect(workflowSource).toContain('run: node scripts/release/macos-signing-policy.mjs');
+    expect(workflowSource).toContain(
+      `WORKFLOW_SIGN_MACOS: ${expressionOpen} github.event_name == 'workflow_dispatch' && inputs.sign_macos || 'false' ${expressionClose}`
+    );
+    expect(workflowSource).toContain(
+      `WORKFLOW_ALLOW_UNSIGNED_MACOS: ${expressionOpen} github.event_name == 'workflow_dispatch' && inputs.allow_unsigned_macos || 'false' ${expressionClose}`
+    );
+    expect(workflowSource).toContain('name: Release workflow tests');
+    expect(workflowSource).toContain('scripts/__tests__/macosSigningPolicy.test.ts');
+  });
+
+  it('fails explicit signing before packaging when certificate import is unavailable', () => {
     const releaseGateStep = workflowSource.indexOf('name: Require signed macOS release');
     const importStep = workflowSource.indexOf('name: Import Apple Certificate');
     const signedBuildStep = workflowSource.indexOf(`Build macOS (${macArchPlaceholder}) signed`);
@@ -79,17 +101,16 @@ describe('build workflow macOS signing policy', () => {
     expect(releaseGateStep).toBeGreaterThan(importStep);
     expect(releaseGateStep).toBeLessThan(signedBuildStep);
     expect(workflowSource).toContain('name: Require signed macOS release');
-    expect(workflowSource).toContain("if: startsWith(github.ref, 'refs/tags/')");
+    expect(workflowSource.slice(releaseGateStep, signedBuildStep)).toContain(
+      `if: ${expressionOpen} steps.macos_signing.outputs.ready == 'true' ${expressionClose}`
+    );
     expect(workflowSource).toContain(
       `CERTIFICATE_IMPORTED: ${expressionOpen} steps.import_apple_certificate.outcome ${expressionClose}`
     );
     expect(workflowSource).toContain(
       'if [[ "$SIGNING_READY" != "true" || "$CERTIFICATE_IMPORTED" != "success" ]]; then'
     );
-    expect(workflowSource).toContain('Only untagged manual builds may be unsigned.');
-    expect(workflowSource).not.toContain(
-      'Configure the APPLE_* secrets or explicitly allow unsigned macOS output.'
-    );
+    expect(workflowSource).not.toContain('name: Announce unsigned macOS fallback');
   });
 
   it('verifies the packaged macOS app retains the original Developer ID signer', () => {
@@ -100,13 +121,28 @@ describe('build workflow macOS signing policy', () => {
     expect(verificationStep).toBeGreaterThan(signedBuildStep);
     expect(verificationStep).toBeLessThan(metadataUploadStep);
     expect(workflowSource.slice(verificationStep, metadataUploadStep)).toContain(
-      "if: startsWith(github.ref, 'refs/tags/')"
+      `if: ${expressionOpen} steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome == 'success' ${expressionClose}`
     );
     expect(workflowSource).toContain('dist/mac-arm64/Infilux.app');
     expect(workflowSource).toContain('dist/mac/Infilux.app');
     expect(workflowSource).toContain('codesign --verify --deep --strict --verbose=2 "$app_path"');
     expect(workflowSource).toContain('Authority=Developer ID Application:');
     expect(workflowSource).toContain('TeamIdentifier=SG6MVT62JU');
+  });
+
+  it('verifies unsigned bundle contents, version, and architecture before upload', () => {
+    const buildStep = workflowSource.indexOf(`Build macOS (${macArchPlaceholder}) unsigned`);
+    const verificationStep = workflowSource.indexOf('name: Verify unsigned macOS app');
+    const publishStep = workflowSource.indexOf('name: Publish verified macOS artifacts');
+
+    expect(verificationStep).toBeGreaterThan(buildStep);
+    expect(verificationStep).toBeLessThan(publishStep);
+    const verificationSource = workflowSource.slice(verificationStep, publishStep);
+    expect(verificationSource).toContain('Contents/MacOS/Infilux');
+    expect(verificationSource).toContain('Contents/Resources/app.asar');
+    expect(verificationSource).toContain('CFBundleShortVersionString');
+    expect(verificationSource).toContain('require("./package.json").version');
+    expect(verificationSource).toContain('lipo -verify_arch "$binary_arch"');
   });
 
   it('builds without implicit publishing and uploads only after signing verification', () => {
@@ -172,6 +208,24 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).toContain(
       'gh release edit "$TAG" --draft=false --notes-file release-notes.md --latest'
     );
+  });
+
+  it('uses the previous published release rather than a failed or draft tag for notes', () => {
+    expect(workflowSource).toContain(
+      "gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // empty'"
+    );
+    expect(workflowSource).not.toContain('git tag --sort=-version:refname');
+    expect(workflowSource).toContain('PREV_TAG=$(git rev-list --max-parents=0 HEAD)');
+  });
+
+  it('passes the actual macOS signing mode to release notes', () => {
+    expect(workflowSource).toContain(
+      `macos_signed: ${expressionOpen} steps.macos_signing.outputs.ready ${expressionClose}`
+    );
+    expect(workflowSource).toContain(
+      `--macos-signing "${expressionOpen} needs.build-mac.outputs.macos_signed == 'true' && 'signed' || 'unsigned' ${expressionClose}"`
+    );
+    expect(workflowSource).toContain('scripts/__tests__/generateReleaseNotes.test.ts');
   });
 
   it('creates a draft release before uploading remote runtime assets', () => {

@@ -6,6 +6,11 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      sign_macos:
+        description: 'Sign and notarize macOS bundles for this manual build'
+        required: false
+        default: false
+        type: boolean
       allow_unsigned_macos:
         description: 'Allow unsigned macOS bundles for this manual build'
         required: false
@@ -55,6 +60,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Release workflow tests
+        run: pnpm exec vitest run scripts/__tests__/buildWorkflowMacSigning.test.ts scripts/__tests__/macosSigningPolicy.test.ts scripts/__tests__/releaseMetadata.test.ts scripts/__tests__/generateReleaseNotes.test.ts
+
       - name: Coverage
         run: pnpm test:coverage
 
@@ -103,6 +111,8 @@ jobs:
 
   build-mac:
     needs: build-app
+    outputs:
+      macos_signed: ${{ steps.macos_signing.outputs.ready }}
     strategy:
       fail-fast: false
       matrix:
@@ -164,68 +174,19 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WORKFLOW_SIGN_MACOS: ${{ github.event_name == 'workflow_dispatch' && inputs.sign_macos || 'false' }}
           WORKFLOW_ALLOW_UNSIGNED_MACOS: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_unsigned_macos || 'false' }}
-          IS_TAG_BUILD: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
-        run: |
-          set -euo pipefail
-
-          missing=()
-          allow_unsigned="false"
-          force_unsigned="false"
-
-          if [[ "${IS_TAG_BUILD}" == "true" && "${WORKFLOW_ALLOW_UNSIGNED_MACOS}" == "true" ]]; then
-            echo "::error title=Signed macOS release required::Unsigned macOS builds are only available on untagged manual runs."
-            exit 1
-          fi
-
-          if [[ "${WORKFLOW_ALLOW_UNSIGNED_MACOS}" == "true" ]]; then
-            allow_unsigned="true"
-            force_unsigned="true"
-          elif [[ "${IS_TAG_BUILD}" != "true" ]]; then
-            allow_unsigned="true"
-          fi
-
-          [[ -n "${APPLE_CERTIFICATE}" ]] || missing+=("APPLE_CERTIFICATE")
-          [[ -n "${APPLE_CERTIFICATE_PASSWORD}" ]] || missing+=("APPLE_CERTIFICATE_PASSWORD")
-          [[ -n "${APPLE_ID}" ]] || missing+=("APPLE_ID")
-          [[ -n "${APPLE_PASSWORD}" ]] || missing+=("APPLE_PASSWORD")
-          [[ -n "${APPLE_TEAM_ID}" ]] || missing+=("APPLE_TEAM_ID")
-
-          if [[ "${force_unsigned}" == "true" ]]; then
-            echo "ready=false" >> "${GITHUB_OUTPUT}"
-            echo "missing=override" >> "${GITHUB_OUTPUT}"
-            echo "unsigned_allowed=true" >> "${GITHUB_OUTPUT}"
-            echo "unsigned_reason=override" >> "${GITHUB_OUTPUT}"
-            echo "macOS signing is being skipped because unsigned output was explicitly requested."
-          elif [[ "${#missing[@]}" -eq 0 ]]; then
-            echo "ready=true" >> "${GITHUB_OUTPUT}"
-            echo "missing=" >> "${GITHUB_OUTPUT}"
-            echo "unsigned_allowed=false" >> "${GITHUB_OUTPUT}"
-            echo "unsigned_reason=" >> "${GITHUB_OUTPUT}"
-            echo "macOS signing is enabled for this build."
-          elif [[ "${allow_unsigned}" == "true" ]]; then
-            missing_csv="$(IFS=,; echo "${missing[*]}")"
-            echo "ready=false" >> "${GITHUB_OUTPUT}"
-            echo "missing=${missing_csv}" >> "${GITHUB_OUTPUT}"
-            echo "unsigned_allowed=true" >> "${GITHUB_OUTPUT}"
-            echo "unsigned_reason=missing-secrets" >> "${GITHUB_OUTPUT}"
-            echo "macOS signing is disabled because these secrets are missing: ${missing_csv}"
-          else
-            missing_csv="$(IFS=,; echo "${missing[*]}")"
-            echo "::error title=Signed macOS release is required::Apple signing secrets are missing (${missing_csv}). Only untagged manual builds may be unsigned."
-            exit 1
-          fi
+        run: node scripts/release/macos-signing-policy.mjs
 
       - name: Announce unsigned macOS build
         if: ${{ steps.macos_signing.outputs.unsigned_allowed == 'true' }}
         env:
-          SIGNING_MISSING: ${{ steps.macos_signing.outputs.missing }}
           SIGNING_REASON: ${{ steps.macos_signing.outputs.unsigned_reason }}
         run: |
           if [[ "${SIGNING_REASON}" == "override" ]]; then
             echo "::notice title=Unsigned macOS build::Unsigned macOS output was explicitly requested. Apple signing and notarization are being skipped."
           else
-            echo "::notice title=Unsigned macOS build::Apple signing secrets are missing (${SIGNING_MISSING}). This workflow is continuing with unsigned macOS output."
+            echo "::notice title=Unsigned macOS build::Unsigned output is the default. Apple signing and notarization are being skipped."
           fi
 
       - name: Import Apple Certificate
@@ -306,20 +267,15 @@ jobs:
           echo "Resolved Apple signing certificate name: ${resolved_identity}"
 
       - name: Require signed macOS release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ steps.macos_signing.outputs.ready == 'true' }}
         env:
           SIGNING_READY: ${{ steps.macos_signing.outputs.ready }}
           CERTIFICATE_IMPORTED: ${{ steps.import_apple_certificate.outcome }}
         run: |
           if [[ "$SIGNING_READY" != "true" || "$CERTIFICATE_IMPORTED" != "success" ]]; then
-            echo '::error title=Signed macOS release required::Apple certificate import must succeed for a tagged release.'
+            echo '::error title=Signed macOS build required::Apple certificate import must succeed when signing is requested.'
             exit 1
           fi
-
-      - name: Announce unsigned macOS fallback
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome != 'success' }}
-        run: |
-          echo "::warning title=Unsigned macOS fallback::Apple certificate import failed. Continuing with unsigned macOS output for this build."
 
       - name: Build macOS (${{ matrix.arch }}) signed
         if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome == 'success' }}
@@ -333,7 +289,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Verify signed macOS app
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ steps.macos_signing.outputs.ready == 'true' && steps.import_apple_certificate.outcome == 'success' }}
         env:
           BUILD_ARCH: ${{ matrix.arch }}
         run: |
@@ -361,11 +317,46 @@ jobs:
           fi
 
       - name: Build macOS (${{ matrix.arch }}) unsigned
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && (steps.macos_signing.outputs.ready != 'true' || steps.import_apple_certificate.outcome != 'success') }}
-        run: npx electron-builder --mac --${{ matrix.arch }} -c.mac.identity=null -c.mac.notarize=false --publish never
+        if: ${{ steps.macos_signing.outputs.unsigned_allowed == 'true' }}
+        run: npx electron-builder --mac --${{ matrix.arch }} -c.mac.identity="${{ matrix.arch == 'arm64' && '-' || 'null' }}" -c.mac.notarize=false -c.mac.hardenedRuntime=false -c.dmg.sign=false --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Verify unsigned macOS app
+        if: ${{ steps.macos_signing.outputs.unsigned_allowed == 'true' }}
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+
+          app_path="dist/mac/Infilux.app"
+          binary_arch="x86_64"
+          if [[ "$BUILD_ARCH" == "arm64" ]]; then
+            app_path="dist/mac-arm64/Infilux.app"
+            binary_arch="arm64"
+          fi
+
+          if [[ ! -f "$app_path/Contents/MacOS/Infilux" || ! -f "$app_path/Contents/Resources/app.asar" || ! -f "$app_path/Contents/Info.plist" ]]; then
+            echo "::error title=Incomplete macOS bundle::Expected executable, app.asar, and Info.plist in $app_path"
+            exit 1
+          fi
+          expected_version="$(node -p 'require("./package.json").version')"
+          actual_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")"
+          if [[ "$actual_version" != "$expected_version" ]]; then
+            echo '::error title=Wrong macOS version::The bundle version must match package.json.'
+            exit 1
+          fi
+          lipo -verify_arch "$binary_arch" "$app_path/Contents/MacOS/Infilux"
+          if [[ "$BUILD_ARCH" == "arm64" ]]; then
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            signing_info="$(codesign --display --verbose=4 "$app_path" 2>&1)"
+            if ! printf '%s\n' "$signing_info" | grep -Fxq 'Signature=adhoc'; then
+              echo '::error title=Wrong ARM64 signing mode::Expected certificate-free ad-hoc signing.'
+              exit 1
+            fi
+          fi
+          ELECTRON_RUN_AS_NODE=1 "$app_path/Contents/MacOS/Infilux" -e 'if (process.arch !== process.env.BUILD_ARCH) process.exit(1); console.log(`Packaged Electron ${process.versions.electron}, ${process.arch}`);'
 
       - name: Publish verified macOS artifacts
         if: startsWith(github.ref, 'refs/tags/v')
@@ -672,11 +663,13 @@ jobs:
             exit 1
           fi
 
-      - name: Get Previous Tag
+      - name: Get Previous Published Release
         id: prev_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT_TAG="${{ steps.tag.outputs.name }}"
-          PREV_TAG=$(git tag --sort=-version:refname | grep -A1 "^${CURRENT_TAG}$" | tail -1)
+          PREV_TAG=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // empty')
           if [ "$PREV_TAG" = "$CURRENT_TAG" ] || [ -z "$PREV_TAG" ]; then
             PREV_TAG=$(git rev-list --max-parents=0 HEAD)
           fi
@@ -698,6 +691,7 @@ jobs:
             --previous-tag "${{ steps.prev_tag.outputs.prev_tag }}" \
             --repository "${{ github.repository }}" \
             --asset-file release-assets.txt \
+            --macos-signing "${{ needs.build-mac.outputs.macos_signed == 'true' && 'signed' || 'unsigned' }}" \
             --output release-notes.md
           cat release-notes.md
 

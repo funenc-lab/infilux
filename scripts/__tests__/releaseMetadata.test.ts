@@ -89,6 +89,7 @@ describe('releaseMetadata', () => {
     });
 
     expect(markdown).toContain('## Updates');
+    expect(markdown).not.toContain('## macOS Installation');
     expect(markdown).toContain('### ✨ Features');
     expect(markdown).toContain('### 🐛 Fixes');
     expect(markdown).toContain('### 🔨 Build & CI');
@@ -98,6 +99,41 @@ describe('releaseMetadata', () => {
     expect(markdown).toContain(
       '**Full Changelog**: https://github.com/funenc-lab/infilux/compare/v1.2.2...v1.2.3'
     );
+  });
+
+  it('discloses unsigned macOS installation and manual update requirements', () => {
+    const markdown = buildReleaseNotesMarkdown({
+      tag: 'v1.2.3',
+      previousTag: 'v1.2.2',
+      repositorySlug: 'funenc-lab/infilux',
+      commitSubjects: [],
+      assets: [],
+      macosSigning: 'unsigned',
+    });
+
+    expect(markdown).toContain('## macOS Installation');
+    expect(markdown).toContain('not signed with an Apple Developer ID');
+    expect(markdown).toContain('not notarized');
+    expect(markdown).toContain('certificate-free ad-hoc signature');
+    expect(markdown).toContain('Gatekeeper');
+    expect(markdown).toContain('Install and update macOS manually');
+    expect(markdown).toContain('https://support.apple.com/en-us/102445');
+    expect(markdown.indexOf('## macOS Installation')).toBeLessThan(
+      markdown.indexOf('## Downloads')
+    );
+  });
+
+  it('rejects an unknown macOS signing mode instead of hiding installation restrictions', () => {
+    expect(() =>
+      buildReleaseNotesMarkdown({
+        tag: 'v1.2.3',
+        previousTag: 'v1.2.2',
+        repositorySlug: 'funenc-lab/infilux',
+        commitSubjects: [],
+        assets: [],
+        macosSigning: 'invalid',
+      })
+    ).toThrow('macOS signing mode must be signed or unsigned');
   });
 
   it('publishes the required release asset definitions for workflow consumers', () => {
