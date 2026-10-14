@@ -57,7 +57,16 @@
 - Policy and workflow regressions: complete (including required ARM64 ad-hoc compatibility; RED failures observed before implementation).
 - Release notes and documentation: complete (42 release/config tests; new assertions failed before implementation).
 - Local verification and review: complete for v0.4.33 (44 release/config tests, inherited macOS environment and real `lipo` regression, typecheck, lint, build, and independent review).
-- Commit, push, and public release verification: pending.
+- Commit, push, and public release verification: complete (main and annotated v0.4.33 tag pushed; all nine workflow jobs passed; 20 unique, nonempty public release assets verified).
+
+## Release Evidence
+
+- Release commit: `327e3a50e5883a8cac00accfb2fefbd0dd12acec`.
+- [GitHub Actions run 38617230223](https://github.com/funenc-lab/infilux/actions/runs/38617230223): completed successfully, including full source coverage and both macOS runners.
+- [Public v0.4.33 release](https://github.com/funenc-lab/infilux/releases/tag/v0.4.33): published at 2026-10-14 19:01:57 UTC; neither draft nor prerelease; confirmed as the latest release.
+- Merged macOS metadata contains both DMG and ZIP files for ARM64 and Intel, with valid SHA512 fields and file sizes matching uploaded assets.
+- Both remote runtime SHA256 files match the corresponding GitHub archive digests. Release notes disclose unsigned macOS installation/manual updates and use v0.4.29 as the previous published release.
+- macOS verification includes executable startup in Node mode, not a full GUI or quarantine/Gatekeeper installation test. The local installed app and concurrent terminal changes were not modified by this release.
 
 ## Failed Attempt and Regression
 
