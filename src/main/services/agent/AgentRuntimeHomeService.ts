@@ -36,7 +36,8 @@ export interface AgentRuntimeHomeServiceOptions {
 }
 
 function sanitizeRuntimeKey(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^-+|-+$/g, '') || 'session';
+  const runtimeKey = value.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^-+|-+$/g, '');
+  return !runtimeKey || runtimeKey === '.' || runtimeKey === '..' ? 'session' : runtimeKey;
 }
 
 function ensureLinkedEntry(sourcePath: string, targetPath: string): void {
@@ -78,9 +79,12 @@ export class AgentRuntimeHomeService {
     this.sharedEntryNames = options.sharedEntryNames;
   }
 
+  getRuntimeHomePath(runtimeKey: string): string {
+    return path.join(this.runtimeRootPath, sanitizeRuntimeKey(runtimeKey));
+  }
+
   prepareRuntimeHome(runtimeKey: string): AgentRuntimeHomeResult {
-    const safeRuntimeKey = sanitizeRuntimeKey(runtimeKey);
-    const homePath = path.join(this.runtimeRootPath, safeRuntimeKey);
+    const homePath = this.getRuntimeHomePath(runtimeKey);
     mkdirSync(homePath, { recursive: true });
     markManagedRuntimeHome(homePath);
 

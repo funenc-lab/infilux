@@ -1,4 +1,4 @@
-import type { ReadStream } from 'node:fs';
+import { accessSync, type ReadStream } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,7 @@ const TEMP_DIRECTORIES: string[] = [];
 
 afterEach(async () => {
   vi.doUnmock('node:fs');
+  vi.doUnmock('node:fs/promises');
   vi.resetModules();
 
   await Promise.all(
@@ -58,6 +59,314 @@ async function writeCodexTranscriptFile(params: {
 }
 
 describe('AgentProviderSessionService', () => {
+  it('recovers a delayed provider session and its title from the isolated runtime history', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-runtime-history-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+    const historyPath = path.join(tempRoot, 'history.jsonl');
+    const providerSessionId = 'delayed-provider-session';
+    await writeCodexTranscriptFile({
+      rootDir: tempRoot,
+      dayPath: '2026/10/09',
+      threadId: providerSessionId,
+      lines: [
+        {
+          type: 'session_meta',
+          payload: {
+            id: providerSessionId,
+            cwd: '/repo/worktree-a',
+            timestamp: '2026-10-09T03:25:59.000Z',
+          },
+        },
+        { type: 'event_msg', payload: { type: 'task_started' } },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Restore the original session title' }],
+          },
+        },
+      ],
+    });
+    await writeFile(
+      historyPath,
+      `${JSON.stringify({
+        session_id: providerSessionId,
+        ts: Date.parse('2026-10-09T03:26:00.000Z') / 1000,
+        text: 'Restore the original session title',
+      })}\n`,
+      'utf8'
+    );
+    const service = new AgentProviderSessionService(tempRoot, () => historyPath);
+
+    const result = await service.resolveProviderSession({
+      agentCommand: 'codex',
+      uiSessionId: 'ui-delayed-session',
+      cwd: '/repo/worktree-a',
+      createdAt: Date.parse('2026-10-09T03:22:38.000Z'),
+      observedAt: Date.parse('2026-10-14T01:00:00.000Z'),
+    });
+
+    expect(result.providerSessionId).toBe(providerSessionId);
+    await expect(
+      service.readProviderSessionTitle({
+        agentCommand: 'codex',
+        cwd: '/repo/worktree-a',
+        providerSessionId: result.providerSessionId!,
+      })
+    ).resolves.toEqual({ title: 'Restore the original session title' });
+  });
+
+  it('prefers the latest isolated history association when an older conversation was resumed', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-resumed-history-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+    const historyPath = path.join(tempRoot, 'history.jsonl');
+    for (const [threadId, timestamp] of [
+      ['startup-neighbor', '2026-10-09T03:22:40.000Z'],
+      ['resumed-session', '2026-10-08T01:00:00.000Z'],
+    ]) {
+      await writeCodexSessionFile({
+        rootDir: tempRoot,
+        dayPath: timestamp.startsWith('2026-10-08') ? '2026/10/08' : '2026/10/09',
+        threadId,
+        cwd: '/repo/worktree-a',
+        timestamp,
+      });
+    }
+    await writeFile(
+      historyPath,
+      [
+        JSON.stringify({ session_id: 'startup-neighbor', ts: 1791516160 }),
+        JSON.stringify({ session_id: 'resumed-session', ts: 1791516500 }),
+        '{"session_id":',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+    const service = new AgentProviderSessionService(tempRoot, () => historyPath);
+
+    await expect(
+      service.resolveProviderSession({
+        agentCommand: 'codex',
+        uiSessionId: 'ui-resumed-session',
+        cwd: '/repo/worktree-a',
+        createdAt: Date.parse('2026-10-09T03:22:38.000Z'),
+        observedAt: Date.parse('2026-10-14T01:00:00.000Z'),
+      })
+    ).resolves.toEqual({ providerSessionId: 'resumed-session' });
+  });
+
+  it.each([
+    'other-worktree',
+    'missing-transcript',
+    'already-claimed',
+  ])('does not guess another session when the runtime history points to %s', async (scenario) => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-history-guard-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+    const historyPath = path.join(tempRoot, 'history.jsonl');
+    const providerSessionId = 'recorded-provider-session';
+    if (scenario !== 'missing-transcript') {
+      await writeCodexSessionFile({
+        rootDir: tempRoot,
+        dayPath: '2026/10/09',
+        threadId: providerSessionId,
+        cwd: scenario === 'other-worktree' ? '/repo/worktree-b' : '/repo/worktree-a',
+        timestamp: '2026-10-09T03:30:00.000Z',
+      });
+    }
+    await writeCodexSessionFile({
+      rootDir: tempRoot,
+      dayPath: '2026/10/09',
+      threadId: 'unrelated-startup-session',
+      cwd: '/repo/worktree-a',
+      timestamp: '2026-10-09T03:22:40.000Z',
+    });
+    await writeFile(
+      historyPath,
+      `${JSON.stringify({ session_id: providerSessionId, ts: 1791516600 })}\n`,
+      'utf8'
+    );
+    const service = new AgentProviderSessionService(tempRoot, () => historyPath);
+    if (scenario === 'already-claimed') {
+      await service.resolveProviderSession({
+        agentCommand: 'codex',
+        uiSessionId: 'other-ui-session',
+        cwd: '/repo/worktree-a',
+        createdAt: Date.parse('2026-10-09T03:22:38.000Z'),
+        observedAt: Date.parse('2026-10-14T01:00:00.000Z'),
+        providerSessionId,
+      });
+    }
+
+    await expect(
+      service.resolveProviderSession({
+        agentCommand: 'codex',
+        uiSessionId: 'ui-session',
+        cwd: '/repo/worktree-a',
+        createdAt: Date.parse('2026-10-09T03:22:38.000Z'),
+        observedAt: Date.parse('2026-10-14T01:00:00.000Z'),
+      })
+    ).resolves.toEqual({ providerSessionId: null });
+  });
+
+  it('reads the bounded history tail and skips partial, expired, and future entries', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-history-tail-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+    const historyPath = path.join(tempRoot, 'history.jsonl');
+    await writeCodexSessionFile({
+      rootDir: tempRoot,
+      dayPath: '2026/10/09',
+      threadId: 'recorded-provider-session',
+      cwd: '/repo/worktree-a',
+      timestamp: '2026-10-09T03:30:00.000Z',
+    });
+    await writeFile(
+      historyPath,
+      [
+        JSON.stringify({ text: 'x'.repeat(300 * 1024) }),
+        JSON.stringify({ session_id: 'recorded-provider-session', ts: 1791516600 }),
+        JSON.stringify({ session_id: 'expired-session', ts: 1 }),
+        JSON.stringify({ session_id: 'future-session', ts: 9999999999 }),
+        '{"session_id":',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+    const service = new AgentProviderSessionService(tempRoot, () => historyPath);
+
+    await expect(
+      service.resolveProviderSession({
+        agentCommand: 'codex',
+        uiSessionId: 'ui-session',
+        cwd: '/repo/worktree-a',
+        createdAt: Date.parse('2026-10-09T03:22:38.000Z'),
+        observedAt: Date.parse('2026-10-14T01:00:00.000Z'),
+      })
+    ).resolves.toEqual({ providerSessionId: 'recorded-provider-session' });
+  });
+
+  it.each([
+    { recordedProviderSessionId: null, laterCreatedAt: '2026-10-09T03:22:39.000Z' },
+    { recordedProviderSessionId: 'resumed-session', laterCreatedAt: '2026-10-09T03:22:39.000Z' },
+    { recordedProviderSessionId: 'startup-later', laterCreatedAt: '2026-10-09T03:22:39.000Z' },
+    { recordedProviderSessionId: 'startup-earlier', laterCreatedAt: '2026-10-09T08:30:00.000Z' },
+  ])('keeps concurrent identities correct while private history is pending ($recordedProviderSessionId, $laterCreatedAt)', async ({
+    recordedProviderSessionId,
+    laterCreatedAt,
+  }) => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agent-provider-history-concurrent-'));
+    TEMP_DIRECTORIES.push(tempRoot);
+    const historyPath = path.join(tempRoot, 'history.jsonl');
+    for (const [threadId, timestamp] of [
+      ['startup-earlier', '2026-10-09T03:22:40.000Z'],
+      ['startup-later', '2026-10-09T03:22:42.000Z'],
+      ['resumed-session', '2026-10-09T03:30:00.000Z'],
+    ]) {
+      await writeCodexSessionFile({
+        rootDir: tempRoot,
+        dayPath: '2026/10/09',
+        threadId,
+        cwd: '/repo/worktree-a',
+        timestamp,
+      });
+    }
+    if (recordedProviderSessionId) {
+      await writeFile(
+        historyPath,
+        `${JSON.stringify({
+          session_id: recordedProviderSessionId,
+          ts: Math.max(1791516600, Date.parse(laterCreatedAt) / 1000 + 1),
+        })}\n`,
+        'utf8'
+      );
+    }
+    let releaseHistoryRead: () => void = () => undefined;
+    const historyReadGate = new Promise<void>((resolve) => {
+      releaseHistoryRead = resolve;
+    });
+    let markHistoryReadStarted: () => void = () => undefined;
+    const historyReadStarted = new Promise<void>((resolve) => {
+      markHistoryReadStarted = resolve;
+    });
+    let releaseValidation: () => void = () => undefined;
+    const validationGate = new Promise<void>((resolve) => {
+      releaseValidation = resolve;
+    });
+    let markValidationStarted: () => void = () => undefined;
+    const validationStarted = new Promise<void>((resolve) => {
+      markValidationStarted = resolve;
+    });
+    const absentHistoryPath = path.join(tempRoot, 'absent-history.jsonl');
+    let fallbackScanStarted = false;
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return {
+        ...actual,
+        access: async (...args: Parameters<typeof actual.access>) => accessSync(...args),
+        open: async (...args: Parameters<typeof actual.open>) => {
+          if (args[0] === historyPath) {
+            markHistoryReadStarted();
+            await historyReadGate;
+          }
+          if (args[0] === absentHistoryPath) {
+            throw new Error('No isolated history');
+          }
+          return actual.open(...args);
+        },
+        readdir: async (...args: Parameters<typeof actual.readdir>) => {
+          fallbackScanStarted = true;
+          if (recordedProviderSessionId && args[0] === tempRoot) {
+            markValidationStarted();
+            await validationGate;
+          }
+          return actual.readdir(...args);
+        },
+      };
+    });
+    vi.resetModules();
+    const { AgentProviderSessionService: ConcurrentService } = await import(
+      '../AgentProviderSessionService'
+    );
+    const service = new ConcurrentService(tempRoot, (uiSessionId) =>
+      uiSessionId === 'ui-later' ? historyPath : absentHistoryPath
+    );
+    const request = {
+      agentCommand: 'codex',
+      cwd: '/repo/worktree-a',
+      observedAt: Date.parse('2026-10-14T01:00:00.000Z'),
+    };
+    const laterRequest = {
+      ...request,
+      uiSessionId: 'ui-later',
+      createdAt: Date.parse(laterCreatedAt),
+    };
+    const earlierRequest = {
+      ...request,
+      uiSessionId: 'ui-earlier',
+      createdAt: Date.parse('2026-10-09T03:22:38.000Z'),
+    };
+    const laterLookup = service.resolveProviderSession(laterRequest);
+    await historyReadStarted;
+    const earlierLookup = service.resolveProviderSession(earlierRequest);
+    // Drain the fallback preflight while the other request's history remains blocked.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const scannedBeforeHistoryResolved = fallbackScanStarted;
+    releaseHistoryRead();
+    if (recordedProviderSessionId) {
+      await validationStarted;
+    }
+    const earlierResult = await earlierLookup;
+    releaseValidation();
+    const laterResult = await laterLookup;
+
+    expect(scannedBeforeHistoryResolved).toBe(false);
+    expect(laterResult.providerSessionId).toBe(recordedProviderSessionId ?? 'startup-later');
+    await expect(service.resolveProviderSession(laterRequest)).resolves.toEqual(laterResult);
+    expect(earlierResult.providerSessionId).toBe(
+      recordedProviderSessionId === 'startup-earlier' ? 'startup-later' : 'startup-earlier'
+    );
+  });
+
   it('discovers Codex sessions from the current worktree history', async () => {
     const worktreeAHistory = await mkdtemp(
       path.join(os.tmpdir(), 'agent-provider-worktree-a-test-')

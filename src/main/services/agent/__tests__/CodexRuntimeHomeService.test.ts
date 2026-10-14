@@ -92,6 +92,26 @@ describe('CodexRuntimeHomeService', () => {
     }
   });
 
+  it('resolves the isolated runtime path without creating or changing the home', () => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    expect(typeof service.getRuntimeHomePath).toBe('function');
+    expect(service.getRuntimeHomePath('session/with spaces')).toBe(
+      path.join(runtimeRoot, 'session-with-spaces')
+    );
+    expect(existsSync(path.join(runtimeRoot, 'session-with-spaces'))).toBe(false);
+  });
+
+  it.each(['.', '..', '../'])('keeps the runtime key %s inside the managed root', (runtimeKey) => {
+    const sourceHome = createTempRoot();
+    const runtimeRoot = createTempRoot();
+    const service = new CodexRuntimeHomeService(sourceHome, runtimeRoot);
+
+    expect(service.getRuntimeHomePath(runtimeKey)).toBe(path.join(runtimeRoot, 'session'));
+  });
+
   it('creates an isolated runtime home and links shared Codex configuration entries', async () => {
     const sourceHome = createTempRoot();
     const runtimeRoot = createTempRoot();

@@ -1,4 +1,5 @@
-import { access, readdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, open, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   ReadAgentProviderSessionTitleRequest,
@@ -8,12 +9,14 @@ import type {
 } from '@shared/types';
 import { normalizeAgentSessionTitleText } from '@shared/utils/agentSessionTitle';
 import { resolveCodexSessionsDir } from './CodexHomePaths';
+import { codexRuntimeHomeService } from './CodexRuntimeHomeService';
 import { resolveCodexWorkspaceSessionHistoryPath } from './CodexWorkspaceSessionHistory';
 import { findCodexSessionFileByThreadId } from './codexSessionMetadata';
 import { closeFileLineReader, createFileLineReader } from './fileLineReader';
 
 const SESSION_DISCOVERY_CLOCK_SKEW_MS = 5_000;
 const SESSION_DISCOVERY_MAX_START_AGE_MS = 2 * 60_000;
+const RUNTIME_HISTORY_TAIL_BYTES = 256 * 1024;
 type CodexSessionsDirProvider = string | ((cwd?: string) => string);
 
 interface CodexSessionMeta {
@@ -35,6 +38,8 @@ interface PendingSessionDiscovery {
   latestStartedAt: number;
   token: symbol;
   requiresBatch: boolean;
+  runtimeHistoryLookup: Promise<string | null>;
+  runtimeProviderSessionId: string | null | undefined;
 }
 
 type ConcurrentClaimResult = 'not-concurrent' | 'waiting' | 'assigned';
@@ -320,7 +325,9 @@ export class AgentProviderSessionService {
     codexSessionsDir: CodexSessionsDirProvider = (cwd) =>
       cwd
         ? resolveCodexWorkspaceSessionHistoryPath({ worktreePath: cwd })
-        : resolveCodexSessionsDir()
+        : resolveCodexSessionsDir(),
+    private readonly resolveRuntimeHistoryPath: (uiSessionId: string) => string = (uiSessionId) =>
+      path.join(codexRuntimeHomeService.getRuntimeHomePath(uiSessionId), 'history.jsonl')
   ) {
     this.resolveCodexSessionsDir = createCodexSessionsDirResolver(codexSessionsDir);
   }
@@ -349,29 +356,28 @@ export class AgentProviderSessionService {
     const discoveryWindow = requestedProviderSessionId
       ? undefined
       : resolveSessionDiscoveryWindow(request);
+    let pendingDiscovery: PendingSessionDiscovery | undefined;
     if (request.uiSessionId && resolutionToken) {
       this.activeResolutionTokenByUiSessionId.set(request.uiSessionId, resolutionToken);
       if (discoveryWindow) {
-        const concurrentDiscoveries = Array.from(this.pendingDiscoveryByUiSessionId.entries())
-          .filter(
-            ([uiSessionId, discovery]) =>
-              discovery.cwd === request.cwd &&
-              discoveryWindowsOverlap(discovery, discoveryWindow) &&
-              this.isResolutionActiveForToken(uiSessionId, discovery.token)
-          )
-          .map(([, discovery]) => discovery);
-        const requiresBatch = concurrentDiscoveries.length > 0;
-        for (const discovery of concurrentDiscoveries) {
-          discovery.requiresBatch = true;
-        }
-        this.pendingDiscoveryByUiSessionId.set(request.uiSessionId, {
+        const discovery: PendingSessionDiscovery = {
           cwd: request.cwd,
           createdAt: request.createdAt,
           earliestStartedAt: discoveryWindow.earliestStartedAt,
           latestStartedAt: discoveryWindow.latestStartedAt,
           token: resolutionToken,
-          requiresBatch,
-        });
+          requiresBatch: false,
+          runtimeHistoryLookup: this.readRuntimeProviderSessionId(request),
+          runtimeProviderSessionId: undefined,
+        };
+        discovery.runtimeHistoryLookup = discovery.runtimeHistoryLookup.then(
+          (providerSessionId) => {
+            discovery.runtimeProviderSessionId = providerSessionId;
+            return providerSessionId;
+          }
+        );
+        this.pendingDiscoveryByUiSessionId.set(request.uiSessionId, discovery);
+        pendingDiscovery = discovery;
       }
     }
 
@@ -399,6 +405,33 @@ export class AgentProviderSessionService {
         return { providerSessionId: null };
       }
 
+      const runtimeProviderSessionId = await (pendingDiscovery?.runtimeHistoryLookup ??
+        this.readRuntimeProviderSessionId(request));
+      if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+        return { providerSessionId: null };
+      }
+      if (runtimeProviderSessionId) {
+        const sessionFile = await findCodexSessionFileByThreadId(
+          this.resolveCodexSessionsDir(request.cwd),
+          runtimeProviderSessionId
+        );
+        const sessionMeta = sessionFile ? await this.readCodexSessionMeta(sessionFile) : null;
+        if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+          return { providerSessionId: null };
+        }
+        return {
+          providerSessionId:
+            sessionMeta?.cwd === request.cwd &&
+            this.claimProviderSession(request.uiSessionId, runtimeProviderSessionId)
+              ? runtimeProviderSessionId
+              : null,
+        };
+      }
+
+      await this.waitForConcurrentRuntimeHistory(request.uiSessionId, resolutionToken);
+      if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+        return { providerSessionId: null };
+      }
       const { earliestStartedAt, latestStartedAt, sortTargetAt } =
         discoveryWindow ?? resolveSessionDiscoveryWindow(request);
       const codexSessionsDir = this.resolveCodexSessionsDir(request.cwd);
@@ -439,9 +472,21 @@ export class AgentProviderSessionService {
         return { providerSessionId: matches[0]?.threadId ?? null };
       }
 
+      await this.waitForConcurrentRuntimeHistory(request.uiSessionId, resolutionToken);
+      if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
+        return { providerSessionId: null };
+      }
+      const reservedProviderSessionIds = new Set(
+        this.getActiveDiscoveries(request.cwd).flatMap(([, discovery]) =>
+          discovery.runtimeProviderSessionId ? [discovery.runtimeProviderSessionId] : []
+        )
+      );
+      const fallbackMatches = matches.filter(
+        (match) => !reservedProviderSessionIds.has(match.threadId)
+      );
       const concurrentClaimResult = this.claimConcurrentProviderSessions(
         request.uiSessionId,
-        matches
+        fallbackMatches
       );
       const concurrentlyClaimedProviderSessionId = this.providerSessionIdByUiSessionId.get(
         request.uiSessionId
@@ -456,7 +501,7 @@ export class AgentProviderSessionService {
       if (!this.isResolutionActiveForToken(request.uiSessionId, resolutionToken)) {
         return { providerSessionId: null };
       }
-      for (const match of matches) {
+      for (const match of fallbackMatches) {
         if (this.claimProviderSession(request.uiSessionId, match.threadId)) {
           return { providerSessionId: match.threadId };
         }
@@ -498,6 +543,53 @@ export class AgentProviderSessionService {
     }
 
     return { title: await this.readCodexFirstUserMessage(sessionFile) };
+  }
+
+  private async readRuntimeProviderSessionId(
+    request: ResolveAgentProviderSessionRequest
+  ): Promise<string | null> {
+    if (!request.uiSessionId) {
+      return null;
+    }
+
+    try {
+      const file = await open(
+        this.resolveRuntimeHistoryPath(request.uiSessionId),
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+      );
+      try {
+        const { size } = await file.stat();
+        const start = Math.max(0, size - RUNTIME_HISTORY_TAIL_BYTES);
+        const buffer = Buffer.alloc(Math.min(size, RUNTIME_HISTORY_TAIL_BYTES));
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
+        const lines = buffer.toString('utf8', 0, bytesRead).split('\n');
+        if (start > 0) {
+          lines.shift();
+        }
+
+        // This history is private to the UI runtime, unlike the shared worktree transcripts.
+        for (let index = lines.length - 1; index >= 0; index -= 1) {
+          const entry = safeJsonParse(lines[index]);
+          if (
+            entry &&
+            typeof entry.session_id === 'string' &&
+            entry.session_id.trim() &&
+            typeof entry.ts === 'number' &&
+            Number.isFinite(entry.ts) &&
+            entry.ts * 1000 >= request.createdAt - SESSION_DISCOVERY_CLOCK_SKEW_MS &&
+            entry.ts * 1000 <= request.observedAt + SESSION_DISCOVERY_CLOCK_SKEW_MS
+          ) {
+            return entry.session_id.trim();
+          }
+        }
+      } finally {
+        await file.close();
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
   }
 
   private readCodexSessionMeta(filePath: string): Promise<CodexSessionMeta | null> {
@@ -545,13 +637,17 @@ export class AgentProviderSessionService {
       return 'not-concurrent';
     }
 
-    const pendingDiscoveries = Array.from(this.pendingDiscoveryByUiSessionId.entries())
+    const activeDiscoveries = this.getActiveDiscoveries(currentDiscovery.cwd);
+    if (
+      activeDiscoveries.some(([, discovery]) => discovery.runtimeProviderSessionId === undefined)
+    ) {
+      return 'waiting';
+    }
+    const pendingDiscoveries = activeDiscoveries
       .filter(
-        ([pendingUiSessionId, discovery]) =>
-          discovery.cwd === currentDiscovery.cwd &&
-          discoveryWindowsOverlap(discovery, currentDiscovery) &&
-          this.isResolutionActiveForToken(pendingUiSessionId, discovery.token) &&
-          !this.providerSessionIdByUiSessionId.has(pendingUiSessionId)
+        ([, discovery]) =>
+          discovery.runtimeProviderSessionId === null &&
+          discoveryWindowsOverlap(discovery, currentDiscovery)
       )
       .sort(([leftUiSessionId, left], [rightUiSessionId, right]) => {
         if (left.createdAt !== right.createdAt) {
@@ -594,6 +690,55 @@ export class AgentProviderSessionService {
     }
 
     return 'assigned';
+  }
+
+  private getActiveDiscoveries(cwd: string): Array<[string, PendingSessionDiscovery]> {
+    return Array.from(this.pendingDiscoveryByUiSessionId.entries()).filter(
+      ([pendingUiSessionId, discovery]) =>
+        discovery.cwd === cwd &&
+        this.isResolutionActiveForToken(pendingUiSessionId, discovery.token) &&
+        !this.providerSessionIdByUiSessionId.has(pendingUiSessionId)
+    );
+  }
+
+  private async waitForConcurrentRuntimeHistory(
+    uiSessionId: string | undefined,
+    resolutionToken: symbol | undefined
+  ): Promise<void> {
+    if (!uiSessionId) {
+      return;
+    }
+
+    while (this.isResolutionActiveForToken(uiSessionId, resolutionToken)) {
+      const currentDiscovery = this.pendingDiscoveryByUiSessionId.get(uiSessionId);
+      if (!currentDiscovery) {
+        return;
+      }
+
+      const activeDiscoveries = this.getActiveDiscoveries(currentDiscovery.cwd);
+      const unresolvedHistories = activeDiscoveries.filter(
+        ([, discovery]) => discovery.runtimeProviderSessionId === undefined
+      );
+      if (unresolvedHistories.length > 0) {
+        // Resumed runtime identities can refer to transcripts outside their startup window.
+        await Promise.all(
+          unresolvedHistories.map(([, discovery]) => discovery.runtimeHistoryLookup)
+        );
+        continue;
+      }
+
+      const fallbackDiscoveries = activeDiscoveries.filter(
+        ([, discovery]) =>
+          discovery.runtimeProviderSessionId === null &&
+          discoveryWindowsOverlap(discovery, currentDiscovery)
+      );
+      if (fallbackDiscoveries.length > 1) {
+        for (const [, discovery] of fallbackDiscoveries) {
+          discovery.requiresBatch = true;
+        }
+      }
+      return;
+    }
   }
 
   private isResolutionActiveForToken(

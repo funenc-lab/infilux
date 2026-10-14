@@ -278,6 +278,10 @@ export class CodexRuntimeHomeService {
     return this.delegate;
   }
 
+  getRuntimeHomePath(runtimeKey: string): string {
+    return this.getDelegate().getRuntimeHomePath(runtimeKey);
+  }
+
   private collectLegacyRuntimeSessionPaths(sessionHistoryPath: string): string[] {
     const historyRootPath = path.resolve(path.dirname(path.dirname(sessionHistoryPath)));
 
