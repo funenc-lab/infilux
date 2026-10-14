@@ -164,7 +164,7 @@ describe('build workflow macOS signing policy', () => {
   });
 
   it.runIf(process.platform === 'darwin')(
-    'executes the workflow architecture check with the real macOS lipo tool',
+    'executes the workflow architecture check with the inherited macOS tool environment',
     () => {
       const workflowPath = fileURLToPath(
         new URL('../../.github/workflows/build.yml', import.meta.url)
@@ -192,9 +192,9 @@ describe('build workflow macOS signing policy', () => {
         const binaryDirectory = join(directory, 'Contents', 'MacOS');
         mkdirSync(binaryDirectory, { recursive: true });
         symlinkSync(process.execPath, join(binaryDirectory, 'Infilux'));
-        const result = spawnSync('bash', ['-c', command], {
+        const result = spawnSync('bash', ['-c', `test -n "\${HOME:-}" || exit 1\n${command}`], {
           env: {
-            PATH: process.env.PATH,
+            ...process.env,
             app_path: directory,
             binary_arch: process.arch === 'x64' ? 'x86_64' : process.arch,
           },
