@@ -426,7 +426,7 @@ describe('TmuxDetector', () => {
         '-t',
         'enso-ui-session-1',
         '-F',
-        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}\t#{alternate_on}',
       ],
       expect.objectContaining({ timeout: 5000 }),
       expect.any(Function)
@@ -474,7 +474,7 @@ describe('TmuxDetector', () => {
         '-t',
         'enso-ui-session-2',
         '-F',
-        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}\t#{alternate_on}',
       ],
       expect.objectContaining({ timeout: 5000 }),
       expect.any(Function)
@@ -496,7 +496,7 @@ describe('TmuxDetector', () => {
         '-t',
         'enso-ui-session-2',
         '-F',
-        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}\t#{alternate_on}',
       ],
       expect.objectContaining({ timeout: 5000 }),
       expect.any(Function)
@@ -517,6 +517,21 @@ describe('TmuxDetector', () => {
     });
 
     expect(tmuxDetectorTestDoubles.execFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not enter tmux copy mode over a native alternate-screen program', async () => {
+    setPlatform('darwin');
+    mockExecFileSuccess('%0\t1\t0\t1\n');
+    mockExecFileSuccess();
+    mockExecFileSuccess();
+
+    const { tmuxDetector } = await import('../TmuxDetector');
+    await expect(
+      tmuxDetector.scrollClient({ sessionName: 'native-agent', direction: 'up', amount: 8 })
+    ).resolves.toMatchObject({ applied: false, inMode: false, alternateScreen: true });
+    expect(
+      tmuxDetectorTestDoubles.execFile.mock.calls.some((call) => call[1]?.includes('copy-mode'))
+    ).toBe(false);
   });
 
   it('reuses the resolved pane during consecutive upward scroll requests for the same session', async () => {
@@ -594,7 +609,7 @@ describe('TmuxDetector', () => {
         '-t',
         'enso-ui-session-3',
         '-F',
-        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}',
+        '#{pane_id}\t#{pane_active}\t#{pane_in_mode}\t#{alternate_on}',
       ],
       expect.objectContaining({ timeout: 5000 }),
       expect.any(Function)
@@ -638,16 +653,42 @@ describe('TmuxDetector', () => {
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenCalledTimes(1);
   });
 
-  it('captures only the visible active tmux pane screen for terminal restoration', async () => {
+  it.each([
+    ['1\t0\t0', '\x1b[?1000h'],
+    ['0\t1\t0', '\x1b[?1002h'],
+    ['0\t0\t1', '\x1b[?1003h'],
+  ])('retains native alternate-screen and mouse modes in screen restoration (%s)', async (mouseFlags, mouseMode) => {
     setPlatform('darwin');
     tmuxDetectorTestDoubles.execInPty
-      .mockResolvedValueOnce('%1\t0\t0\n%0\t1\t0\n')
+      .mockResolvedValueOnce(`%0\t1\t0\t1\t${mouseFlags}\t1\n`)
+      .mockResolvedValueOnce('NATIVE-SCREEN\n');
+    const { tmuxDetector } = await import('../TmuxDetector');
+    await expect(tmuxDetector.captureSessionScreen('native-agent')).resolves.toBe(
+      `\x1b[?1049h${mouseMode}\x1b[?1006hNATIVE-SCREEN\n`
+    );
+  });
+
+  it('restores outer SGR mouse encoding even when the native pane uses legacy mouse encoding', async () => {
+    setPlatform('darwin');
+    tmuxDetectorTestDoubles.execInPty
+      .mockResolvedValueOnce('%0\t1\t0\t1\t1\t0\t0\t0\n')
+      .mockResolvedValueOnce('NATIVE-SCREEN\n');
+    const { tmuxDetector } = await import('../TmuxDetector');
+    await expect(tmuxDetector.captureSessionScreen('native-agent')).resolves.toBe(
+      '\x1b[?1049h\x1b[?1000h\x1b[?1006hNATIVE-SCREEN\n'
+    );
+  });
+
+  it('restores the outer tmux alternate buffer even when a quiet pane is a normal program', async () => {
+    setPlatform('darwin');
+    tmuxDetectorTestDoubles.execInPty
+      .mockResolvedValueOnce('%1\t0\t0\t0\t0\t0\t0\t0\n%0\t1\t0\t0\t0\t0\t0\t0\n')
       .mockResolvedValueOnce('CURRENT-SCREEN-LINE\n');
 
     const { tmuxDetector } = await import('../TmuxDetector');
 
     await expect(tmuxDetector.captureSessionScreen('enso-ui-session-1')).resolves.toBe(
-      'CURRENT-SCREEN-LINE\n'
+      '\x1b[?1049hCURRENT-SCREEN-LINE\n'
     );
 
     expect(tmuxDetectorTestDoubles.execInPty).toHaveBeenNthCalledWith(

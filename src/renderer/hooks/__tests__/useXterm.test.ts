@@ -5,6 +5,8 @@ import type {
   SessionOpenResult,
   SessionRuntimeInfo,
   SessionTranscriptPage,
+  TmuxScrollClientRequest,
+  TmuxScrollClientResult,
 } from '@shared/types';
 import { createAgentStartupTimelineLogger } from '@shared/utils/agentStartupTimeline';
 import React, { act } from 'react';
@@ -43,6 +45,7 @@ const testState = vi.hoisted(() => ({
     },
   },
   restartSession: null as (() => void) | null,
+  scrollToBottom: null as (() => void) | null,
   sessionHandlers: null as SessionSubscriptionHandlers | null,
   attachPromise: null as Promise<SessionOpenResult> | null,
   resolveAttach: null as ((value: SessionOpenResult) => void) | null,
@@ -69,7 +72,7 @@ const testState = vi.hoisted(() => ({
   sessionDetach: vi.fn(async () => undefined),
   sessionKill: vi.fn(async () => undefined),
   sessionResize: vi.fn(async () => undefined),
-  sessionWrite: vi.fn(async () => undefined),
+  sessionWrite: vi.fn(async (_sessionId: string, _data: string) => undefined),
   sessionGetRuntimeInfo: vi.fn(async (): Promise<SessionRuntimeInfo | null> => null),
   sessionGetTranscriptPage: vi.fn(
     async (): Promise<SessionTranscriptPage> => ({
@@ -81,11 +84,16 @@ const testState = vi.hoisted(() => ({
   sessionActivateOutput: vi.fn(async () => undefined),
   sessionAcknowledgeOutputResync: vi.fn(async () => undefined),
   sessionSetOutputDelivery: vi.fn(async () => undefined),
-  tmuxScrollClient: vi.fn(async () => ({
-    applied: true,
-    inMode: true,
-    paneId: '%0',
-  })),
+  tmuxScrollClient: vi.fn(
+    async (
+      _cwd: string | undefined,
+      _request: TmuxScrollClientRequest
+    ): Promise<TmuxScrollClientResult> => ({
+      applied: true,
+      inMode: true,
+      paneId: '%0',
+    })
+  ),
   remoteGetStatus: vi.fn(async () => ({ connected: false })),
   navigationToFile: vi.fn(),
   sessionOpen: vi.fn(),
@@ -177,6 +185,7 @@ vi.mock('@xterm/xterm', () => ({
     };
     unicode = { activeVersion: '11' };
     buffer = {
+      onBufferChange: () => ({ dispose: () => undefined }),
       active: {
         type: 'normal',
         get cursorY() {
@@ -248,6 +257,10 @@ vi.mock('@xterm/xterm', () => ({
       this.write(`${data}\r\n`);
     }
     clear(): void {}
+    clearSelection(): void {}
+    onWriteParsed(): { dispose: () => void } {
+      return { dispose: () => undefined };
+    }
     focus(): void {
       testState.terminalFocus();
     }
@@ -492,11 +505,8 @@ vi.mock('../xtermWheelHandlerPersistence', () => ({
   },
 }));
 
-vi.mock('../xtermWheelPolicy', () => ({
-  PAGE_DOWN_SEQUENCE: '\x1b[6~',
-  PAGE_UP_SEQUENCE: '\x1b[5~',
-  resolveAgentProgramScrollRepeat: (scrollLines: number) =>
-    Math.min(3, Math.max(1, Math.ceil(Math.abs(scrollLines) / 8))),
+vi.mock('../xtermWheelPolicy', async () => ({
+  ...(await vi.importActual<typeof import('../xtermWheelPolicy')>('../xtermWheelPolicy')),
   resolveAgentWheelPolicy: (input: unknown) => testState.resolveAgentWheelPolicy(input),
 }));
 
@@ -520,6 +530,7 @@ function HookHarness() {
     },
   };
   testState.restartSession = hook.restartSession;
+  testState.scrollToBottom = hook.scrollToBottom;
   testState.recreateWebglRenderer =
     (hook as typeof hook & { recreateWebglRenderer?: () => void }).recreateWebglRenderer ?? null;
 
@@ -4990,6 +5001,92 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it('cancels an in-flight tmux history scroll before delivering typed agent input', async () => {
+    const pendingScroll = createDeferredResult<{
+      applied: boolean;
+      inMode: boolean;
+      paneId: string;
+    }>();
+    const operations: string[] = [];
+    testState.resolveAgentWheelPolicy.mockReturnValue({
+      action: 'host-scroll',
+      carryY: 0,
+      scrollLines: -4,
+    });
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    testState.tmuxScrollClient.mockImplementation(async (_cwd, request) => {
+      operations.push(request.direction);
+      if (request.direction === 'up') return pendingScroll.promise;
+      return { applied: true, inMode: false, paneId: '%0' };
+    });
+    testState.sessionWrite.mockImplementation(async (_sessionId, data) => {
+      operations.push(`input:${data}`);
+    });
+    const mounted = mountHookHarness({
+      hostSession: { kind: 'tmux', serverName: 'infilux', sessionName: 'tmux-session-1' },
+    });
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      await act(async () => {
+        testState.attachedWheelHandler?.({
+          deltaMode: 1,
+          deltaY: -4,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        } as unknown as WheelEvent);
+        await vi.advanceTimersByTimeAsync(16);
+        await flushMicrotasks();
+      });
+      expect(operations).toEqual(['up']);
+      act(() => testState.terminalDataHandler?.('typed message'));
+      expect(testState.sessionWrite).not.toHaveBeenCalled();
+      await act(async () => {
+        pendingScroll.resolve({ applied: true, inMode: true, paneId: '%0' });
+        await flushMicrotasks();
+      });
+      await vi.waitFor(() => expect(operations).toEqual(['up', 'bottom', 'input:typed message']));
+    } finally {
+      pendingScroll.resolve({ applied: true, inMode: true, paneId: '%0' });
+      await mounted.unmount();
+    }
+  });
+
+  it('waits for recovery copy-mode exit before flushing queued input', async () => {
+    const attach = createDeferredResult<SessionOpenResult>();
+    const bottom = createDeferredResult<TmuxScrollClientResult>();
+    testState.sessionAttach.mockReturnValueOnce(attach.promise);
+    testState.tmuxScrollClient.mockReturnValueOnce(bottom.promise);
+    const mounted = mountHookHarness({
+      hostSession: { kind: 'tmux', serverName: 'infilux', sessionName: 'tmux-session-1' },
+    });
+    try {
+      await act(async () => await flushMicrotasks());
+      act(() => {
+        testState.terminalDataHandler?.('queued during recovery');
+        testState.scrollToBottom?.();
+      });
+      await act(async () => {
+        await flushMicrotasks();
+        attach.resolve(createTestSessionResult('backend-session-1'));
+        await flushMicrotasks();
+      });
+      expect(testState.sessionWrite).not.toHaveBeenCalled();
+      await act(async () => {
+        bottom.resolve({ applied: true, inMode: false });
+        await flushMicrotasks();
+      });
+      expect(testState.sessionWrite).toHaveBeenCalledWith(
+        'backend-session-1',
+        'queued during recovery'
+      );
+    } finally {
+      attach.resolve(createTestSessionResult('backend-session-1'));
+      bottom.resolve({ applied: true, inMode: false });
+      await mounted.unmount();
+    }
+  });
+
   it('sends Codex alternate-buffer program scrolling to the session instead of tmux', async () => {
     testState.resolveAgentWheelPolicy.mockReturnValue({
       action: 'program-scroll',
@@ -5055,17 +5152,26 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
-  it('falls back to Claude page scrolling when tmux host scrolling is unavailable', async () => {
-    testState.resolveAgentWheelPolicy.mockReturnValue({
-      action: 'host-scroll',
-      carryY: 0,
-      scrollLines: -4,
-      fallbackToProgramScroll: true,
-    } as never);
+  it('uses Claude compatibility paging only when tmux confirms a native alternate screen', async () => {
+    const actual =
+      await vi.importActual<typeof import('../xtermWheelPolicy')>('../xtermWheelPolicy');
+    testState.resolveAgentWheelPolicy
+      .mockReturnValueOnce({
+        action: 'host-scroll',
+        carryY: 0,
+        scrollLines: -8,
+        fallbackToProgramScroll: true,
+      })
+      .mockImplementation((input) =>
+        actual.resolveAgentWheelPolicy(
+          input as Parameters<typeof actual.resolveAgentWheelPolicy>[0]
+        )
+      );
     testState.tmuxScrollClient.mockResolvedValue({
       applied: false,
       inMode: false,
       paneId: '%0',
+      alternateScreen: true,
     });
     testState.sessionAttach.mockResolvedValueOnce({
       session: {

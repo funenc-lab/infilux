@@ -14,12 +14,17 @@ const MAX_PROGRAM_SCROLL_PAGES_PER_EVENT = 3;
 export type XtermBufferType = 'normal' | 'alternate';
 export type XtermMouseTrackingMode = 'none' | 'x10' | 'vt200' | 'drag' | 'any';
 export type XtermHostScrollMode = 'tmux';
-interface AgentWheelPolicyInput {
+export type AgentScrollOwner = 'local' | 'program' | 'host';
+interface AgentScrollContext {
   agentId?: string;
   kind: SessionKind;
   activeBufferType: XtermBufferType;
   mouseTrackingMode: XtermMouseTrackingMode;
   hostScrollMode?: XtermHostScrollMode;
+  hostInCopyMode?: boolean;
+  isStaticContent?: boolean;
+}
+interface AgentWheelPolicyInput extends AgentScrollContext {
   deltaMode: number;
   deltaY: number;
   carryY: number;
@@ -53,8 +58,16 @@ type AgentWheelPolicyDecision =
 export function resolveAgentProgramScrollRepeat(scrollLines: number): number {
   return Math.min(
     MAX_PROGRAM_SCROLL_PAGES_PER_EVENT,
-    Math.max(1, Math.ceil(Math.abs(scrollLines) / PROGRAM_SCROLL_LINES_PER_PAGE))
+    Math.floor(Math.abs(scrollLines) / PROGRAM_SCROLL_LINES_PER_PAGE)
   );
+}
+
+export function resolveAgentScrollOwner(input: AgentScrollContext): AgentScrollOwner {
+  if (input.kind !== 'agent' || input.isStaticContent) return 'local';
+  if (input.hostScrollMode === 'tmux' && input.hostInCopyMode) return 'host';
+  if (input.mouseTrackingMode !== 'none') return 'program';
+  if (input.activeBufferType === 'normal') return 'local';
+  return input.hostScrollMode === 'tmux' ? 'host' : 'program';
 }
 
 function normalizePixelWheelDelta(
@@ -97,7 +110,7 @@ function normalizeWheelDelta(
     case DOM_DELTA_PIXEL:
       return normalizePixelWheelDelta(deltaY, carryY, cellHeightPx, devicePixelRatio);
     case DOM_DELTA_PAGE: {
-      const totalAmount = carryY + deltaY;
+      const totalAmount = carryY + deltaY * PROGRAM_SCROLL_LINES_PER_PAGE;
       const steps = Math.trunc(totalAmount);
       return {
         steps,
@@ -116,25 +129,18 @@ function normalizeWheelDelta(
 }
 
 export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWheelPolicyDecision {
-  const { activeBufferType, agentId, hostScrollMode, kind, mouseTrackingMode, deltaY } = input;
+  const { agentId, kind, mouseTrackingMode, deltaY } = input;
   const agentInputBaseId = typeof agentId === 'string' ? getAgentInputBaseId(agentId) : undefined;
-  const isProgramScrollableAlternateBuffer =
-    kind === 'agent' &&
-    activeBufferType === 'alternate' &&
-    (agentInputBaseId === 'claude' || agentInputBaseId === 'codex');
-
-  const shouldRemapWheel =
-    kind === 'agent' &&
-    (hostScrollMode === 'tmux' ||
-      activeBufferType === 'normal' ||
-      mouseTrackingMode === 'none' ||
-      isProgramScrollableAlternateBuffer);
-
-  if (!shouldRemapWheel) {
+  const owner = resolveAgentScrollOwner(input);
+  if (kind !== 'agent' || (owner === 'program' && mouseTrackingMode !== 'none')) {
     return {
       action: 'delegate',
       carryY: 0,
     };
+  }
+
+  if (owner === 'program' && agentInputBaseId !== 'claude' && agentInputBaseId !== 'codex') {
+    return { action: 'consume', carryY: 0, scrollLines: 0 };
   }
 
   if (deltaY === 0) {
@@ -163,29 +169,27 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
     };
   }
 
-  if (isProgramScrollableAlternateBuffer) {
+  if (owner === 'program') {
+    const totalLines = steps + carryY;
+    const repeat = resolveAgentProgramScrollRepeat(totalLines);
+    const remainder = totalLines % PROGRAM_SCROLL_LINES_PER_PAGE || 0;
+    if (repeat === 0) {
+      return { action: 'consume', carryY: totalLines, scrollLines: 0 };
+    }
     return {
       action: 'program-scroll',
-      carryY,
+      carryY: remainder,
       sequence: steps < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
-      repeat: resolveAgentProgramScrollRepeat(steps),
+      repeat,
     };
   }
 
-  if (hostScrollMode === 'tmux') {
+  if (owner === 'host') {
     return {
       action: 'host-scroll',
       carryY,
       scrollLines: steps,
-    };
-  }
-
-  if (input.activeBufferType === 'alternate') {
-    return {
-      action: 'program-scroll',
-      carryY,
-      sequence: steps < 0 ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE,
-      repeat: resolveAgentProgramScrollRepeat(steps),
+      fallbackToProgramScroll: agentInputBaseId === 'claude' || agentInputBaseId === 'codex',
     };
   }
 

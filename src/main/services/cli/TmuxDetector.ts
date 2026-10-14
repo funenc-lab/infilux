@@ -13,6 +13,8 @@ import { execInPty, getEnvForCommand } from '../../utils/shell';
 const isWindows = process.platform === 'win32';
 const TMUX_COMMAND_TIMEOUT_MS = 5000;
 const LIST_PANES_FORMAT = '#{pane_id}\t#{pane_active}\t#{pane_in_mode}';
+const SCROLL_PANES_FORMAT = `${LIST_PANES_FORMAT}\t#{alternate_on}`;
+const SCREEN_PANES_FORMAT = `${SCROLL_PANES_FORMAT}\t#{mouse_standard_flag}\t#{mouse_button_flag}\t#{mouse_all_flag}\t#{mouse_sgr_flag}`;
 const TMUX_HEALTHCHECK_SESSION_PREFIX = 'infilux-healthcheck';
 const TMUX_RESOURCE_EXHAUSTION_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 const TMUX_SCROLL_PANE_CACHE_TTL_MS = 250;
@@ -142,48 +144,63 @@ function normalizeScrollAmount(amount?: number): number {
   return Math.max(0, Math.trunc(amount));
 }
 
-function findActivePaneForSession(stdout: string): { paneId: string; inMode: boolean } | null {
+interface TmuxScrollPane {
+  paneId: string;
+  inMode: boolean;
+  alternateScreen: boolean;
+  screenModePrefix?: string;
+}
+
+function findActivePaneForSession(stdout: string): TmuxScrollPane | null {
   const lines = stdout.split(/\r?\n/);
-  let fallbackPaneId: string | null = null;
-  let fallbackInMode = false;
+  let fallbackPane: TmuxScrollPane | null = null;
 
   for (const line of lines) {
-    const [paneId = '', paneActive = '0', paneInMode = '0'] = line.split('\t');
+    const [
+      paneId = '',
+      paneActive = '0',
+      paneInMode = '0',
+      alternateOn = '0',
+      mouseStandard = '0',
+      mouseButton = '0',
+      mouseAll = '0',
+      mouseSgr = '0',
+    ] = line.split('\t');
     if (!paneId) {
       continue;
     }
 
-    if (!fallbackPaneId) {
-      fallbackPaneId = paneId;
-      fallbackInMode = paneInMode === '1';
-    }
+    const pane: TmuxScrollPane = {
+      paneId,
+      inMode: paneInMode === '1',
+      alternateScreen: alternateOn === '1',
+      // Restore the outer tmux client, whose buffer and mouse encoding differ from the pane.
+      screenModePrefix: [
+        '\x1b[?1049h',
+        mouseStandard === '1' ? '\x1b[?1000h' : '',
+        mouseButton === '1' ? '\x1b[?1002h' : '',
+        mouseAll === '1' ? '\x1b[?1003h' : '',
+        mouseSgr === '1' || mouseStandard === '1' || mouseButton === '1' || mouseAll === '1'
+          ? '\x1b[?1006h'
+          : '',
+      ].join(''),
+    };
+    fallbackPane ??= pane;
 
     if (paneActive === '1') {
-      return {
-        paneId,
-        inMode: paneInMode === '1',
-      };
+      return pane;
     }
   }
 
-  if (!fallbackPaneId) {
-    return null;
-  }
-
-  return {
-    paneId: fallbackPaneId,
-    inMode: fallbackInMode,
-  };
+  return fallbackPane;
 }
 
 function buildScrollPaneCacheKey(serverName: string, sessionName: string): string {
   return `${serverName}\u0000${sessionName}`;
 }
 
-interface TmuxScrollPaneCacheEntry {
+interface TmuxScrollPaneCacheEntry extends TmuxScrollPane {
   expiresAt: number;
-  inMode: boolean;
-  paneId: string;
 }
 
 class TmuxDetector {
@@ -191,10 +208,7 @@ class TmuxDetector {
   private readonly serverHealthCheckPromises = new Map<string, Promise<boolean>>();
   private readonly scrollPaneCache = new Map<string, TmuxScrollPaneCacheEntry>();
 
-  private getCachedScrollPane(
-    serverName: string,
-    sessionName: string
-  ): { paneId: string; inMode: boolean } | null {
+  private getCachedScrollPane(serverName: string, sessionName: string): TmuxScrollPane | null {
     const cacheKey = buildScrollPaneCacheKey(serverName, sessionName);
     const cached = this.scrollPaneCache.get(cacheKey);
     if (!cached) {
@@ -209,18 +223,16 @@ class TmuxDetector {
     return {
       paneId: cached.paneId,
       inMode: cached.inMode,
+      alternateScreen: cached.alternateScreen,
     };
   }
 
-  private setCachedScrollPane(
-    serverName: string,
-    sessionName: string,
-    pane: { paneId: string; inMode: boolean }
-  ): void {
+  private setCachedScrollPane(serverName: string, sessionName: string, pane: TmuxScrollPane): void {
     this.scrollPaneCache.set(buildScrollPaneCacheKey(serverName, sessionName), {
       expiresAt: Date.now() + TMUX_SCROLL_PANE_CACHE_TTL_MS,
       inMode: pane.inMode,
       paneId: pane.paneId,
+      alternateScreen: pane.alternateScreen,
     });
   }
 
@@ -232,7 +244,7 @@ class TmuxDetector {
     sessionName: string,
     serverName: string,
     options?: { forceRefresh?: boolean }
-  ): Promise<{ paneId: string; inMode: boolean } | null> {
+  ): Promise<TmuxScrollPane | null> {
     if (!options?.forceRefresh) {
       const cached = this.getCachedScrollPane(serverName, sessionName);
       if (cached) {
@@ -245,7 +257,7 @@ class TmuxDetector {
       '-t',
       sessionName,
       '-F',
-      LIST_PANES_FORMAT,
+      SCROLL_PANES_FORMAT,
     ]);
     const pane = findActivePaneForSession(stdout);
     if (!pane) {
@@ -332,14 +344,16 @@ class TmuxDetector {
     return this.captureSessionPane(
       sessionName,
       serverName,
-      (paneId) => `capture-pane -p -e -J -t ${shellQuote(paneId)}`
+      (paneId) => `capture-pane -p -e -J -t ${shellQuote(paneId)}`,
+      true
     );
   }
 
   private async captureSessionPane(
     sessionName: string,
     serverName: string | undefined,
-    buildCaptureCommand: (paneId: string) => string
+    buildCaptureCommand: (paneId: string) => string,
+    includeScreenModes = false
   ): Promise<string> {
     if (isWindows || !sessionName) {
       return '';
@@ -351,7 +365,7 @@ class TmuxDetector {
       const stdout = await execInPty(
         buildTmuxShellCommand(
           resolvedServerName,
-          `list-panes -t ${shellQuote(sessionName)} -F ${shellQuote(LIST_PANES_FORMAT)}`
+          `list-panes -t ${shellQuote(sessionName)} -F ${shellQuote(includeScreenModes ? SCREEN_PANES_FORMAT : LIST_PANES_FORMAT)}`
         ),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
@@ -362,12 +376,14 @@ class TmuxDetector {
         return '';
       }
 
-      return await execInPty(
+      const screen = await execInPty(
         buildTmuxShellCommand(resolvedServerName, buildCaptureCommand(pane.paneId)),
         {
           timeout: TMUX_COMMAND_TIMEOUT_MS,
         }
       );
+      // capture-pane contains screen cells, but not the modes needed for native input routing.
+      return includeScreenModes && screen ? `${pane.screenModePrefix ?? ''}${screen}` : screen;
     } catch {
       return '';
     }
@@ -410,7 +426,11 @@ class TmuxDetector {
     const serverName = resolveTmuxServerName(request.serverName);
 
     try {
-      const pane = await this.resolveScrollPane(request.sessionName, serverName);
+      const pane = await this.resolveScrollPane(request.sessionName, serverName, {
+        forceRefresh:
+          request.direction === 'bottom' ||
+          !this.getCachedScrollPane(serverName, request.sessionName)?.inMode,
+      });
       if (!pane) {
         return { applied: false, sessionName: request.sessionName };
       }
@@ -418,6 +438,7 @@ class TmuxDetector {
       if (request.direction === 'bottom') {
         if (!pane.inMode) {
           this.setCachedScrollPane(serverName, request.sessionName, {
+            ...pane,
             paneId: pane.paneId,
             inMode: false,
           });
@@ -431,6 +452,7 @@ class TmuxDetector {
 
         await execTmux(serverName, ['send-keys', '-X', '-t', pane.paneId, 'cancel']);
         this.setCachedScrollPane(serverName, request.sessionName, {
+          ...pane,
           paneId: pane.paneId,
           inMode: false,
         });
@@ -439,6 +461,16 @@ class TmuxDetector {
           sessionName: request.sessionName,
           paneId: pane.paneId,
           inMode: false,
+        };
+      }
+
+      if (!pane.inMode && pane.alternateScreen) {
+        return {
+          applied: false,
+          sessionName: request.sessionName,
+          paneId: pane.paneId,
+          inMode: false,
+          alternateScreen: true,
         };
       }
 
@@ -457,6 +489,7 @@ class TmuxDetector {
           'scroll-up',
         ]);
         this.setCachedScrollPane(serverName, request.sessionName, {
+          ...pane,
           paneId: pane.paneId,
           inMode: true,
         });
@@ -469,6 +502,7 @@ class TmuxDetector {
       } else {
         if (!pane.inMode) {
           this.setCachedScrollPane(serverName, request.sessionName, {
+            ...pane,
             paneId: pane.paneId,
             inMode: false,
           });

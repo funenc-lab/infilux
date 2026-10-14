@@ -74,6 +74,9 @@ const testState = vi.hoisted(() => ({
     recreateWebglRenderer: vi.fn(),
     restartSession: vi.fn(),
     write: vi.fn(),
+    scrollOwner: 'local' as 'local' | 'program' | 'host',
+    isHostScrolling: false,
+    scrollToBottom: vi.fn(),
   },
   terminalWriteStore: {
     register: vi.fn(),
@@ -445,6 +448,9 @@ describe('AgentTerminal integration', () => {
     testState.xtermResult.containerRef = { current: null };
     testState.xtermResult.isLoading = false;
     testState.xtermResult.runtimeState = 'live';
+    testState.xtermResult.scrollOwner = 'local';
+    testState.xtermResult.isHostScrolling = false;
+    testState.xtermResult.scrollToBottom.mockReset();
     testState.xtermResult.settings = {
       theme: {
         background: '#101014',
@@ -2747,6 +2753,40 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it('returns managed host history to live instead of scrolling the local buffer', async () => {
+    testState.xtermResult.scrollOwner = 'host';
+    testState.xtermResult.isHostScrolling = true;
+    const mounted = await mountAgentTerminal();
+    try {
+      const button = mounted.container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Scroll to bottom"]'
+      );
+      expect(button).not.toBeNull();
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await flushMicrotasks();
+      });
+      expect(testState.xtermResult.scrollToBottom).toHaveBeenCalledTimes(1);
+      expect(testState.scrollToBottomSpy).not.toHaveBeenCalled();
+    } finally {
+      testState.xtermResult.scrollOwner = 'local';
+      testState.xtermResult.isHostScrolling = false;
+      await mounted.unmount();
+    }
+  });
+
+  it('does not expose a local return-to-bottom button for native program scrolling', async () => {
+    testState.showScrollToBottom = true;
+    testState.xtermResult.scrollOwner = 'program';
+    const mounted = await mountAgentTerminal();
+    try {
+      expect(mounted.container.querySelector('button[aria-label="Scroll to bottom"]')).toBeNull();
+    } finally {
+      testState.xtermResult.scrollOwner = 'local';
+      await mounted.unmount();
+    }
+  });
+
   it('disables the scroll-to-bottom button pointer events while mouse selection is dragging', async () => {
     testState.showScrollToBottom = true;
 
@@ -3173,11 +3213,7 @@ describe('AgentTerminal integration', () => {
       await flushMicrotasks();
     });
 
-    expect(testState.electronAPI.tmuxScrollClient).toHaveBeenCalledWith('/repo/worktree', {
-      sessionName: 'infilux-ui-session-1',
-      serverName: 'infilux',
-      direction: 'bottom',
-    });
+    expect(testState.xtermResult.scrollToBottom).toHaveBeenCalled();
 
     await mounted.unmount();
   });

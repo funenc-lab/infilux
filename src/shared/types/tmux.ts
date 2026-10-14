@@ -21,6 +21,7 @@ export interface TmuxScrollClientRequest {
 export interface TmuxScrollClientResult {
   applied: boolean;
   inMode?: boolean;
+  alternateScreen?: boolean;
   sessionName?: string;
   paneId?: string;
 }

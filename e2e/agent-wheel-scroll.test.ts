@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   type AgentWheelProbeScenario,
@@ -35,6 +36,93 @@ describe.sequential('electron agent transcript interactions', () => {
     await runCleanupTasks();
   });
 
+  it.each([
+    false,
+    true,
+  ])('preserves native agent mouse scrolling and hides the local scrollbar (tmux=%s)', async (tmuxEnabled) => {
+    const scenario = await createAgentWheelProbeScenario({
+      agentId: 'codex',
+      nativeMouseTracking: true,
+      echoInput: true,
+      tmuxEnabled,
+    });
+    cleanupTasks.push(scenario.cleanup);
+    const launch = await launchInfiluxForScenario(scenario);
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      const surface = resolveSessionPanelLocator(launch.page, scenario).locator(
+        '[data-agent-terminal-scroll-owner]'
+      );
+      await expect
+        .poll(() => surface.getAttribute('data-agent-terminal-scroll-owner'), { timeout: 30000 })
+        .toBe('program');
+      await dispatchWheel(launch.page, scenario, -240);
+      await expect.poll(() => readProbeLog(scenario.probeLogPath)).toContain('NATIVE_SCROLL:');
+      await expect
+        .poll(() => readVisibleTerminalText(launch.page, scenario))
+        .toContain('Native agent history');
+      expect(await readProbeLog(scenario.probeLogPath)).not.toContain('PAGE_UP');
+      expect(
+        await surface.getByRole('button', { name: 'Scroll to bottom', exact: true }).count()
+      ).toBe(0);
+      const bars = resolveTerminalLocator(launch.page, scenario).locator('.scrollbar.vertical');
+      expect(await bars.count()).toBeGreaterThan(0);
+      expect(await bars.first().evaluate((bar) => getComputedStyle(bar).display)).toBe('none');
+      if (tmuxEnabled) expect(readTmuxCopyMode(scenario)).toBe('0');
+      await clickTerminalAt(launch.page, scenario, { xRatio: 0.45, yRatio: 0.2 });
+      await launch.page.keyboard.type('native-input-still-live');
+      await launch.page.keyboard.press('Enter');
+      await waitForProbeMarker(scenario.probeLogPath, 'TEXT:native-input-still-live');
+      await launch.page.screenshot({
+        path: `.tmp/e2e/agent-native-scroll-${tmuxEnabled ? 'tmux' : 'direct'}.png`,
+      });
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
+  it('returns managed tmux history to live mode before accepting input', async () => {
+    const scenario = await createAgentWheelProbeScenario({ tmuxEnabled: true });
+    cleanupTasks.push(scenario.cleanup);
+    const launch = await launchInfiluxForScenario(scenario);
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await expect
+        .poll(() => readVisibleTerminalText(launch.page, scenario))
+        .toContain('TRANSCRIPT-LINE-180');
+      await dispatchWheel(launch.page, scenario, -240);
+      await expect.poll(() => readTmuxCopyMode(scenario)).toBe('1');
+      const bottom = resolveSessionPanelLocator(launch.page, scenario).getByRole('button', {
+        name: 'Scroll to bottom',
+        exact: true,
+      });
+      await bottom.click();
+      await expect.poll(() => readTmuxCopyMode(scenario)).toBe('0');
+      await dispatchWheel(launch.page, scenario, -240);
+      await expect.poll(() => readTmuxCopyMode(scenario)).toBe('1');
+      await clickTerminalAt(launch.page, scenario, { xRatio: 0.45, yRatio: 0.2 });
+      await launch.page.keyboard.type('history-input-still-live');
+      await launch.page.keyboard.press('Enter');
+      await waitForProbeMarker(scenario.probeLogPath, 'TEXT:history-input-still-live');
+      expect(readTmuxCopyMode(scenario)).toBe('0');
+      await launch.page.screenshot({ path: '.tmp/e2e/agent-tmux-history-return-live.png' });
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
   it('scrolls agent transcript history without sending wheel control sequences into the process', async () => {
     const scenario = await createAgentWheelProbeScenario();
     cleanupTasks.push(scenario.cleanup);
@@ -60,6 +148,29 @@ describe.sequential('electron agent transcript interactions', () => {
 
       const visibleText = await readVisibleTerminalText(launch.page, scenario);
       expect(visibleText).toContain('TRANSCRIPT-LINE-001');
+
+      const scrollbar = resolveTerminalLocator(launch.page, scenario).locator(
+        '.scrollbar.vertical'
+      );
+      const slider = scrollbar.locator('.slider');
+      const scrollbarBox = await scrollbar.boundingBox();
+      const sliderBox = await slider.boundingBox();
+      if (!scrollbarBox || !sliderBox) throw new Error('Missing local history scrollbar');
+      await launch.page.mouse.move(
+        sliderBox.x + sliderBox.width / 2,
+        sliderBox.y + sliderBox.height / 2
+      );
+      await launch.page.mouse.down();
+      await launch.page.mouse.move(
+        sliderBox.x + sliderBox.width / 2,
+        scrollbarBox.y + scrollbarBox.height - 1,
+        { steps: 8 }
+      );
+      await launch.page.mouse.up();
+      await expect
+        .poll(() => readVisibleTerminalText(launch.page, scenario))
+        .toContain('TRANSCRIPT-LINE-180');
+      await scrollUntilVisibleLine(launch.page, scenario, 'TRANSCRIPT-LINE-001');
 
       const log = await readProbeLog(scenario.probeLogPath);
       expect(log).not.toContain('PAGE_UP');
@@ -456,6 +567,40 @@ async function buildScenarioError(
       }`;
     }
   );
+  const scrollDiagnostics = await launch.page
+    .evaluate(() => {
+      const terminal = (
+        window as typeof window & {
+          __INFILUX_E2E_LAST_XTERM__?: {
+            modes: { mouseTrackingMode: string };
+            buffer: { active: { type: string; baseY: number; viewportY: number } };
+          };
+        }
+      ).__INFILUX_E2E_LAST_XTERM__;
+      return {
+        owner: document
+          .querySelector('[data-agent-terminal-scroll-owner]')
+          ?.getAttribute('data-agent-terminal-scroll-owner'),
+        mouseTrackingMode: terminal?.modes.mouseTrackingMode,
+        bufferType: terminal?.buffer.active.type,
+        baseY: terminal?.buffer.active.baseY,
+        viewportY: terminal?.buffer.active.viewportY,
+      };
+    })
+    .catch(() => null);
+  const paneDiagnostics = spawnSync(
+    'tmux',
+    [
+      '-S',
+      scenario.tmuxSocketPath,
+      'display-message',
+      '-p',
+      '-t',
+      scenario.hostSessionName,
+      '#{pane_in_mode},#{alternate_on},#{mouse_any_flag},#{mouse}',
+    ],
+    { encoding: 'utf8' }
+  );
   return new Error(
     [
       error instanceof Error ? error.message : String(error),
@@ -469,6 +614,10 @@ async function buildScenarioError(
       domSelectionText,
       'Terminal selection:',
       terminalSelectionText,
+      'Scroll state:',
+      JSON.stringify(scrollDiagnostics),
+      'Tmux pane state (copy, alternate, program mouse, host mouse):',
+      paneDiagnostics.stdout || paneDiagnostics.stderr,
       'Renderer diagnostics:',
       formatElectronDiagnostics(launch),
     ].join('\n\n')
@@ -588,6 +737,25 @@ async function writeAgentSessionDisplayMode(
       },
     });
   }, agentSessionDisplayMode);
+}
+
+function readTmuxCopyMode(scenario: AgentWheelProbeScenario): string {
+  const result = spawnSync(
+    'tmux',
+    [
+      '-S',
+      scenario.tmuxSocketPath,
+      'display-message',
+      '-p',
+      '-t',
+      scenario.hostSessionName,
+      '#{pane_in_mode}',
+    ],
+    { encoding: 'utf8' }
+  );
+  if (result.status !== 0)
+    throw new Error(`Could not read isolated tmux pane state: ${result.stderr}`);
+  return result.stdout.trim();
 }
 
 function resolveTerminalLocator(

@@ -47,6 +47,7 @@ import {
 } from './xtermClipboard';
 import { isXtermContainerReady, scheduleXtermContainerReady } from './xtermContainerReady';
 import { XtermHibernateController } from './xtermHibernateController';
+import { XtermHostScrollController } from './xtermHostScrollController';
 import {
   XTERM_OUTPUT_BACKLOG_HIGH_WATER_MARK,
   XTERM_OUTPUT_BACKLOG_LOW_WATER_MARK,
@@ -79,9 +80,9 @@ import {
 } from './xtermViewportSyncController';
 import { attachPersistentCustomWheelEventHandler } from './xtermWheelHandlerPersistence';
 import {
-  PAGE_DOWN_SEQUENCE,
-  PAGE_UP_SEQUENCE,
-  resolveAgentProgramScrollRepeat,
+  type AgentScrollOwner,
+  DOM_DELTA_LINE,
+  resolveAgentScrollOwner,
   resolveAgentWheelPolicy,
 } from './xtermWheelPolicy';
 import '@xterm/xterm/css/xterm.css';
@@ -290,6 +291,9 @@ export interface UseXtermResult {
   fit: () => void;
   /** Get current terminal instance */
   terminal: Terminal | null;
+  scrollOwner: AgentScrollOwner;
+  isHostScrolling: boolean;
+  scrollToBottom: () => void;
   /** Search for text in terminal */
   findNext: (
     term: string,
@@ -550,6 +554,8 @@ export function useXterm({
   const [isLoading, setIsLoading] = useState(false);
   const [runtimeState, setRuntimeState] = useState<SessionRuntimeState>('live');
   const [wheelHandlerAttachmentEpoch, setWheelHandlerAttachmentEpoch] = useState(0);
+  const [scrollOwner, setScrollOwner] = useState<AgentScrollOwner>('local');
+  const [isHostScrolling, setIsHostScrolling] = useState(false);
   const [searchState, setSearchState] = useState<TerminalSearchState>(
     createEmptyTerminalSearchState()
   );
@@ -655,8 +661,19 @@ export function useXterm({
   } | null>(null);
   const exitFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCarryRef = useRef(0);
+  const programFallbackCarryRef = useRef(0);
+  const scrollOwnerRef = useRef<AgentScrollOwner>('local');
+  const hostInCopyModeRef = useRef(false);
   const pendingHostScrollRef = useRef<PendingHostScrollRequest | null>(null);
   const hostScrollFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hostScrollControllerRef = useRef<{
+    controller: XtermHostScrollController;
+    cwd?: string;
+    sessionName: string;
+    serverName?: string;
+    terminal: Terminal;
+    sessionEpoch: number;
+  } | null>(null);
   const searchDecorations = useMemo(
     () => buildTerminalSearchDecorations(settings.theme),
     [settings.theme]
@@ -666,6 +683,91 @@ export function useXterm({
     useRef<TerminalReplayTailState['initialParserState']>('text');
   const replaySnapshotFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const replaySnapshotAppendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPendingHostScroll = useCallback(() => {
+    if (hostScrollFlushTimerRef.current) {
+      clearTimeout(hostScrollFlushTimerRef.current);
+      hostScrollFlushTimerRef.current = null;
+    }
+    pendingHostScrollRef.current = null;
+  }, []);
+
+  const syncScrollOwner = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    const owner = resolveAgentScrollOwner({
+      agentId,
+      kind,
+      activeBufferType: terminal.buffer.active.type,
+      mouseTrackingMode: terminal.modes.mouseTrackingMode,
+      hostScrollMode: hostSession?.kind === 'tmux' ? 'tmux' : undefined,
+      hostInCopyMode: hostInCopyModeRef.current,
+      isStaticContent: Boolean(staticContent),
+    });
+    if (owner === scrollOwnerRef.current) return;
+    scrollOwnerRef.current = owner;
+    wheelCarryRef.current = 0;
+    programFallbackCarryRef.current = 0;
+    clearPendingHostScroll();
+    hostScrollControllerRef.current?.controller.cancelQueuedScroll();
+    setScrollOwner(owner);
+  }, [agentId, clearPendingHostScroll, hostSession, kind, staticContent]);
+
+  const disposeHostScrollController = useCallback(() => {
+    const binding = hostScrollControllerRef.current;
+    hostScrollControllerRef.current = null;
+    hostInCopyModeRef.current = false;
+    if (!isUnmountedRef.current) setIsHostScrolling(false);
+    if (binding) void binding.controller.dispose().catch(() => {});
+  }, []);
+
+  const getHostScrollController = useCallback(
+    (terminal: Terminal) => {
+      if (kind !== 'agent' || hostSession?.kind !== 'tmux' || staticContent) return null;
+      const sessionEpoch = createRequestIdRef.current;
+      const current = hostScrollControllerRef.current;
+      if (
+        current &&
+        current.terminal === terminal &&
+        current.sessionEpoch === sessionEpoch &&
+        current.cwd === cwd &&
+        current.sessionName === hostSession.sessionName &&
+        current.serverName === hostSession.serverName
+      )
+        return current.controller;
+      disposeHostScrollController();
+      const controller = new XtermHostScrollController({
+        scroll: (direction, amount) =>
+          window.electronAPI.tmux.scrollClient(cwd, {
+            sessionName: hostSession.sessionName,
+            serverName: hostSession.serverName,
+            direction,
+            amount,
+          }),
+        onStateChange: (inMode) => {
+          if (
+            isUnmountedRef.current ||
+            terminalRef.current !== terminal ||
+            createRequestIdRef.current !== sessionEpoch ||
+            hostScrollControllerRef.current?.controller !== controller
+          )
+            return;
+          hostInCopyModeRef.current = inMode;
+          setIsHostScrolling(inMode);
+          syncScrollOwner();
+        },
+      });
+      hostScrollControllerRef.current = {
+        controller,
+        cwd,
+        terminal,
+        sessionEpoch,
+        sessionName: hostSession.sessionName,
+        serverName: hostSession.serverName,
+      };
+      return controller;
+    },
+    [cwd, disposeHostScrollController, hostSession, kind, staticContent, syncScrollOwner]
+  );
 
   const buildSearchOptions = useCallback(
     (options?: {
@@ -742,7 +844,30 @@ export function useXterm({
         runtimeStateRef.current === 'live' &&
         !isSessionCreationPendingRef.current
       ) {
-        sendTerminalInput(ptyIdRef.current, data);
+        clearPendingHostScroll();
+        const sessionId = ptyIdRef.current;
+        const attemptId = initAttemptIdRef.current;
+        const deliverInput = () => {
+          if (
+            !isUnmountedRef.current &&
+            ptyIdRef.current === sessionId &&
+            initAttemptIdRef.current === attemptId
+          )
+            sendTerminalInput(sessionId, data);
+        };
+        const controller = hostScrollControllerRef.current?.controller;
+        if (controller) {
+          void controller.returnToLive(deliverInput).catch(() => {
+            if (
+              !isUnmountedRef.current &&
+              ptyIdRef.current === sessionId &&
+              initAttemptIdRef.current === attemptId
+            )
+              onInputErrorRef.current?.();
+          });
+        } else {
+          deliverInput();
+        }
         return;
       }
 
@@ -750,7 +875,7 @@ export function useXterm({
         appendPendingTerminalInput(pendingTerminalInputRef, data);
       }
     },
-    [sendTerminalInput]
+    [clearPendingHostScroll, sendTerminalInput]
   );
 
   const flushPendingTerminalInput = useCallback(
@@ -772,10 +897,10 @@ export function useXterm({
       const pendingInput = pendingTerminalInputRef.current;
       pendingTerminalInputRef.current = '';
       if (pendingInput) {
-        sendTerminalInput(sessionId, pendingInput);
+        write(pendingInput);
       }
     },
-    [sendTerminalInput]
+    [write]
   );
 
   const flushReplaySnapshot = useCallback((immediate = false) => {
@@ -1478,14 +1603,6 @@ export function useXterm({
     [applyOutputResync]
   );
 
-  const clearPendingHostScroll = useCallback(() => {
-    if (hostScrollFlushTimerRef.current) {
-      clearTimeout(hostScrollFlushTimerRef.current);
-      hostScrollFlushTimerRef.current = null;
-    }
-    pendingHostScrollRef.current = null;
-  }, []);
-
   const flushPendingHostScroll = useCallback(() => {
     if (hostScrollFlushTimerRef.current) {
       clearTimeout(hostScrollFlushTimerRef.current);
@@ -1498,37 +1615,34 @@ export function useXterm({
       return;
     }
 
-    const fallbackFromHostScroll = () => {
-      if (
-        terminalRef.current !== request.terminal ||
-        createRequestIdRef.current !== request.sessionEpoch
-      ) {
-        return;
-      }
-
-      if (request.fallbackToProgramScroll) {
-        const sequence = request.direction === 'up' ? PAGE_UP_SEQUENCE : PAGE_DOWN_SEQUENCE;
-        request.write(sequence.repeat(resolveAgentProgramScrollRepeat(request.amount)));
-        return;
-      }
-
-      request.terminal.scrollLines(request.direction === 'up' ? -request.amount : request.amount);
-    };
-
-    void window.electronAPI.tmux
-      .scrollClient(request.cwd, {
-        sessionName: request.sessionName,
-        serverName: request.serverName,
-        direction: request.direction,
-        amount: request.amount,
-      })
+    const controller = getHostScrollController(request.terminal);
+    if (!controller) return;
+    void controller
+      .scroll(request.direction, request.amount)
       .then((result) => {
-        if (!result.applied) {
-          fallbackFromHostScroll();
+        if (
+          !result?.alternateScreen ||
+          !request.fallbackToProgramScroll ||
+          terminalRef.current !== request.terminal ||
+          createRequestIdRef.current !== request.sessionEpoch
+        )
+          return;
+        const fallback = resolveAgentWheelPolicy({
+          agentId,
+          kind: 'agent',
+          activeBufferType: 'alternate',
+          mouseTrackingMode: 'none',
+          deltaMode: DOM_DELTA_LINE,
+          deltaY: request.direction === 'up' ? -request.amount : request.amount,
+          carryY: programFallbackCarryRef.current,
+        });
+        programFallbackCarryRef.current = fallback.carryY;
+        if (fallback.action === 'program-scroll') {
+          request.write(fallback.sequence.repeat(fallback.repeat));
         }
       })
-      .catch(fallbackFromHostScroll);
-  }, []);
+      .catch(() => {});
+  }, [agentId, getHostScrollController]);
 
   const scheduleHostScroll = useCallback(
     (request: PendingHostScrollRequest) => {
@@ -1571,6 +1685,7 @@ export function useXterm({
   const disposeTerminal = useCallback(() => {
     revealTerminalReplaySurface();
     clearPendingHostScroll();
+    disposeHostScrollController();
     clearTerminalWriteFlushTimers();
     pendingOutputResyncRef.current = null;
     outputResyncDrainPromiseRef.current = null;
@@ -1607,6 +1722,7 @@ export function useXterm({
     }
   }, [
     clearPendingHostScroll,
+    disposeHostScrollController,
     clearTerminalWriteFlushTimers,
     notifyTerminalWriteStateChanged,
     revealTerminalReplaySurface,
@@ -1624,7 +1740,9 @@ export function useXterm({
     isHibernatedRef.current = false;
     hibernatedSurfaceStateRef.current = null;
     wheelCarryRef.current = 0;
+    programFallbackCarryRef.current = 0;
     clearPendingHostScroll();
+    disposeHostScrollController();
     setSearchState(createEmptyTerminalSearchState());
     sessionEventsCleanupRef.current?.();
     sessionEventsCleanupRef.current = null;
@@ -1638,7 +1756,12 @@ export function useXterm({
     if (currentSessionId) {
       await window.electronAPI.session.detach(currentSessionId).catch(() => {});
     }
-  }, [clearPendingHostScroll, clearTerminalWriteFlushTimers, notifyTerminalWriteStateChanged]);
+  }, [
+    clearPendingHostScroll,
+    clearTerminalWriteFlushTimers,
+    disposeHostScrollController,
+    notifyTerminalWriteStateChanged,
+  ]);
 
   const handleTerminalWheelEvent = useCallback(
     (event: WheelEvent) => {
@@ -1647,12 +1770,16 @@ export function useXterm({
         return true;
       }
 
+      syncScrollOwner();
+
       const decision = resolveAgentWheelPolicy({
         agentId,
         kind,
         activeBufferType: terminal.buffer.active.type,
         mouseTrackingMode: terminal.modes.mouseTrackingMode,
         hostScrollMode: kind === 'agent' && hostSession?.kind === 'tmux' ? 'tmux' : undefined,
+        hostInCopyMode: hostInCopyModeRef.current,
+        isStaticContent: Boolean(staticContent),
         deltaMode: event.deltaMode,
         deltaY: event.deltaY,
         carryY: wheelCarryRef.current,
@@ -1704,8 +1831,28 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [cwd, hostSession, kind, scheduleHostScroll, write, agentId]
+    [cwd, hostSession, kind, scheduleHostScroll, write, agentId, staticContent, syncScrollOwner]
   );
+
+  const scrollToBottom = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    clearPendingHostScroll();
+    wheelCarryRef.current = 0;
+    programFallbackCarryRef.current = 0;
+    const controller = getHostScrollController(terminal);
+    if (controller) {
+      void controller
+        .returnToLive(() => {
+          if (terminalRef.current === terminal) focusXtermTextInput(terminal);
+        }, true)
+        .catch(() => {});
+    } else {
+      terminal.clearSelection();
+      terminal.scrollToBottom();
+      focusXtermTextInput(terminal);
+    }
+  }, [clearPendingHostScroll, getHostScrollController]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settings excluded - updated via separate effect
   const initTerminal = useCallback(
@@ -3030,7 +3177,14 @@ export function useXterm({
 
     // Re-attach after terminal creation and restored-session resets.
     attachPersistentCustomWheelEventHandler(terminal, handleTerminalWheelEvent);
-  }, [wheelHandlerAttachmentEpoch, handleTerminalWheelEvent]);
+    syncScrollOwner();
+    const parsed = terminal.onWriteParsed(syncScrollOwner);
+    const changed = terminal.buffer.onBufferChange(syncScrollOwner);
+    return () => {
+      parsed.dispose();
+      changed.dispose();
+    };
+  }, [wheelHandlerAttachmentEpoch, handleTerminalWheelEvent, syncScrollOwner]);
 
   const restartSession = useCallback(() => {
     if (staticContent) {
@@ -3368,6 +3522,9 @@ export function useXterm({
     write,
     fit: fitTerminal,
     terminal: terminalRef.current,
+    scrollOwner,
+    isHostScrolling,
+    scrollToBottom,
     findNext,
     findPrevious,
     searchState,

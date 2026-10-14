@@ -2671,9 +2671,10 @@ function findTmuxPaneForSession(stdout) {
   const lines = String(stdout || '').split(/\r?\n/);
   let fallbackPaneId = null;
   let fallbackInMode = false;
+  let fallbackAlternateScreen = false;
 
   for (const line of lines) {
-    const [paneId = '', paneActive = '0', paneInMode = '0'] = line.split('\t');
+    const [paneId = '', paneActive = '0', paneInMode = '0', alternateOn = '0'] = line.split('\t');
     if (!paneId) {
       continue;
     }
@@ -2681,12 +2682,14 @@ function findTmuxPaneForSession(stdout) {
     if (!fallbackPaneId) {
       fallbackPaneId = paneId;
       fallbackInMode = paneInMode === '1';
+      fallbackAlternateScreen = alternateOn === '1';
     }
 
     if (paneActive === '1') {
       return {
         paneId,
         inMode: paneInMode === '1',
+        alternateScreen: alternateOn === '1',
       };
     }
   }
@@ -2698,6 +2701,7 @@ function findTmuxPaneForSession(stdout) {
   return {
     paneId: fallbackPaneId,
     inMode: fallbackInMode,
+    alternateScreen: fallbackAlternateScreen,
   };
 }
 
@@ -2718,6 +2722,7 @@ function getCachedTmuxScrollPane(serverName, sessionName) {
   return {
     paneId: cached.paneId,
     inMode: cached.inMode,
+    alternateScreen: cached.alternateScreen,
   };
 }
 
@@ -2729,6 +2734,7 @@ function setCachedTmuxScrollPane(serverName, sessionName, pane) {
     expiresAt: Date.now() + TMUX_SCROLL_PANE_CACHE_TTL_MS,
     inMode: pane.inMode,
     paneId: pane.paneId,
+    alternateScreen: pane.alternateScreen,
   });
   pruneTmuxScrollPaneCache();
 }
@@ -2766,7 +2772,7 @@ async function resolveTmuxScrollPane(sessionName, serverName, options = {}) {
       ' list-panes -t ' +
       shellQuote(sessionName) +
       ' -F ' +
-      shellQuote('#{pane_id}\t#{pane_active}\t#{pane_in_mode}'),
+      shellQuote('#{pane_id}\t#{pane_active}\t#{pane_in_mode}\t#{alternate_on}'),
     {
       timeout: 5000,
     }
@@ -2796,7 +2802,11 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
   }
 
   try {
-    const pane = await resolveTmuxScrollPane(normalizedSessionName, normalizedServerName);
+    const pane = await resolveTmuxScrollPane(normalizedSessionName, normalizedServerName, {
+      forceRefresh:
+        direction === 'bottom' ||
+        !getCachedTmuxScrollPane(normalizedServerName, normalizedSessionName)?.inMode,
+    });
     if (!pane) {
       return { applied: false, sessionName: normalizedSessionName };
     }
@@ -2804,6 +2814,7 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
     if (direction === 'bottom') {
       if (!pane.inMode) {
         setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+          ...pane,
           paneId: pane.paneId,
           inMode: false,
         });
@@ -2827,6 +2838,7 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
       );
 
       setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+        ...pane,
         paneId: pane.paneId,
         inMode: false,
       });
@@ -2835,6 +2847,16 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
         sessionName: normalizedSessionName,
         paneId: pane.paneId,
         inMode: false,
+      };
+    }
+
+    if (!pane.inMode && pane.alternateScreen) {
+      return {
+        applied: false,
+        sessionName: normalizedSessionName,
+        paneId: pane.paneId,
+        inMode: false,
+        alternateScreen: true,
       };
     }
 
@@ -2865,12 +2887,14 @@ async function scrollTmuxClient({ sessionName, direction, amount, serverName }) 
         }
       );
       setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+        ...pane,
         paneId: pane.paneId,
         inMode: true,
       });
     } else {
       if (!pane.inMode) {
         setCachedTmuxScrollPane(normalizedServerName, normalizedSessionName, {
+          ...pane,
           paneId: pane.paneId,
           inMode: false,
         });

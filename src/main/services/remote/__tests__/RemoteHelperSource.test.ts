@@ -1,3 +1,4 @@
+import type { TmuxScrollClientRequest, TmuxScrollClientResult } from '@shared/types';
 import {
   AGENT_SESSION_REPLAY_CHAR_LIMIT,
   TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
@@ -50,6 +51,29 @@ type GeneratedHapiGlobalCheck = (request: { forceRefresh?: boolean }) => Promise
   installed: boolean;
   version?: string;
 }>;
+
+function createGeneratedTmuxScrollClient(
+  source: string,
+  execInConfiguredShell: (command: string, options: { timeout: number }) => Promise<string>
+): (request: TmuxScrollClientRequest) => Promise<TmuxScrollClientResult> {
+  const start = source.indexOf('function findTmuxPaneForSession(stdout) {');
+  const end = source.indexOf('function getClaudeDir() {', start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  return new Function(
+    'execInConfiguredShell',
+    'shellQuote',
+    `
+      const TMUX_SCROLL_PANE_CACHE_TTL_MS = 250;
+      const TMUX_SCROLL_PANE_CACHE_MAX_ENTRIES = 1024;
+      const tmuxScrollPaneCache = new Map();
+      ${source.slice(start, end)}
+      return scrollTmuxClient;
+    `
+  )(execInConfiguredShell, (value: string) => value) as (
+    request: TmuxScrollClientRequest
+  ) => Promise<TmuxScrollClientResult>;
+}
 
 type GeneratedFileDiff = {
   path: string;
@@ -656,6 +680,21 @@ describe('getRemoteServerSource', () => {
     expect(source).toContain(
       'clearCachedTmuxScrollPane(normalizedServerName, normalizedSessionName);'
     );
+  });
+
+  it('does not enter remote tmux copy mode over a native alternate-screen program', async () => {
+    const execute = vi.fn(async (command: string) =>
+      command.includes('list-panes') ? '%0\t1\t0\t1\n' : ''
+    );
+    const scroll = createGeneratedTmuxScrollClient(getRemoteServerSource(), execute);
+    await expect(
+      scroll({ sessionName: 'native-agent', direction: 'up', amount: 8 })
+    ).resolves.toMatchObject({
+      applied: false,
+      inMode: false,
+      alternateScreen: true,
+    });
+    expect(execute.mock.calls.some(([command]) => command.includes('copy-mode'))).toBe(false);
   });
 
   it('uses the expanded agent replay budget in the generated remote session helper', () => {

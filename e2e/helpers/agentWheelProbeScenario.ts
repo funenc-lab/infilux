@@ -73,6 +73,8 @@ export interface AgentWheelProbeScenario {
   sessionPanelId: string;
   probeScriptPath: string;
   probeLogPath: string;
+  tmuxSocketPath: string;
+  hostSessionName: string;
   browserLocalStorage: Record<string, string>;
   cleanup: () => Promise<void>;
 }
@@ -142,6 +144,7 @@ async function createTmuxProbeSession(options: {
   rootDir: string;
   worktreePath: string;
   sessionName: string;
+  command?: string;
 }): Promise<void> {
   const runtimeIdentity = buildAppRuntimeIdentity('dev');
   const socketPath = buildManagedTmuxSocketPath(options.homeDir, runtimeIdentity.tmuxServerName);
@@ -149,9 +152,12 @@ async function createTmuxProbeSession(options: {
   await mkdir(buildManagedTmuxSocketDirPath(options.homeDir), { recursive: true });
   await writeFile(
     wrapperPath,
-    ['#!/bin/sh', `cd ${shellQuote(options.worktreePath)} || exit 1`, 'exec sleep 300', ''].join(
-      '\n'
-    ),
+    [
+      '#!/bin/sh',
+      `cd ${shellQuote(options.worktreePath)} || exit 1`,
+      `exec ${options.command ?? 'sleep 300'}`,
+      '',
+    ].join('\n'),
     { encoding: 'utf8', mode: 0o755 }
   );
 
@@ -173,7 +179,8 @@ async function createTmuxProbeSession(options: {
 
 async function installWheelProbeScript(
   rootDir: string,
-  echoInput: boolean
+  echoInput: boolean,
+  nativeMouseTracking: boolean
 ): Promise<{
   probeScriptPath: string;
   probeLogPath: string;
@@ -197,12 +204,21 @@ async function installWheelProbeScript(
     'original = termios.tcgetattr(fd)',
     "text_buffer = ''",
     `ECHO_INPUT = ${echoInput ? 'True' : 'False'}`,
+    `NATIVE_MODE = ${nativeMouseTracking ? 'True' : 'False'}`,
+    'native_position = 90',
     "decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')",
     '',
     'def log_marker(label):',
     "    with open(LOG_PATH, 'a', encoding='utf-8') as log:",
     "        log.write(f'{label}\\n')",
     '        log.flush()',
+    '',
+    'def draw_native_screen():',
+    "    sys.stdout.write('\\x1b[2J\\x1b[H')",
+    "    sys.stdout.write(f'Native agent history {native_position}\\r\\n')",
+    '    for index in range(8):',
+    "        sys.stdout.write(f'NATIVE-LINE-{native_position + index:03d}\\r\\n')",
+    '    sys.stdout.flush()',
     '',
     'def flush_text_buffer():',
     '    global text_buffer',
@@ -220,6 +236,8 @@ async function installWheelProbeScript(
     '',
     'def cleanup():',
     '    flush_text_buffer()',
+    '    if NATIVE_MODE:',
+    "        sys.stdout.write('\\x1b[?1000l\\x1b[?1006l\\x1b[?1049l')",
     '    try:',
     '        termios.tcsetattr(fd, termios.TCSADRAIN, original)',
     '    except Exception:',
@@ -236,6 +254,10 @@ async function installWheelProbeScript(
     "    sys.stdout.write(f'TRANSCRIPT-LINE-{index:03d}\\r\\n')",
     "sys.stdout.write('Wheel probe ready\\r\\n')",
     'sys.stdout.flush()',
+    '',
+    'if NATIVE_MODE:',
+    "    sys.stdout.write('\\x1b[?1049h\\x1b[?1000h\\x1b[?1006h')",
+    '    draw_native_screen()',
     '',
     "sequences = [(b'\\x1b[5~', 'PAGE_UP'), (b'\\x1b[6~', 'PAGE_DOWN'), (b'\\x1b[A', 'ARROW_UP'), (b'\\x1b[B', 'ARROW_DOWN')]",
     '',
@@ -254,6 +276,12 @@ async function installWheelProbeScript(
     '            if not mouse_end_candidates:',
     '                break',
     "            log_marker('MOUSE_EVENT')",
+    '            mouse_end = min(mouse_end_candidates)',
+    "            button = int(buffer[3:mouse_end].split(b';')[0])",
+    '            if NATIVE_MODE and button in (64, 65):',
+    '                native_position += -3 if button == 64 else 3',
+    "                log_marker(f'NATIVE_SCROLL:{native_position}')",
+    '                draw_native_screen()',
     '            buffer = buffer[min(mouse_end_candidates) + 1:]',
     '            continue',
     '',
@@ -376,7 +404,13 @@ function buildBrowserLocalStorageSnapshot(input: {
 }
 
 export async function createAgentWheelProbeScenario(
-  options: { echoInput?: boolean; agentId?: string; enhancedInputOpen?: boolean } = {}
+  options: {
+    echoInput?: boolean;
+    agentId?: string;
+    enhancedInputOpen?: boolean;
+    nativeMouseTracking?: boolean;
+    tmuxEnabled?: boolean;
+  } = {}
 ): Promise<AgentWheelProbeScenario> {
   const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
   const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-wheel-'));
@@ -408,7 +442,7 @@ export async function createAgentWheelProbeScenario(
         terminalRenderer: 'dom',
         ...(options.echoInput ? { loggingEnabled: true, logLevel: 'info' } : {}),
         claudeCodeIntegration: {
-          tmuxEnabled: false,
+          tmuxEnabled: options.tmuxEnabled ?? false,
         },
       },
     },
@@ -421,7 +455,8 @@ export async function createAgentWheelProbeScenario(
 
   const { probeScriptPath, probeLogPath } = await installWheelProbeScript(
     rootDir,
-    options.echoInput ?? false
+    options.echoInput ?? false,
+    options.nativeMouseTracking ?? false
   );
   const customPath = options.agentId === 'codex' ? join(rootDir, 'codex') : 'python3';
   if (options.agentId === 'codex') {
@@ -445,6 +480,9 @@ export async function createAgentWheelProbeScenario(
     rootDir,
     worktreePath,
     sessionName: hostSessionKey,
+    command: options.tmuxEnabled
+      ? `python3 -u ${shellQuote(probeScriptPath)} ${shellQuote(probeLogPath)}`
+      : undefined,
   });
   const now = Date.now();
   await writeFile(
@@ -515,6 +553,11 @@ export async function createAgentWheelProbeScenario(
     probeScriptPath,
     probeLogPath,
     browserLocalStorage,
+    hostSessionName: hostSessionKey,
+    tmuxSocketPath: buildManagedTmuxSocketPath(
+      homeDir,
+      buildAppRuntimeIdentity('dev').tmuxServerName
+    ),
     cleanup: async () => {
       const runtimeIdentity = buildAppRuntimeIdentity('dev');
       spawnSync(

@@ -2008,6 +2008,9 @@ export function AgentTerminal({
     fit: fitTerminalLayout,
     terminal,
     clear,
+    scrollOwner,
+    isHostScrolling,
+    scrollToBottom,
     refreshRenderer,
     recreateWebglRenderer,
     restartSession,
@@ -2065,19 +2068,13 @@ export function AgentTerminal({
   });
 
   useEffect(() => {
-    if (!recovered || !cwd || hostSession?.kind !== 'tmux') {
+    if (!recovered || !cwd || !terminal || hostSession?.kind !== 'tmux') {
       return;
     }
 
     // Older renderer versions could leave a recovered pane in tmux copy mode.
-    void window.electronAPI.tmux
-      .scrollClient(cwd, {
-        sessionName: hostSession.sessionName,
-        serverName: hostSession.serverName,
-        direction: 'bottom',
-      })
-      .catch(() => {});
-  }, [cwd, hostSession, recovered]);
+    scrollToBottom();
+  }, [cwd, hostSession, recovered, scrollToBottom, terminal]);
 
   trustPromptSubmitRef.current = write;
   terminalFocusRef.current = () => focusXtermTextInput(terminal);
@@ -2380,6 +2377,10 @@ export function AgentTerminal({
   );
 
   useEffect(() => {
+    if (scrollOwner !== 'local') stopMouseSelectionAutoScrollRef.current?.();
+  }, [scrollOwner]);
+
+  useEffect(() => {
     return () => {
       stopMouseSelectionAutoScrollRef.current?.();
     };
@@ -2387,7 +2388,11 @@ export function AgentTerminal({
 
   const handleTerminalMouseSelectionStart = useCallback(
     (event: MouseEvent) => {
-      if (event.button !== 0 || isAgentTerminalFloatingControlTarget(event.target)) {
+      if (
+        scrollOwner !== 'local' ||
+        event.button !== 0 ||
+        isAgentTerminalFloatingControlTarget(event.target)
+      ) {
         return;
       }
 
@@ -2398,11 +2403,12 @@ export function AgentTerminal({
 
       startMouseSelectionAutoScroll(event);
     },
-    [containerRef, startMouseSelectionAutoScroll]
+    [containerRef, scrollOwner, startMouseSelectionAutoScroll]
   );
 
-  const handleScrollToBottom = handleLocalScrollToBottom;
-  const showScrollToBottom = showLocalScrollToBottom;
+  const handleScrollToBottom = scrollOwner === 'host' ? scrollToBottom : handleLocalScrollToBottom;
+  const showScrollToBottom =
+    scrollOwner === 'host' ? isHostScrolling : scrollOwner === 'local' && showLocalScrollToBottom;
 
   // Register write and focus functions to global store for external access
   const { register, unregister } = useTerminalWriteStore();
@@ -2711,8 +2717,13 @@ export function AgentTerminal({
     // biome-ignore lint/a11y/useKeyWithClickEvents: click is for focus activation
     <div
       ref={terminalWrapperRef}
-      className="relative h-full w-full"
+      className={cn(
+        'relative h-full w-full',
+        scrollOwner !== 'local' &&
+          '[&_.xterm_.scrollbar.vertical]:hidden [&_.xterm-viewport]:[scrollbar-width:none] [&_.xterm-viewport::-webkit-scrollbar]:hidden'
+      )}
       data-agent-terminal-mode={isReadOnlyTranscript ? 'transcript' : 'live'}
+      data-agent-terminal-scroll-owner={scrollOwner}
       {...{ [AGENT_CANVAS_SCROLL_SURFACE_ATTRIBUTE]: 'true' }}
       style={{ backgroundColor: settings.theme.background, contain: 'strict' }}
       onClick={handleClick}
