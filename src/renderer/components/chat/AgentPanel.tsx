@@ -673,7 +673,10 @@ export function AgentPanel({
   const canvasPanStateRef = useRef<CanvasPanState>(createInitialCanvasPanState());
   const canvasWheelZoomStateRef = useRef<CanvasWheelZoomState>(createInitialCanvasWheelZoomState());
   const canvasSessionContentHostByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
-  const pendingCanvasFloatingEnhancedInputFocusSessionIdRef = useRef<string | null>(null);
+  const pendingCanvasSessionInputFocusRef = useRef<{
+    sessionId: string;
+    enhancedInput: boolean;
+  } | null>(null);
   const canvasWorktreeGroupElementByKeyRef = useRef<Map<string, HTMLElement>>(new Map());
   const canvasViewportPositionByWorktreeRef = useRef<Record<string, CanvasViewportPosition>>({});
   const canvasViewportSnapshotByWorktreeRef = useRef<Record<string, CanvasViewportSnapshot>>({});
@@ -1281,18 +1284,29 @@ export function AgentPanel({
     return nextHost;
   }, []);
 
-  const handleCanvasFloatingContentHostAttached = useCallback((hostElement: HTMLDivElement) => {
-    const sessionId = hostElement.dataset.agentCanvasContentHost;
-    if (pendingCanvasFloatingEnhancedInputFocusSessionIdRef.current !== sessionId) {
-      return;
-    }
+  const handleCanvasSessionContentHostAttached = useCallback(
+    (hostElement: HTMLDivElement) => {
+      const pendingFocus = pendingCanvasSessionInputFocusRef.current;
+      if (!pendingFocus || pendingFocus.sessionId !== hostElement.dataset.agentCanvasContentHost) {
+        return;
+      }
 
-    pendingCanvasFloatingEnhancedInputFocusSessionIdRef.current = null;
-    const enhancedInput = Array.from(
-      hostElement.querySelectorAll<HTMLTextAreaElement>('textarea[data-enhanced-input-session-id]')
-    ).find((element) => element.dataset.enhancedInputSessionId === sessionId);
-    enhancedInput?.focus();
-  }, []);
+      pendingCanvasSessionInputFocusRef.current = null;
+      const enhancedInput = pendingFocus.enhancedInput
+        ? Array.from(
+            hostElement.querySelectorAll<HTMLTextAreaElement>(
+              'textarea[data-enhanced-input-session-id]'
+            )
+          ).find((element) => element.dataset.enhancedInputSessionId === pendingFocus.sessionId)
+        : null;
+      if (enhancedInput) {
+        enhancedInput.focus();
+      } else {
+        focusTerminal(pendingFocus.sessionId);
+      }
+    },
+    [focusTerminal]
+  );
 
   useEffect(() => {
     if (quickTerminalOpen && isActive) {
@@ -3440,10 +3454,11 @@ export function AgentPanel({
   );
   const handleOpenCanvasFloatingSession = useCallback(
     (sessionId: string, groupId?: string) => {
-      const shouldRestoreEnhancedInputFocus = getEnhancedInputState(sessionId).open;
-      pendingCanvasFloatingEnhancedInputFocusSessionIdRef.current = shouldRestoreEnhancedInputFocus
-        ? sessionId
-        : null;
+      pendingCanvasSessionInputFocusRef.current = {
+        sessionId,
+        enhancedInput:
+          shouldRenderEnhancedInput(sessionId) && getEnhancedInputState(sessionId).open,
+      };
       setUserRequestedCanvasMountSessionIds((current) => {
         if (current.has(sessionId)) {
           return current;
@@ -3453,23 +3468,30 @@ export function AgentPanel({
       });
       handleSelectSession(sessionId, groupId);
       setCanvasFloatingSessionIdForCurrentWorktree(sessionId);
-
-      requestAnimationFrame(() => {
-        if (!shouldRestoreEnhancedInputFocus) {
-          focusTerminal(sessionId);
-        }
-      });
     },
     [
-      focusTerminal,
       getEnhancedInputState,
       handleSelectSession,
       setCanvasFloatingSessionIdForCurrentWorktree,
+      shouldRenderEnhancedInput,
     ]
   );
   const handleCloseCanvasFloatingSession = useCallback(() => {
+    if (canvasFloatingSessionId) {
+      pendingCanvasSessionInputFocusRef.current = {
+        sessionId: canvasFloatingSessionId,
+        enhancedInput:
+          shouldRenderEnhancedInput(canvasFloatingSessionId) &&
+          getEnhancedInputState(canvasFloatingSessionId).open,
+      };
+    }
     setCanvasFloatingSessionIdForCurrentWorktree(null);
-  }, [setCanvasFloatingSessionIdForCurrentWorktree]);
+  }, [
+    canvasFloatingSessionId,
+    getEnhancedInputState,
+    setCanvasFloatingSessionIdForCurrentWorktree,
+    shouldRenderEnhancedInput,
+  ]);
   const finishCanvasPan = useCallback(() => {
     const panState = canvasPanStateRef.current;
     if (panState.pointerId === null) {
@@ -5260,6 +5282,7 @@ export function AgentPanel({
           <CanvasSessionContentOutlet
             className="h-full min-h-0 w-full overflow-hidden rounded-[inherit]"
             hostElement={sessionContentHost}
+            onHostAttached={handleCanvasSessionContentHostAttached}
           />
         ) : (
           sessionPanelContent
@@ -5324,7 +5347,7 @@ export function AgentPanel({
             <CanvasSessionContentOutlet
               className="min-h-0 w-full flex-1 overflow-hidden"
               hostElement={sessionContentHost}
-              onHostAttached={handleCanvasFloatingContentHostAttached}
+              onHostAttached={handleCanvasSessionContentHostAttached}
             />
           </div>,
           document.body

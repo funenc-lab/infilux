@@ -168,6 +168,78 @@ describe.sequential('electron agent transcript interactions', () => {
     }
   });
 
+  it.each([
+    'canvas',
+    'global-canvas',
+  ] as const)('keeps native keyboard input working when a %s session moves to the foreground and back', async (displayMode) => {
+    const scenario = await createAgentWheelProbeScenario({
+      echoInput: true,
+      agentId: 'codex',
+      enhancedInputOpen: true,
+    });
+    cleanupTasks.push(scenario.cleanup);
+    const launch = await launchInfiluxForScenario(scenario);
+
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await writeAgentSessionDisplayMode(launch.page, displayMode);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario, { requireSessionTab: false });
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+
+      for (let cycle = 0; cycle < 2; cycle += 1) {
+        await launch.page
+          .locator(`#${scenario.sessionPanelId}`)
+          .getByRole('button', { name: 'Bring to Front', exact: true })
+          .click();
+        const floatingTerminal = launch.page.locator('.agent-canvas-floating-frame .xterm');
+        await floatingTerminal.waitFor({ state: 'visible' });
+        await expect
+          .poll(() =>
+            floatingTerminal.evaluate((element) => element.contains(document.activeElement))
+          )
+          .toBe(true);
+
+        const floatingText =
+          cycle === 0 ? `foreground-keyboard-${cycle}` : 'foreground-\u4e2d\u6587';
+        if (cycle === 0) {
+          await launch.page.keyboard.type(floatingText);
+        } else {
+          await launch.page.keyboard.insertText(floatingText);
+        }
+        await launch.page.keyboard.press('Enter');
+        await waitForProbeMarker(scenario.probeLogPath, `TEXT:${floatingText}`);
+        await expect
+          .poll(() => readVisibleTerminalText(launch.page, scenario))
+          .toContain(`ECHO:${floatingText}`);
+
+        await launch.page.getByRole('button', { name: 'Back to Canvas', exact: true }).click();
+        await floatingTerminal.waitFor({ state: 'detached' });
+        await resolveTerminalLocator(launch.page, scenario).waitFor({ state: 'visible' });
+        await expect
+          .poll(() =>
+            resolveTerminalLocator(launch.page, scenario).evaluate((element) =>
+              element.contains(document.activeElement)
+            )
+          )
+          .toBe(true);
+
+        const restoredText = `canvas-keyboard-${cycle}`;
+        await launch.page.keyboard.type(restoredText);
+        await launch.page.keyboard.press('Enter');
+        await waitForProbeMarker(scenario.probeLogPath, `TEXT:${restoredText}`);
+        const lines = (await readProbeLog(scenario.probeLogPath)).split(/\r?\n/u);
+        expect(lines.filter((line) => line === `TEXT:${floatingText}`)).toHaveLength(1);
+        expect(lines.filter((line) => line === `TEXT:${restoredText}`)).toHaveLength(1);
+      }
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
   it('copies selected transcript output through the terminal clipboard bridge without sending control input to the process', async () => {
     const scenario = await createAgentWheelProbeScenario();
     cleanupTasks.push(scenario.cleanup);

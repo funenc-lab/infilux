@@ -136,6 +136,7 @@ const testState = vi.hoisted(() => ({
   resizeDisconnect: vi.fn(),
   unsubscribeVisibility: vi.fn(),
   unsubscribeFocus: vi.fn(),
+  windowFocusHandler: null as (() => void) | null,
   unsubscribeResize: vi.fn(),
   activationRefreshCalls: [] as Array<{
     fitViewport: () => void;
@@ -384,7 +385,15 @@ vi.mock('@/lib/terminalSearchState', () => ({
 
 vi.mock('@/lib/xtermWindowEvents', () => ({
   subscribeToXtermVisibilityChange: () => testState.unsubscribeVisibility,
-  subscribeToXtermWindowFocus: () => testState.unsubscribeFocus,
+  subscribeToXtermWindowFocus: (callback: () => void) => {
+    testState.windowFocusHandler = callback;
+    return () => {
+      if (testState.windowFocusHandler === callback) {
+        testState.windowFocusHandler = null;
+      }
+      testState.unsubscribeFocus();
+    };
+  },
   subscribeToXtermWindowResize: () => testState.unsubscribeResize,
 }));
 
@@ -731,6 +740,7 @@ describe('useXterm startup loading state', () => {
     testState.resizeDisconnect.mockClear();
     testState.unsubscribeVisibility.mockClear();
     testState.unsubscribeFocus.mockClear();
+    testState.windowFocusHandler = null;
     testState.unsubscribeResize.mockClear();
     testState.activationRefreshCalls = [];
     testState.viewportSyncCalls = [];
@@ -1868,6 +1878,47 @@ describe('useXterm startup loading state', () => {
     expect(document.querySelector('textarea[data-infilux-xterm-ime-rearm="true"]')).toBeNull();
     expect(document.querySelector('textarea[data-infilux-ime-primer="true"]')).toBeNull();
     expect(document.activeElement).not.toBe(testState.latestTextarea);
+
+    await mounted.unmount();
+  });
+
+  it('restores focus to the active terminal when the app window regains focus', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const textarea = testState.latestTextarea;
+    expect(textarea).not.toBeNull();
+    textarea?.blur();
+    expect(document.activeElement).not.toBe(textarea);
+
+    act(() => {
+      testState.windowFocusHandler?.();
+    });
+
+    expect(testState.terminalFocus).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(textarea);
+
+    await mounted.unmount();
+  });
+
+  it('does not steal focus from another control when the app window regains focus', async () => {
+    const mounted = mountHookHarness();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    button.focus();
+
+    act(() => {
+      testState.windowFocusHandler?.();
+    });
+
+    expect(testState.terminalFocus).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button);
 
     await mounted.unmount();
   });

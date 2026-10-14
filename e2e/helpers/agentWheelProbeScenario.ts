@@ -34,6 +34,7 @@ interface AgentSessionsSnapshot {
     name: string;
     agentId: string;
     agentCommand: string;
+    customPath?: string;
     customArgs?: string;
     initialized: boolean;
     activated: boolean;
@@ -56,7 +57,7 @@ interface AgentSessionsSnapshot {
     }
   >;
   runtimeStates: Record<string, never>;
-  enhancedInputStates: Record<string, never>;
+  enhancedInputStates: Record<string, { open: boolean; content: string; attachments: string[] }>;
 }
 
 export interface AgentWheelProbeScenario {
@@ -300,6 +301,9 @@ function buildBrowserLocalStorageSnapshot(input: {
   sessionDisplayName: string;
   probeScriptPath: string;
   probeLogPath: string;
+  agentId: string;
+  customPath: string;
+  enhancedInputOpen: boolean;
 }): Record<string, string> {
   const normalizedWorktreePath = normalizeStoragePath(input.worktreePath);
   const groupId = randomUUID();
@@ -311,9 +315,13 @@ function buildBrowserLocalStorageSnapshot(input: {
         sessionId: input.uiSessionId,
         createdAt,
         name: input.sessionDisplayName,
-        agentId: 'shell',
-        agentCommand: 'python3',
-        customArgs: `-u ${shellQuote(input.probeScriptPath)} ${shellQuote(input.probeLogPath)}`,
+        agentId: input.agentId,
+        agentCommand: input.agentId === 'codex' ? 'codex' : 'python3',
+        customPath: input.customPath,
+        customArgs:
+          input.agentId === 'codex'
+            ? undefined
+            : `-u ${shellQuote(input.probeScriptPath)} ${shellQuote(input.probeLogPath)}`,
         initialized: true,
         activated: true,
         recoveryState: 'live',
@@ -341,7 +349,9 @@ function buildBrowserLocalStorageSnapshot(input: {
       },
     },
     runtimeStates: {},
-    enhancedInputStates: {},
+    enhancedInputStates: input.enhancedInputOpen
+      ? { [input.uiSessionId]: { open: true, content: '', attachments: [] } }
+      : {},
   };
 
   return {
@@ -366,7 +376,7 @@ function buildBrowserLocalStorageSnapshot(input: {
 }
 
 export async function createAgentWheelProbeScenario(
-  options: { echoInput?: boolean } = {}
+  options: { echoInput?: boolean; agentId?: string; enhancedInputOpen?: boolean } = {}
 ): Promise<AgentWheelProbeScenario> {
   const tempRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
   const rootDir = await mkdtemp(join(tempRoot, 'infilux-agent-wheel-'));
@@ -413,6 +423,22 @@ export async function createAgentWheelProbeScenario(
     rootDir,
     options.echoInput ?? false
   );
+  const customPath = options.agentId === 'codex' ? join(rootDir, 'codex') : 'python3';
+  if (options.agentId === 'codex') {
+    await writeFile(
+      customPath,
+      [
+        '#!/bin/sh',
+        'if [ "$1" = "--version" ]; then',
+        "  printf 'codex 0.99.0\\n'",
+        '  exit 0',
+        'fi',
+        `exec python3 -u ${shellQuote(probeScriptPath)} ${shellQuote(probeLogPath)}`,
+        '',
+      ].join('\n'),
+      { encoding: 'utf8', mode: 0o755 }
+    );
+  }
   const hostSessionKey = buildPersistentAgentHostSessionKey(uiSessionId, 'dev');
   await createTmuxProbeSession({
     homeDir,
@@ -433,10 +459,13 @@ export async function createAgentWheelProbeScenario(
           {
             uiSessionId,
             backendSessionId: `stale-backend-${uiSessionId}`,
-            agentId: 'shell',
-            agentCommand: 'python3',
-            customPath: 'python3',
-            customArgs: `-u ${shellQuote(probeScriptPath)} ${shellQuote(probeLogPath)}`,
+            agentId: options.agentId ?? 'shell',
+            agentCommand: options.agentId === 'codex' ? 'codex' : 'python3',
+            customPath,
+            customArgs:
+              options.agentId === 'codex'
+                ? undefined
+                : `-u ${shellQuote(probeScriptPath)} ${shellQuote(probeLogPath)}`,
             environment: 'native',
             repoPath,
             cwd: worktreePath,
@@ -467,6 +496,9 @@ export async function createAgentWheelProbeScenario(
     sessionDisplayName,
     probeScriptPath,
     probeLogPath,
+    agentId: options.agentId ?? 'shell',
+    customPath,
+    enhancedInputOpen: options.enhancedInputOpen ?? false,
   });
 
   return {

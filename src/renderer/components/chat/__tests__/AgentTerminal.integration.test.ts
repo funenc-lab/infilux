@@ -1466,6 +1466,23 @@ describe('AgentTerminal integration', () => {
     await mounted.unmount();
   });
 
+  it.each([
+    'codex',
+    'claude',
+  ])('ignores stale enhanced input state when restoring the %s native terminal', async (agentId) => {
+    const mounted = await mountAgentTerminal({ agentId, enhancedInputOpen: true });
+    testState.terminal.focus.mockClear();
+
+    testState.xtermResult.isLoading = true;
+    await mounted.rerender();
+    testState.xtermResult.isLoading = false;
+    await mounted.rerender();
+
+    expect(testState.terminal.focus).toHaveBeenCalledTimes(1);
+
+    await mounted.unmount();
+  });
+
   it('renders the startup overlay for active new sessions before xterm reports loading', async () => {
     testState.terminalInstance = null;
 
@@ -1969,6 +1986,7 @@ describe('AgentTerminal integration', () => {
 
   it('restores terminal focus when a controlled enhanced input closes', async () => {
     const mounted = await mountAgentTerminal({
+      agentId: 'gemini',
       enhancedInputOpen: false,
     });
 

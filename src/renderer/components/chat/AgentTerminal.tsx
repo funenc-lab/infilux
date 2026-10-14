@@ -999,9 +999,9 @@ export function AgentTerminal({
   // IMPORTANT: `externalEnhancedInputOpen` can be false, so we must check `undefined` rather than truthiness.
   const [localEnhancedInputOpen, setLocalEnhancedInputOpen] = useState(false);
   const isExternallyControlled = externalEnhancedInputOpen !== undefined;
-  const enhancedInputOpen = isExternallyControlled
-    ? externalEnhancedInputOpen
-    : localEnhancedInputOpen;
+  const enhancedInputOpen =
+    !supportsNativeTerminalInput &&
+    (isExternallyControlled ? externalEnhancedInputOpen : localEnhancedInputOpen);
   const waitingForInput = useAgentSessionsStore(
     (state) => state.runtimeStates[terminalSessionId ?? '']?.waitingForInput ?? false
   );

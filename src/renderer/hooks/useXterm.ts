@@ -70,7 +70,7 @@ import {
   shouldRetrySessionCreateWithoutHost,
 } from './xtermSessionRecovery';
 import { buildXtermTerminalOptions, resolveTerminalFontFamily } from './xtermTerminalOptions';
-import { installXtermImeFocusBridge } from './xtermTextInputFocus';
+import { focusXtermTextInput, installXtermImeFocusBridge } from './xtermTextInputFocus';
 import { readLatestXtermTranscript } from './xtermTranscriptReplay';
 import { syncXtermViewportToSession, type XtermViewportSyncSnapshot } from './xtermViewportSync';
 import {
@@ -113,6 +113,15 @@ const INTERACTIVE_RESPONSE_BURST_MS = 50;
 const INTERACTIVE_RESPONSE_EVENT_LIMIT = 4;
 const INTERACTIVE_RESPONSE_CHAR_LIMIT = 64 * 1024;
 const PENDING_TERMINAL_INPUT_CHAR_LIMIT = 1024 * 1024;
+
+function shouldRestoreXtermInputFocus(): boolean {
+  const activeElement = document.activeElement;
+  return (
+    activeElement === null ||
+    activeElement === document.body ||
+    activeElement === document.documentElement
+  );
+}
 
 interface TerminalInputRef {
   current: string;
@@ -3309,8 +3318,21 @@ export function useXterm({
     const handleFocus = () => {
       if (terminalRef.current) {
         requestAnimationFrame(() => {
-          terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
+          const terminal = terminalRef.current;
+          if (!terminal) {
+            return;
+          }
+
+          terminal.refresh(0, terminal.rows - 1);
           fitTerminal();
+
+          // A window switch or a canvas host move can leave the active native
+          // terminal's textarea detached from focus. Restore it only when the
+          // document has no other focused control, so returning to the app does
+          // not steal focus from dialogs or editor fields.
+          if (isActiveRef.current && shouldRestoreXtermInputFocus()) {
+            focusXtermTextInput(terminal);
+          }
         });
       }
     };
