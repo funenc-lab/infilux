@@ -28,6 +28,12 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const testState = vi.hoisted(() => ({
   useActualTooltip: false,
+  panelRender: vi.fn(),
+  terminalRender: vi.fn<(sessionId: string | undefined) => void>(),
+  replaySnapshotChangeBySessionId: {} as Record<
+    string,
+    ((snapshot: string, capturedAt: number) => void) | undefined
+  >,
   installedAgents: ['gemini'] as string[],
   sessionScopedSubagentsBySessionId: {} as Record<string, Array<Record<string, unknown>>>,
   liveSubagentsByWorktree: new Map<string, Array<Record<string, unknown>>>(),
@@ -121,7 +127,10 @@ vi.mock('@/stores/worktreeActivity', () => ({
 
 vi.mock('@/hooks/useLiveSubagents', () => ({
   areLiveSubagentListsEqual: () => false,
-  useLiveSubagents: () => testState.liveSubagentsByWorktree,
+  useLiveSubagents: () => {
+    testState.panelRender();
+    return testState.liveSubagentsByWorktree;
+  },
 }));
 
 vi.mock('@/hooks/useSessionSubagentsBySession', () => ({
@@ -213,13 +222,17 @@ vi.mock('../AgentTerminal', () => ({
     terminalFontScale?: number;
     canMerge?: boolean;
     enhancedInputOpen?: boolean;
+    replaySnapshot?: string;
     onSplit?: () => void;
     onMerge?: () => void;
     onTerminalTitleChange?: (title: string) => void;
     onProviderSessionTitle?: (title: string) => void;
     onAgentRuntimeWarningsChange?: (warnings: string[]) => void;
     onRuntimeStateChange?: (state: 'live' | 'reconnecting' | 'dead') => void;
+    onReplaySnapshotChange?: (snapshot: string, capturedAt: number) => void;
   }) => {
+    testState.terminalRender(props.id);
+    testState.replaySnapshotChangeBySessionId[props.id ?? ''] = props.onReplaySnapshotChange;
     React.useEffect(() => {
       const sessionId = props.id ?? '';
       const runtimeState = testState.terminalRuntimeStateBySessionId[sessionId];
@@ -236,6 +249,7 @@ vi.mock('../AgentTerminal', () => ({
         'data-session-id': props.id ?? '',
         'data-active': String(Boolean(props.isActive)),
         'data-recovery-state': props.recoveryState ?? '',
+        'data-replay-snapshot': props.replaySnapshot ?? '',
         'data-layout-refresh-key': props.layoutRefreshKey ?? '',
         'data-terminal-font-scale': String(props.terminalFontScale ?? ''),
         'data-agent-canvas-scroll-surface': 'true',
@@ -820,6 +834,7 @@ async function flushMicrotasks() {
 
 let nextAnimationFrameId = 1;
 let animationFrameQueue: Array<{ callback: FrameRequestCallback; id: number }> = [];
+const originalGetAnimations = Object.getOwnPropertyDescriptor(Element.prototype, 'getAnimations');
 
 function flushAnimationFramesUntilIdle(maxFrameBatches = 1) {
   for (let index = 0; index < maxFrameBatches && animationFrameQueue.length > 0; index += 1) {
@@ -987,6 +1002,11 @@ describe('AgentPanel integration', () => {
   beforeEach(() => {
     nextAnimationFrameId = 1;
     animationFrameQueue = [];
+    // jsdom lacks the Web Animations API used by the transcript scroll area.
+    Object.defineProperty(Element.prototype, 'getAnimations', {
+      configurable: true,
+      value: () => [],
+    });
 
     localStorage.clear();
     resetWorktreeAgentSessionRecoveryCacheForTests();
@@ -999,6 +1019,9 @@ describe('AgentPanel integration', () => {
     resetTodoStore();
 
     testState.installedAgents = ['gemini'];
+    testState.panelRender.mockClear();
+    testState.terminalRender.mockClear();
+    testState.replaySnapshotChangeBySessionId = {};
     testState.useActualTooltip = false;
     testState.sessionScopedSubagentsBySessionId = {};
     testState.liveSubagentsByWorktree = new Map();
@@ -1119,7 +1142,235 @@ describe('AgentPanel integration', () => {
   afterEach(() => {
     animationFrameQueue = [];
     document.body.innerHTML = '';
+    if (originalGetAnimations) {
+      Object.defineProperty(Element.prototype, 'getAnimations', originalGetAnimations);
+    } else {
+      Reflect.deleteProperty(Element.prototype, 'getAnimations');
+    }
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    'tab',
+    'canvas',
+    'global-canvas',
+  ])('isolates a replay commit to its terminal in %s mode', async (mode) => {
+    testState.settings.agentSessionDisplayMode = mode;
+    const sessions = [
+      createSession({ id: 'replay-a', replaySnapshot: 'Initial terminal output' }),
+      createSession({ id: 'replay-b', replaySnapshot: 'Unrelated terminal output' }),
+    ];
+    useAgentSessionsStore.setState({
+      sessions,
+      activeIds: { '/repo/worktree': 'replay-a' },
+      groupStates: {
+        '/repo/worktree': {
+          groups: sessions.map((session, index) => ({
+            id: `replay-group-${index}`,
+            sessionIds: [session.id],
+            activeSessionId: session.id,
+          })),
+          activeGroupId: 'replay-group-0',
+          flexPercents: [50, 50],
+        },
+      },
+    });
+    const mounted = await mountAgentPanel({
+      workspaceCanvasWorktrees: [{ repoPath: '/repo', worktreePath: '/repo/worktree' }],
+    });
+
+    try {
+      await act(async () => {
+        await flushRenderTasks();
+      });
+      expect(getAgentTerminalElement('replay-a')?.getAttribute('data-replay-snapshot')).toBe(
+        'Initial terminal output'
+      );
+      expect(getAgentTerminalElement('replay-b')).not.toBeNull();
+      testState.panelRender.mockClear();
+      testState.terminalRender.mockClear();
+
+      const emitReplaySnapshot = testState.replaySnapshotChangeBySessionId['replay-a'];
+      expect(emitReplaySnapshot).toBeDefined();
+      await act(async () => {
+        emitReplaySnapshot?.('Latest terminal output', 2_000);
+        await flushRenderTasks();
+      });
+
+      expect(getAgentTerminalElement('replay-a')?.getAttribute('data-replay-snapshot')).toBe(
+        'Latest terminal output'
+      );
+      expect(testState.panelRender).not.toHaveBeenCalled();
+      expect(testState.terminalRender.mock.calls).toEqual([['replay-a']]);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not render the panel or terminals for a replay timestamp-only update', async () => {
+    const session = createSession({ replaySnapshot: 'Retained terminal output' });
+    useAgentSessionsStore.setState({ sessions: [session] });
+    const mounted = await mountAgentPanel();
+
+    try {
+      expect(getAgentTerminalElement(session.id)).not.toBeNull();
+      testState.panelRender.mockClear();
+      testState.terminalRender.mockClear();
+
+      await act(async () => {
+        useAgentSessionsStore.getState().updateSession(session.id, {
+          replaySnapshotCapturedAt: 3_000,
+        });
+        await flushRenderTasks();
+      });
+
+      expect(testState.panelRender).not.toHaveBeenCalled();
+      expect(testState.terminalRender).not.toHaveBeenCalled();
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('reads the latest retained replay when a deferred canvas terminal mounts', async () => {
+    testState.settings.agentSessionDisplayMode = 'canvas';
+    testState.settings.worktreeCanvasTerminalMountLimit = 4;
+    setDeferredCanvasSessionFixtures('Deferred replay session');
+    const mounted = await mountAgentPanel();
+
+    try {
+      for (let batch = 0; batch < 6 && animationFrameQueue.length > 0; batch += 1) {
+        await act(async () => {
+          await flushRenderTasks();
+        });
+      }
+      expect(animationFrameQueue).toHaveLength(0);
+      expect(getAgentTerminalElement('session-7')).toBeNull();
+      const deferredTile = mounted.container.querySelector<HTMLElement>(
+        '[data-agent-canvas-deferred="true"][data-agent-session-id="session-7"]'
+      );
+      expect(deferredTile).not.toBeNull();
+      testState.panelRender.mockClear();
+      testState.terminalRender.mockClear();
+
+      await act(async () => {
+        useAgentSessionsStore.getState().updateSession('session-7', {
+          replaySnapshot: 'Latest output while deferred',
+          replaySnapshotCapturedAt: 2_000,
+        });
+        await flushRenderTasks();
+      });
+
+      expect(testState.panelRender).not.toHaveBeenCalled();
+      expect(testState.terminalRender).not.toHaveBeenCalled();
+
+      await act(async () => {
+        deferredTile?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        deferredTile?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await flushRenderTasks();
+      });
+
+      expect(getAgentTerminalElement('session-7')?.getAttribute('data-replay-snapshot')).toBe(
+        'Latest output while deferred'
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('keeps retained transcript text and capture time current without rendering the panel', async () => {
+    const session = createSession({
+      backendSessionId: undefined,
+      replaySnapshot: 'Retained output before startup',
+      replaySnapshotCapturedAt: 1_000,
+    });
+    useAgentSessionsStore.setState({ sessions: [session] });
+    const mounted = await mountAgentPanel();
+
+    try {
+      await clickElement(
+        mounted.container.querySelector(
+          `button[data-agent-session-transcript-trigger="${session.id}"]`
+        )
+      );
+      const transcriptLines = () =>
+        document.body.querySelector('[data-agent-session-transcript-lines]');
+      expect(transcriptLines()?.textContent).toContain('Retained output before startup');
+      testState.panelRender.mockClear();
+      testState.terminalRender.mockClear();
+
+      await act(async () => {
+        useAgentSessionsStore.getState().updateSession(session.id, {
+          replaySnapshot: 'Refreshed retained history',
+          replaySnapshotCapturedAt: 4_000,
+        });
+        await flushRenderTasks();
+      });
+
+      expect(transcriptLines()?.textContent).toContain('Refreshed retained history');
+      expect(transcriptLines()?.textContent).not.toContain('Retained output before startup');
+      expect(testState.panelRender).not.toHaveBeenCalled();
+      expect(testState.terminalRender.mock.calls).toEqual([[session.id]]);
+      testState.terminalRender.mockClear();
+
+      await act(async () => {
+        useAgentSessionsStore.getState().updateSession(session.id, {
+          replaySnapshotCapturedAt: 5_000,
+        });
+        await flushRenderTasks();
+      });
+
+      expect(document.body.textContent).toContain(new Date(5_000).toLocaleString());
+      expect(testState.panelRender).not.toHaveBeenCalled();
+      expect(testState.terminalRender).not.toHaveBeenCalled();
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('prefers uncommitted live transcript output over retained replay without rendering terminals', async () => {
+    const session = createSession({
+      backendSessionId: undefined,
+      replaySnapshot: 'Retained output before startup',
+    });
+    useAgentSessionsStore.setState({ sessions: [session] });
+    const mounted = await mountAgentPanel();
+
+    try {
+      await clickElement(
+        mounted.container.querySelector(
+          `button[data-agent-session-transcript-trigger="${session.id}"]`
+        )
+      );
+      const emitReplaySnapshot = testState.replaySnapshotChangeBySessionId[session.id];
+      expect(emitReplaySnapshot).toBeDefined();
+
+      await act(async () => {
+        emitReplaySnapshot?.('Committed live output', 6_000);
+        await flushRenderTasks();
+      });
+      expect(useAgentSessionsStore.getState().sessions[0].replaySnapshot).toBe(
+        'Committed live output'
+      );
+      testState.panelRender.mockClear();
+      testState.terminalRender.mockClear();
+
+      await act(async () => {
+        emitReplaySnapshot?.('Uncommitted live output', 7_000);
+        await flushRenderTasks();
+      });
+
+      expect(useAgentSessionsStore.getState().sessions[0].replaySnapshot).toBe(
+        'Committed live output'
+      );
+      expect(
+        document.body.querySelector('[data-agent-session-transcript-lines]')?.textContent
+      ).toContain('Uncommitted live output');
+      expect(document.body.textContent).toContain(new Date(7_000).toLocaleString());
+      expect(testState.panelRender).not.toHaveBeenCalled();
+      expect(testState.terminalRender).not.toHaveBeenCalled();
+    } finally {
+      await mounted.unmount();
+    }
   });
 
   it('restores recovered worktree sessions into the store and renders the recovered session', async () => {

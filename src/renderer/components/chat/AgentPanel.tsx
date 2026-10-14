@@ -55,6 +55,7 @@ import { ActivityIndicator } from '@/components/ui/activity-indicator';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { toastManager } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAgentSessionMetadata } from '@/hooks/useAgentSessionMetadata';
 import { useLiveSubagents } from '@/hooks/useLiveSubagents';
 import { useSessionSubagentsBySession } from '@/hooks/useSessionSubagentsBySession';
 import { useI18n } from '@/i18n';
@@ -82,9 +83,11 @@ import { buildConsoleButtonStyle, buildConsoleTypographyModel } from '../layout/
 import { AgentCloseSessionDialog } from './AgentCloseSessionDialog';
 import { AgentGroup } from './AgentGroup';
 import { AgentSessionControlCenter } from './AgentSessionControlCenter';
-import { AgentSessionTranscriptDrawer } from './AgentSessionTranscriptDrawer';
-import { AgentTerminal } from './AgentTerminal';
 import { AgentPanelEmptyState } from './agent-panel/AgentPanelEmptyState';
+import {
+  AgentSessionTranscriptDrawerWithReplay as AgentSessionTranscriptDrawer,
+  AgentTerminalWithReplay as AgentTerminal,
+} from './agent-panel/AgentSessionReplayViews';
 import { SessionSubagentInspector } from './agent-panel/SessionSubagentInspector';
 import { SessionSubagentTriggerButton } from './agent-panel/SessionSubagentTriggerButton';
 import type { AgentAttachmentItem } from './agentAttachmentTrayModel';
@@ -877,7 +880,7 @@ export function AgentPanel({
   }, [editingCanvasSessionTitleId]);
 
   // Use zustand store for sessions and group states - state persists even when component unmounts
-  const allSessions = useAgentSessionsStore((state) => state.sessions);
+  const allSessions = useAgentSessionMetadata();
   const addSession = useAgentSessionsStore((state) => state.addSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const updateSession = useAgentSessionsStore((state) => state.updateSession);
@@ -5150,7 +5153,6 @@ export function AgentPanel({
               if (session.recoveryState === runtimeState) return;
               updateSession(sessionId, { recoveryState: runtimeState });
             }}
-            replaySnapshot={session.replaySnapshot}
             onAgentRuntimeWarningsChange={(warnings) => {
               if (JSON.stringify(session.agentRuntimeWarnings ?? []) === JSON.stringify(warnings)) {
                 return;
