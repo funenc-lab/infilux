@@ -1,4 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const workflowSource = readFileSync(
@@ -93,6 +97,18 @@ describe('build workflow macOS signing policy', () => {
     expect(workflowSource).toContain('scripts/__tests__/macosSigningPolicy.test.ts');
   });
 
+  it('runs real macOS workflow regressions before packaging', () => {
+    const macJob = workflowSource.indexOf('\n  build-mac:');
+    const regressionStep = workflowSource.indexOf('name: macOS workflow regressions', macJob);
+    const signingStep = workflowSource.indexOf('name: Detect macOS signing configuration', macJob);
+
+    expect(regressionStep).toBeGreaterThan(macJob);
+    expect(regressionStep).toBeLessThan(signingStep);
+    expect(workflowSource.slice(regressionStep, signingStep)).toContain(
+      'run: pnpm exec vitest run scripts/__tests__/buildWorkflowMacSigning.test.ts'
+    );
+  });
+
   it('fails explicit signing before packaging when certificate import is unavailable', () => {
     const releaseGateStep = workflowSource.indexOf('name: Require signed macOS release');
     const importStep = workflowSource.indexOf('name: Import Apple Certificate');
@@ -142,8 +158,57 @@ describe('build workflow macOS signing policy', () => {
     expect(verificationSource).toContain('Contents/Resources/app.asar');
     expect(verificationSource).toContain('CFBundleShortVersionString');
     expect(verificationSource).toContain('require("./package.json").version');
-    expect(verificationSource).toContain('lipo -verify_arch "$binary_arch"');
+    expect(verificationSource).toContain(
+      'lipo "$app_path/Contents/MacOS/Infilux" -verify_arch "$binary_arch"'
+    );
   });
+
+  it.runIf(process.platform === 'darwin')(
+    'executes the workflow architecture check with the real macOS lipo tool',
+    () => {
+      const workflowPath = fileURLToPath(
+        new URL('../../.github/workflows/build.yml', import.meta.url)
+      );
+      const verificationSource: string = JSON.parse(
+        execFileSync(
+          'ruby',
+          [
+            '-ryaml',
+            '-rjson',
+            '-e',
+            'puts JSON.generate(YAML.safe_load(File.read(ARGV[0])).fetch("jobs").fetch("build-mac").fetch("steps").find { |step| step["name"] == "Verify unsigned macOS app" }.fetch("run"))',
+            workflowPath,
+          ],
+          { encoding: 'utf8' }
+        )
+      );
+      const command = verificationSource
+        .split('\n')
+        .find((line) => line.trim().startsWith('lipo '));
+      expect(command).toBeDefined();
+      if (!command) throw new Error('Missing workflow architecture check');
+      const directory = mkdtempSync(join(tmpdir(), 'infilux-lipo-test-'));
+      try {
+        const binaryDirectory = join(directory, 'Contents', 'MacOS');
+        mkdirSync(binaryDirectory, { recursive: true });
+        symlinkSync(process.execPath, join(binaryDirectory, 'Infilux'));
+        const result = spawnSync('bash', ['-c', command], {
+          env: {
+            PATH: process.env.PATH,
+            app_path: directory,
+            binary_arch: process.arch === 'x64' ? 'x86_64' : process.arch,
+          },
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+
+        expect(result.stderr).toBe('');
+        expect(result.status).toBe(0);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  );
 
   it('builds without implicit publishing and uploads only after signing verification', () => {
     const signedBuildStep = workflowSource.indexOf(`Build macOS (${macArchPlaceholder}) signed`);

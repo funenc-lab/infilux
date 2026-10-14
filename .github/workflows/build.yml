@@ -166,6 +166,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: macOS workflow regressions
+        run: pnpm exec vitest run scripts/__tests__/buildWorkflowMacSigning.test.ts
+
       - name: Detect macOS signing configuration
         id: macos_signing
         env:
@@ -347,7 +350,7 @@ jobs:
             echo '::error title=Wrong macOS version::The bundle version must match package.json.'
             exit 1
           fi
-          lipo -verify_arch "$binary_arch" "$app_path/Contents/MacOS/Infilux"
+          lipo "$app_path/Contents/MacOS/Infilux" -verify_arch "$binary_arch"
           if [[ "$BUILD_ARCH" == "arm64" ]]; then
             codesign --verify --deep --strict --verbose=2 "$app_path"
             signing_info="$(codesign --display --verbose=4 "$app_path" 2>&1)"

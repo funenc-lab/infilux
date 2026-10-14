@@ -19,8 +19,8 @@ GitHub Releases is the primary publishing path for Infilux.
 3. Create and push the release tag:
 
 ```bash
-git tag -a v0.4.31 -m "Release v0.4.31"
-git push --atomic origin main v0.4.31
+git tag -a v0.4.32 -m "Release v0.4.32"
+git push --atomic origin main v0.4.32
 ```
 
 4. GitHub Actions runs `.github/workflows/build.yml`.
@@ -47,14 +47,14 @@ Use the local path only when the automated release needs repair.
 ### Repair an existing release asset
 
 ```bash
-TAG=v0.4.31
+TAG=v0.4.32
 gh release upload "$TAG" dist/<artifact-file> --clobber
 ```
 
 ### Regenerate release notes locally
 
 ```bash
-TAG=v0.4.31
+TAG=v0.4.32
 PREV_TAG=$(gh release list --exclude-drafts --limit 100 --json tagName --jq "map(select(.tagName != \"$TAG\"))[0].tagName // empty")
 if [ "$PREV_TAG" = "$TAG" ] || [ -z "$PREV_TAG" ]; then
   PREV_TAG=$(git rev-list --max-parents=0 HEAD)
