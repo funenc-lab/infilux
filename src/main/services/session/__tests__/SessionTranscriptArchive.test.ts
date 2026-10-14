@@ -11,6 +11,8 @@ import {
 const transcriptArchiveTestState = vi.hoisted(() => ({
   rejectLegacyWholeFileRead: false,
   legacyPath: '',
+  segmentReadChunkLimit: 0,
+  segmentReadCount: 0,
 }));
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -18,6 +20,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...original,
     readFile: async (filePath: string | URL | Buffer, options?: BufferEncoding) => {
+      if (String(filePath).includes('/segments/')) {
+        transcriptArchiveTestState.segmentReadCount += 1;
+      }
       if (
         transcriptArchiveTestState.rejectLegacyWholeFileRead &&
         String(filePath) === transcriptArchiveTestState.legacyPath
@@ -25,6 +30,23 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         throw new Error('Legacy output must be read through a bounded file handle');
       }
       return original.readFile(filePath, options);
+    },
+    open: async (...args: Parameters<typeof original.open>) => {
+      const handle = await original.open(...args);
+      const chunkLimit = transcriptArchiveTestState.segmentReadChunkLimit;
+      if (chunkLimit <= 0) {
+        return handle;
+      }
+
+      return new Proxy(handle, {
+        get(target, property, receiver) {
+          if (property !== 'read') {
+            return Reflect.get(target, property, receiver);
+          }
+          return (buffer: Buffer, offset: number, length: number, position?: number | null) =>
+            target.read(buffer, offset, Math.min(length, chunkLimit), position);
+        },
+      });
     },
   };
 });
@@ -39,6 +61,8 @@ describe('SessionTranscriptArchive', () => {
   });
 
   afterEach(async () => {
+    transcriptArchiveTestState.segmentReadChunkLimit = 0;
+    transcriptArchiveTestState.segmentReadCount = 0;
     await rm(rootDirectory, { force: true, recursive: true });
   });
 
@@ -155,6 +179,37 @@ describe('SessionTranscriptArchive', () => {
     });
   });
 
+  it('reads only the requested transcript range instead of loading a whole segment', async () => {
+    const segmentDirectory = join(rootDirectory, 'v2', 'agent-1', 'segments');
+    await mkdir(segmentDirectory, { recursive: true });
+    await writeFile(join(segmentDirectory, '00000000000000000000.log'), 'x'.repeat(1024 * 1024));
+
+    await expect(
+      archive.readPage({ sessionId: 'agent-1', maxBytes: 256 * 1024 })
+    ).resolves.toMatchObject({
+      text: 'x'.repeat(256 * 1024),
+      totalBytes: 1024 * 1024,
+    });
+    expect(transcriptArchiveTestState.segmentReadCount).toBe(0);
+  });
+
+  it('continues a bounded range read after a short file-handle read', async () => {
+    const segmentDirectory = join(rootDirectory, 'v2', 'agent-1', 'segments');
+    await mkdir(segmentDirectory, { recursive: true });
+    await writeFile(
+      join(segmentDirectory, '00000000000000000000.log'),
+      'abcdefghijklmnopqrstuvwxyz'
+    );
+    transcriptArchiveTestState.segmentReadChunkLimit = 3;
+
+    await expect(archive.readPage({ sessionId: 'agent-1', maxBytes: 10 })).resolves.toMatchObject({
+      text: 'qrstuvwxyz',
+      startByteOffset: 16,
+      endByteOffset: 26,
+      totalBytes: 26,
+    });
+  });
+
   it('migrates readable legacy V1 output into V2 segments on open', async () => {
     await writeFile(join(rootDirectory, 'agent-1.log'), 'legacy output');
 
@@ -264,6 +319,7 @@ describe('SessionTranscriptArchive', () => {
       text: 'ilux\x07prompt ready\n',
       initialParserState: 'osc',
     });
+    expect(transcriptArchiveTestState.segmentReadCount).toBe(0);
   });
 
   it('restores persisted ANSI parser state without rebuilding archive metadata', async () => {

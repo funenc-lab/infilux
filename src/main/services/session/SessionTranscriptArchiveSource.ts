@@ -867,9 +867,14 @@ async function resolveSessionTranscriptV2TerminalReplayParserState(
         return undefined;
       }
 
-      const contents = await fsp.readFile(getSessionTranscriptSegmentPath(sessionId, segment.id));
+      const contents = await readSessionTranscriptSegmentRange(
+        sessionId,
+        segment.id,
+        0,
+        byteOffset - segmentStartByteOffset
+      );
       return resolveSessionTranscriptTerminalReplayParserState(
-        contents.subarray(0, byteOffset - segmentStartByteOffset).toString('utf8'),
+        contents.toString('utf8'),
         initialParserState
       );
     }
@@ -877,6 +882,33 @@ async function resolveSessionTranscriptV2TerminalReplayParserState(
   }
 
   return undefined;
+}
+
+async function readSessionTranscriptSegmentRange(sessionId, segmentId, startByteOffset, byteLength) {
+  if (byteLength <= 0) {
+    return Buffer.alloc(0);
+  }
+
+  const handle = await fsp.open(getSessionTranscriptSegmentPath(sessionId, segmentId), 'r');
+  try {
+    const buffer = Buffer.alloc(byteLength);
+    let bytesRead = 0;
+    while (bytesRead < byteLength) {
+      const readResult = await handle.read(
+        buffer,
+        bytesRead,
+        byteLength - bytesRead,
+        startByteOffset + bytesRead
+      );
+      if (readResult.bytesRead <= 0) {
+        break;
+      }
+      bytesRead += readResult.bytesRead;
+    }
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
 }
 
 async function readSessionTranscriptV2Page(
@@ -896,8 +928,14 @@ async function readSessionTranscriptV2Page(
     const startInSegment = Math.max(0, requestedStartByteOffset - segmentStartByteOffset);
     const endInSegment = Math.min(segment.byteLength, endByteOffset - segmentStartByteOffset);
     if (endInSegment > startInSegment) {
-      const contents = await fsp.readFile(getSessionTranscriptSegmentPath(sessionId, segment.id));
-      chunks.push(contents.subarray(startInSegment, endInSegment));
+      chunks.push(
+        await readSessionTranscriptSegmentRange(
+          sessionId,
+          segment.id,
+          startInSegment,
+          endInSegment - startInSegment
+        )
+      );
     }
     if (segmentEndByteOffset >= endByteOffset) {
       break;

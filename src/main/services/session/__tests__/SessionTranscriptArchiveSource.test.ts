@@ -26,7 +26,10 @@ type GeneratedTranscriptRuntime = {
   }) => Promise<GeneratedTranscriptPage>;
 };
 
-function createGeneratedTranscriptRuntime(rootDirectory: string): GeneratedTranscriptRuntime {
+function createGeneratedTranscriptRuntime(
+  rootDirectory: string,
+  fileSystem: typeof fsp = fsp
+): GeneratedTranscriptRuntime {
   const factory = new Function(
     'fsp',
     'path',
@@ -49,7 +52,25 @@ function createGeneratedTranscriptRuntime(rootDirectory: string): GeneratedTrans
     root: string
   ) => GeneratedTranscriptRuntime;
 
-  return factory(fsp, path, rootDirectory);
+  return factory(fileSystem, path, rootDirectory);
+}
+
+function createShortReadFileSystem(maxReadLength: number): typeof fsp {
+  return {
+    ...fsp,
+    open: async (...args: Parameters<typeof fsp.open>) => {
+      const handle = await fsp.open(...args);
+      return new Proxy(handle, {
+        get(target, property, receiver) {
+          if (property !== 'read') {
+            return Reflect.get(target, property, receiver);
+          }
+          return (buffer: Buffer, offset: number, length: number, position?: number | null) =>
+            target.read(buffer, offset, Math.min(length, maxReadLength), position);
+        },
+      });
+    },
+  };
 }
 
 describe('getSessionTranscriptArchiveRuntimeSource', () => {
@@ -183,6 +204,31 @@ describe('getSessionTranscriptArchiveRuntimeSource', () => {
       hasMore: false,
       totalBytes: 12,
       health: 'complete',
+    });
+  });
+
+  it('continues generated bounded reads after a short file-handle read', async () => {
+    const runtime = createGeneratedTranscriptRuntime(rootDirectory, createShortReadFileSystem(3));
+    const segmentDirectory = path.join(
+      rootDirectory,
+      'session-transcripts',
+      'v2',
+      'agent-1',
+      'segments'
+    );
+    await fsp.mkdir(segmentDirectory, { recursive: true });
+    await fsp.writeFile(
+      path.join(segmentDirectory, '00000000000000000000.log'),
+      'abcdefghijklmnopqrstuvwxyz'
+    );
+
+    await expect(
+      runtime.readSessionTranscriptPage({ sessionId: 'agent-1', maxBytes: 10 })
+    ).resolves.toMatchObject({
+      text: 'qrstuvwxyz',
+      startByteOffset: 16,
+      endByteOffset: 26,
+      totalBytes: 26,
     });
   });
 

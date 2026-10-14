@@ -872,8 +872,14 @@ export class SessionTranscriptArchive {
       const startInSegment = Math.max(0, requestedStartByteOffset - segmentStartByteOffset);
       const endInSegment = Math.min(segment.byteLength, endByteOffset - segmentStartByteOffset);
       if (endInSegment > startInSegment) {
-        const contents = await readFile(this.getSegmentPath(sessionId, segment.id));
-        chunks.push(contents.subarray(startInSegment, endInSegment));
+        chunks.push(
+          await this.readSegmentRange(
+            sessionId,
+            segment.id,
+            startInSegment,
+            endInSegment - startInSegment
+          )
+        );
       }
       if (segmentEndByteOffset >= endByteOffset) {
         break;
@@ -898,6 +904,38 @@ export class SessionTranscriptArchive {
       health: this.failures.has(sessionId) ? 'degraded' : 'complete',
       ...(initialParserState === undefined ? {} : { initialParserState }),
     };
+  }
+
+  private async readSegmentRange(
+    sessionId: string,
+    segmentId: number,
+    startByteOffset: number,
+    byteLength: number
+  ): Promise<Buffer> {
+    if (byteLength <= 0) {
+      return Buffer.alloc(0);
+    }
+
+    const file = await openFile(this.getSegmentPath(sessionId, segmentId), 'r');
+    try {
+      const buffer = Buffer.alloc(byteLength);
+      let bytesRead = 0;
+      while (bytesRead < byteLength) {
+        const result = await file.read(
+          buffer,
+          bytesRead,
+          byteLength - bytesRead,
+          startByteOffset + bytesRead
+        );
+        if (result.bytesRead <= 0) {
+          break;
+        }
+        bytesRead += result.bytesRead;
+      }
+      return buffer.subarray(0, bytesRead);
+    } finally {
+      await file.close();
+    }
   }
 
   private async readLegacyPage(
@@ -968,11 +1006,13 @@ export class SessionTranscriptArchive {
           return undefined;
         }
 
-        const contents = await readFile(this.getSegmentPath(sessionId, segment.id));
-        return resolveTerminalReplayParserState(
-          contents.subarray(0, byteOffset - segmentStartByteOffset).toString('utf8'),
-          initialParserState
+        const contents = await this.readSegmentRange(
+          sessionId,
+          segment.id,
+          0,
+          byteOffset - segmentStartByteOffset
         );
+        return resolveTerminalReplayParserState(contents.toString('utf8'), initialParserState);
       }
       segmentStartByteOffset = segmentEndByteOffset;
     }
