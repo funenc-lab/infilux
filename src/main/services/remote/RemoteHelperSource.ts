@@ -11,6 +11,7 @@ import {
   GIT_LOG_PRETTY_FORMAT,
   GIT_LOG_RECORD_SEPARATOR,
 } from '../git/gitLogFormat';
+import { getSessionReplayBufferRuntimeSource } from '../session/SessionReplayBufferSource';
 import { getSessionTranscriptArchiveRuntimeSource } from '../session/SessionTranscriptArchiveSource';
 
 export const REMOTE_SERVER_VERSION = pkg.version;
@@ -420,6 +421,8 @@ function takeTerminalReplayTail(value, maxCodeUnits, initialState = 'text') {
   }
   return value.slice(safeStart);
 }
+
+${getSessionReplayBufferRuntimeSource()}
 
 function appendOutputTail(current, chunk, limit) {
   return takeUtf16Tail(current + chunk, limit);
@@ -3152,17 +3155,19 @@ function getSessionReplayCharLimit(session) {
     : TERMINAL_SESSION_REPLAY_CHAR_LIMIT;
 }
 
+function getSessionReplayBuffer(session) {
+  if (!session.replayBuffer) {
+    session.replayBuffer = new SessionReplayBuffer(getSessionReplayCharLimit(session));
+  }
+  return session.replayBuffer;
+}
+
+function getSessionReplay(session) {
+  return getSessionReplayBuffer(session).toString();
+}
+
 function appendReplay(session, chunk) {
-  const combined = session.replay + chunk;
-  const initialState = session.replay ? 'text' : session.replayParserState || 'text';
-  session.replay = takeTerminalReplayTail(
-    combined,
-    getSessionReplayCharLimit(session),
-    initialState
-  );
-  session.replayParserState = session.replay
-    ? 'text'
-    : resolveTerminalReplayParserState(combined, initialState);
+  getSessionReplayBuffer(session).append(chunk);
   session.lastDataAt = Date.now();
 }
 
@@ -3212,7 +3217,7 @@ function requestSessionOutputResync(session) {
   discardSessionOutput(session.sessionId);
   broadcast('session:output-resync', {
     sessionId: session.sessionId,
-    replay: session.replay,
+    replay: getSessionReplay(session),
   });
 }
 
@@ -3390,7 +3395,7 @@ function activateSessionAfterAttach(sessionId, replayLength) {
   }
 
   session.streamState = 'live';
-  const delta = session.replay.slice(replayLength);
+  const delta = getSessionReplay(session).slice(replayLength);
   if (delta) {
     enqueueSessionOutput(session, delta);
   }
@@ -3552,8 +3557,7 @@ async function createSession(options = {}) {
     persistOnDisconnect: options.persistOnDisconnect !== false,
     metadata: options.metadata,
     createdAt: Date.now(),
-    replay: '',
-    replayParserState: 'text',
+    replayBuffer: null,
     lastDataAt: 0,
     exited: false,
     attachCount: 0,
@@ -3593,7 +3597,7 @@ async function attachSession(sessionId) {
     throw new Error('Remote session does not exist: ' + sessionId);
   }
 
-  const replay = session.replay;
+  const replay = getSessionReplay(session);
   session.attachCount += 1;
   const result = {
     session: createSessionDescriptor(session),
@@ -3613,7 +3617,7 @@ async function resumeSession(sessionId) {
     throw new Error('Remote session does not exist: ' + sessionId);
   }
 
-  const replay = session.replay;
+  const replay = getSessionReplay(session);
   const result = {
     session: createSessionDescriptor(session),
     replay,
@@ -3633,9 +3637,10 @@ function activateSession(params = {}) {
     throw new Error('Remote session does not exist: ' + sessionId);
   }
 
+  const retainedLength = getSessionReplayBuffer(session).length;
   const replayLength = Number.isSafeInteger(params.replayLength)
-    ? Math.max(0, Math.min(params.replayLength, session.replay.length))
-    : session.replay.length;
+    ? Math.max(0, Math.min(params.replayLength, retainedLength))
+    : retainedLength;
   activateSessionAfterAttach(sessionId, replayLength);
   return { success: true };
 }

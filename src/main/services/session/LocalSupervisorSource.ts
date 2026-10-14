@@ -2,6 +2,7 @@ import {
   AGENT_SESSION_REPLAY_CHAR_LIMIT,
   TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
 } from '@shared/utils/agentTerminalHistoryPolicy';
+import { getSessionReplayBufferRuntimeSource } from './SessionReplayBufferSource';
 import { getSessionTranscriptArchiveRuntimeSource } from './SessionTranscriptArchiveSource';
 
 export const LOCAL_SUPERVISOR_RUNTIME_VERSION = '0.1.1';
@@ -294,18 +295,21 @@ function takeUtf16Prefix(value, maxCodeUnits) {
   return value.slice(0, Math.max(1, end));
 }
 
-function appendReplayTail(session, chunk) {
-  if (!chunk) {
-    return session.replay;
+${getSessionReplayBufferRuntimeSource()}
+
+function getSessionReplayBuffer(session) {
+  if (!session.replayBuffer) {
+    session.replayBuffer = new SessionReplayBuffer(getSessionReplayCharLimit(session));
   }
-  const limit = getSessionReplayCharLimit(session);
-  const combined = session.replay + chunk;
-  const initialState = session.replay ? 'text' : session.replayParserState || 'text';
-  const replay = takeTerminalReplayTail(combined, limit, initialState);
-  session.replayParserState = replay
-    ? 'text'
-    : resolveTerminalReplayParserState(combined, initialState);
-  return replay;
+  return session.replayBuffer;
+}
+
+function getSessionReplay(session) {
+  return getSessionReplayBuffer(session).toString();
+}
+
+function appendReplayTail(session, chunk) {
+  getSessionReplayBuffer(session).append(chunk);
 }
 
 function takeQueuedSessionOutput(queue, maxChars) {
@@ -337,7 +341,7 @@ function requestSessionOutputResync(session) {
   }
   broadcast('session:output-resync', {
     sessionId: session.sessionId,
-    replay: session.replay,
+    replay: getSessionReplay(session),
   });
 }
 
@@ -615,8 +619,7 @@ async function createSession(params = {}) {
     persistOnDisconnect: options.persistOnDisconnect !== false,
     metadata: cloneMetadata(options.metadata),
     createdAt: Date.now(),
-    replay: '',
-    replayParserState: 'text',
+    replayBuffer: null,
     lastDataAt: 0,
     attachCount: 0,
     pty: null,
@@ -636,7 +639,7 @@ async function createSession(params = {}) {
   pty.onData((data) => {
     appendSessionTranscript(session, data);
     session.lastDataAt = Date.now();
-    session.replay = appendReplayTail(session, data);
+    appendReplayTail(session, data);
     queueSessionOutput(session, data);
   });
 
@@ -662,7 +665,7 @@ async function attachSession(params = {}) {
   session.attachCount += 1;
   return {
     session: createDescriptor(session),
-    replay: session.replay,
+    replay: getSessionReplay(session),
   };
 }
 
@@ -675,7 +678,7 @@ async function getSessionSnapshot(params = {}) {
 
   return {
     session: createDescriptor(session),
-    replay: session.replay,
+    replay: getSessionReplay(session),
   };
 }
 

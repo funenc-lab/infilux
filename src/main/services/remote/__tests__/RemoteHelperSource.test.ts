@@ -11,7 +11,7 @@ import { getRemoteServerSource, REMOTE_SERVER_VERSION } from '../RemoteHelperSou
 type GeneratedSession = {
   sessionId: string;
   kind: 'agent' | 'terminal';
-  replay: string;
+  replayBuffer?: { readonly length: number; toString: () => string };
   lastDataAt: number;
   streamState: 'attaching' | 'buffering' | 'live';
   attachCount: number;
@@ -33,8 +33,12 @@ type GeneratedSessionEvent = {
 type GeneratedSessionFunctions = {
   activateSessionAfterAttach: (sessionId: string, replayLength: number) => void;
   appendReplay: (session: GeneratedSession, chunk: string) => void;
+  getSessionReplay: (session: GeneratedSession) => string;
   enqueueSessionOutput: (session: GeneratedSession, chunk: string) => void;
   flushSessionOutput: (sessionId: string, drainAll?: boolean) => void;
+  attachSession: (sessionId: string) => Promise<{ replay: string; session: { sessionId: string } }>;
+  resumeSession: (sessionId: string) => Promise<{ replay: string; session: { sessionId: string } }>;
+  activateSession: (params: { sessionId: string; replayLength: number }) => { success: boolean };
 };
 
 type GeneratedSessionFactory = (
@@ -158,6 +162,14 @@ function createGeneratedSessionFunctions(source: string): GeneratedSessionFactor
 
   const helperSource = source.slice(helperStart, helperEnd);
   const sessionSource = source.slice(start, end);
+  const descriptorSource = source.slice(
+    source.indexOf('function createSessionDescriptor(session) {'),
+    start
+  );
+  const attachSource = source.slice(
+    source.indexOf('async function attachSession(sessionId) {'),
+    source.indexOf('async function detachSession(sessionId) {')
+  );
   const factory = new Function(
     'state',
     'sessionOutputQueues',
@@ -174,7 +186,12 @@ function createGeneratedSessionFunctions(source: string): GeneratedSessionFactor
       const flushSessionTranscript = async () => true;
       ${helperSource}
       ${sessionSource}
-      return { activateSessionAfterAttach, appendReplay, enqueueSessionOutput, flushSessionOutput };
+      ${descriptorSource}
+      ${attachSource}
+      return {
+        activateSessionAfterAttach, appendReplay, enqueueSessionOutput, flushSessionOutput,
+        getSessionReplay, attachSession, resumeSession, activateSession,
+      };
     `
   ) as GeneratedSessionFactory;
 
@@ -276,6 +293,95 @@ function createGeneratedFinalClientCleanup(
 }
 
 describe('getRemoteServerSource', () => {
+  it('retains incremental remote output without materializing replay on append', () => {
+    const session: GeneratedSession = {
+      sessionId: 'lazy-replay',
+      kind: 'agent',
+      lastDataAt: 0,
+      streamState: 'live',
+      attachCount: 1,
+      pendingExit: null,
+      writable: null,
+    };
+    const { appendReplay, getSessionReplay } = createGeneratedSessionFunctions(
+      getRemoteServerSource()
+    )(
+      { clients: new Set(), sessions: new Map() },
+      new Map(),
+      () => {},
+      () => 0,
+      () => {},
+      TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+      AGENT_SESSION_REPLAY_CHAR_LIMIT
+    );
+    appendReplay(session, 'first\n');
+
+    expect(session.replayBuffer).toBeDefined();
+    if (!session.replayBuffer) return;
+    const materialize = vi.spyOn(session.replayBuffer, 'toString');
+    for (let index = 0; index < 64; index += 1) {
+      appendReplay(session, `line ${index}\n`);
+    }
+    const expected = `first\n${Array.from({ length: 64 }, (_, index) => `line ${index}\n`).join('')}`;
+
+    expect(materialize).not.toHaveBeenCalled();
+    expect(session.replayBuffer.length).toBe(expected.length);
+    expect(getSessionReplay(session)).toBe(expected);
+    expect(materialize).toHaveBeenCalledTimes(1);
+    expect(session.lastDataAt).toBeGreaterThan(0);
+  });
+
+  it('reads current remote replay on attach and resume before activating only its delta', async () => {
+    const session: GeneratedSession = {
+      sessionId: 'remote-snapshot',
+      kind: 'agent',
+      lastDataAt: 0,
+      streamState: 'buffering',
+      attachCount: 0,
+      pendingExit: null,
+      writable: null,
+    };
+    const events: GeneratedSessionEvent[] = [];
+    const { appendReplay, attachSession, resumeSession, activateSession, flushSessionOutput } =
+      createGeneratedSessionFunctions(getRemoteServerSource())(
+        { clients: new Set([{}]), sessions: new Map([[session.sessionId, session]]) },
+        new Map(),
+        (event, payload) => events.push({ event, payload }),
+        () => 0,
+        () => {},
+        TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+        AGENT_SESSION_REPLAY_CHAR_LIMIT
+      );
+    appendReplay(session, 'first\n');
+    expect(session.replayBuffer).toBeDefined();
+    if (!session.replayBuffer) return;
+    const materialize = vi.spyOn(session.replayBuffer, 'toString');
+
+    const attached = await attachSession(session.sessionId);
+    expect(attached.replay).toBe('first\n');
+    expect(attached.session.sessionId).toBe(session.sessionId);
+    expect(attached.session).not.toHaveProperty('replayBuffer');
+    expect(session.streamState).toBe('attaching');
+    appendReplay(session, 'second\n');
+
+    const resumed = await resumeSession(session.sessionId);
+    expect(resumed.replay).toBe('first\nsecond\n');
+    expect(session.attachCount).toBe(1);
+    expect(materialize).toHaveBeenCalledTimes(2);
+    appendReplay(session, 'delta\n');
+
+    expect(
+      activateSession({ sessionId: session.sessionId, replayLength: resumed.replay.length })
+    ).toEqual({ success: true });
+    expect(materialize).toHaveBeenCalledTimes(3);
+    flushSessionOutput(session.sessionId, true);
+
+    expect(events).toEqual([
+      { event: 'session:data', payload: { sessionId: session.sessionId, data: 'delta\n' } },
+    ]);
+    expect(session.streamState).toBe('live');
+  });
+
   it('parses the generated remote helper source', () => {
     const source = getRemoteServerSource();
 
@@ -380,7 +486,6 @@ describe('getRemoteServerSource', () => {
     const session: GeneratedSession = {
       sessionId,
       kind: 'terminal',
-      replay: delta,
       lastDataAt: 0,
       streamState: 'attaching',
       attachCount: 1,
@@ -396,16 +501,17 @@ describe('getRemoteServerSource', () => {
       { chunks: string[]; queuedChars: number; timer: unknown }
     >();
     const events: GeneratedSessionEvent[] = [];
-    const { activateSessionAfterAttach } = createSessionFunctions(
+    const { activateSessionAfterAttach, appendReplay } = createSessionFunctions(
       state,
       sessionOutputQueues,
       (event, payload) => events.push({ event, payload }),
       () => 0,
       () => {},
-      TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+      delta.length + 1,
       AGENT_SESSION_REPLAY_CHAR_LIMIT
     );
 
+    appendReplay(session, delta);
     activateSessionAfterAttach(sessionId, 0);
 
     const dataEvents = events.filter((event) => event.event === 'session:data');
@@ -468,7 +574,6 @@ describe('getRemoteServerSource', () => {
     const session: GeneratedSession = {
       sessionId: 'remote-output',
       kind: 'agent',
-      replay: 'replay snapshot',
       lastDataAt: 0,
       streamState: 'live',
       attachCount: 1,
@@ -481,7 +586,7 @@ describe('getRemoteServerSource', () => {
     };
     const queues = new Map<string, { chunks: string[]; queuedChars: number; timer: unknown }>();
     const events: GeneratedSessionEvent[] = [];
-    const { enqueueSessionOutput, flushSessionOutput } = createSessionFunctions(
+    const { enqueueSessionOutput, flushSessionOutput, appendReplay } = createSessionFunctions(
       state,
       queues,
       (event, payload) => events.push({ event, payload }),
@@ -492,6 +597,7 @@ describe('getRemoteServerSource', () => {
     );
     const output = 'x'.repeat(64 * 1024 + 7);
 
+    appendReplay(session, 'replay snapshot');
     enqueueSessionOutput(session, output);
     flushSessionOutput(session.sessionId, true);
 
@@ -707,11 +813,9 @@ describe('getRemoteServerSource', () => {
       `const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};`
     );
     expect(source).toContain('function getSessionReplayCharLimit(session) {');
-    expect(source).toContain(
-      "const initialState = session.replay ? 'text' : session.replayParserState || 'text';"
-    );
-    expect(source).toContain('session.replay = takeTerminalReplayTail(');
-    expect(source).toContain('session.replayParserState = session.replay');
+    expect(source).toContain('getSessionReplayBuffer(session).append(chunk);');
+    expect(source).not.toContain('session.replay =');
+    expect(source).not.toContain('replayParserState');
     expect(source).not.toContain('MAX_SESSION_REPLAY_CHARS');
   });
 
@@ -720,14 +824,13 @@ describe('getRemoteServerSource', () => {
     const session: GeneratedSession = {
       sessionId: 'session-utf16-tail',
       kind: 'terminal',
-      replay: '',
       lastDataAt: 0,
       streamState: 'live',
       attachCount: 1,
       pendingExit: null,
       writable: null,
     };
-    const { appendReplay } = createSessionFunctions(
+    const { appendReplay, getSessionReplay } = createSessionFunctions(
       { clients: new Set(), sessions: new Map() },
       new Map(),
       () => {},
@@ -739,7 +842,7 @@ describe('getRemoteServerSource', () => {
 
     appendReplay(session, `A\u{1F680}BC`);
 
-    expect(session.replay).toBe('BC');
+    expect(getSessionReplay(session)).toBe('BC');
   });
 
   it('drops partial terminal control strings from generated remote replays', () => {
@@ -752,14 +855,13 @@ describe('getRemoteServerSource', () => {
     const session: GeneratedSession = {
       sessionId: 'session-terminal-control-tail',
       kind: 'terminal',
-      replay: '',
       lastDataAt: 0,
       streamState: 'live',
       attachCount: 1,
       pendingExit: null,
       writable: null,
     };
-    const { appendReplay } = createSessionFunctions(
+    const { appendReplay, getSessionReplay } = createSessionFunctions(
       { clients: new Set(), sessions: new Map() },
       new Map(),
       () => {},
@@ -771,7 +873,7 @@ describe('getRemoteServerSource', () => {
 
     appendReplay(session, `${controlString}${retainedOutput}`);
 
-    expect(session.replay).toBe(retainedOutput);
+    expect(getSessionReplay(session)).toBe(retainedOutput);
   });
 
   it('keeps generated remote replay parser state across an oversized control string', () => {
@@ -779,14 +881,13 @@ describe('getRemoteServerSource', () => {
     const session = {
       sessionId: 'session-terminal-control-state',
       kind: 'terminal' as const,
-      replay: '',
       lastDataAt: 0,
       streamState: 'live' as const,
       attachCount: 1,
       pendingExit: null,
       writable: null,
     };
-    const { appendReplay } = createSessionFunctions(
+    const { appendReplay, getSessionReplay } = createSessionFunctions(
       { clients: new Set(), sessions: new Map() },
       new Map(),
       () => {},
@@ -799,7 +900,7 @@ describe('getRemoteServerSource', () => {
     appendReplay(session, `\x1bP${'x'.repeat(32)}`);
     appendReplay(session, '\x1b\\prompt ready\n');
 
-    expect(session.replay).toBe('prompt ready\n');
+    expect(getSessionReplay(session)).toBe('prompt ready\n');
   });
 
   it('archives generated remote agent output before transport batching', () => {

@@ -2,7 +2,7 @@ import {
   AGENT_SESSION_REPLAY_CHAR_LIMIT,
   TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
 } from '@shared/utils/agentTerminalHistoryPolicy';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   getLocalSupervisorSource,
   LOCAL_SUPERVISOR_RUNTIME_VERSION,
@@ -10,20 +10,23 @@ import {
 
 type GeneratedLocalSupervisorSession = {
   kind: 'agent' | 'terminal';
-  replay: string;
+  replayBuffer?: { readonly length: number; toString: () => string };
 };
 
-type GeneratedLocalReplayAppender = (
-  session: GeneratedLocalSupervisorSession,
-  chunk: string
-) => string;
+type GeneratedLocalReplayFunctions = {
+  appendReplayTail: (session: GeneratedLocalSupervisorSession, chunk: string) => void;
+  getSessionReplay: (session: GeneratedLocalSupervisorSession) => string;
+};
 
-type GeneratedLocalOutputFunctions = {
-  queueSessionOutput: (session: { sessionId: string; replay: string }, data: string) => void;
+type GeneratedLocalOutputFunctions = GeneratedLocalReplayFunctions & {
+  queueSessionOutput: (
+    session: GeneratedLocalSupervisorSession & { sessionId: string },
+    data: string
+  ) => void;
   flushSessionOutput: (sessionId: string, drainAll?: boolean) => void;
 };
 
-function createGeneratedLocalReplayAppender(source: string): GeneratedLocalReplayAppender {
+function createGeneratedLocalReplayFunctions(source: string): GeneratedLocalReplayFunctions {
   const start = source.indexOf('function getSessionReplayCharLimit(session) {');
   const end = source.indexOf('function loadNodePty()', start);
 
@@ -33,11 +36,11 @@ function createGeneratedLocalReplayAppender(source: string): GeneratedLocalRepla
   return new Function(
     'TERMINAL_SESSION_REPLAY_CHAR_LIMIT',
     'AGENT_SESSION_REPLAY_CHAR_LIMIT',
-    `${source.slice(start, end)}\nreturn appendReplayTail;`
+    `${source.slice(start, end)}\nreturn { appendReplayTail, getSessionReplay };`
   )(
     TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
     AGENT_SESSION_REPLAY_CHAR_LIMIT
-  ) as GeneratedLocalReplayAppender;
+  ) as GeneratedLocalReplayFunctions;
 }
 
 function createGeneratedLocalOutputFunctions(
@@ -63,7 +66,7 @@ function createGeneratedLocalOutputFunctions(
       const SESSION_OUTPUT_BATCH_MAX_CHARS = 64 * 1024;
       const SESSION_OUTPUT_PENDING_CHAR_LIMIT = 512 * 1024;
       ${source.slice(start, end)}
-      return { queueSessionOutput, flushSessionOutput };
+      return { queueSessionOutput, flushSessionOutput, appendReplayTail, getSessionReplay };
     `
   )(
     sessionOutputQueues,
@@ -75,7 +78,108 @@ function createGeneratedLocalOutputFunctions(
   ) as GeneratedLocalOutputFunctions;
 }
 
+function createGeneratedLocalSnapshotFunctions(
+  source: string,
+  sessions: Map<
+    string,
+    GeneratedLocalSupervisorSession & { sessionId: string; attachCount: number }
+  >
+): GeneratedLocalReplayFunctions & {
+  attachSession: (params: {
+    sessionId: string;
+  }) => Promise<{ replay: string; session: { sessionId: string } }>;
+  getSessionSnapshot: (params: {
+    sessionId: string;
+  }) => Promise<{ replay: string; session: { sessionId: string } }>;
+} {
+  const helpers = source.slice(
+    source.indexOf('function getSessionReplayCharLimit(session) {'),
+    source.indexOf('function loadNodePty()')
+  );
+  const descriptor = source.slice(
+    source.indexOf('function createDescriptor(session) {'),
+    source.indexOf('function finalizeSessionExit(')
+  );
+  const readers = source.slice(
+    source.indexOf('async function attachSession(params = {}) {'),
+    source.indexOf('async function detachSession(params = {}) {')
+  );
+  return new Function(
+    'state',
+    'TERMINAL_SESSION_REPLAY_CHAR_LIMIT',
+    'AGENT_SESSION_REPLAY_CHAR_LIMIT',
+    `${helpers}\n${descriptor}\n${readers}\nreturn { appendReplayTail, getSessionReplay, attachSession, getSessionSnapshot };`
+  )(
+    { sessions },
+    TERMINAL_SESSION_REPLAY_CHAR_LIMIT,
+    AGENT_SESSION_REPLAY_CHAR_LIMIT
+  ) as ReturnType<typeof createGeneratedLocalSnapshotFunctions>;
+}
+
 describe('getLocalSupervisorSource', () => {
+  it('retains incremental supervisor output without materializing replay on append', () => {
+    const source = getLocalSupervisorSource();
+    const { appendReplayTail, getSessionReplay } = createGeneratedLocalReplayFunctions(source);
+    const session: GeneratedLocalSupervisorSession = { kind: 'agent' };
+    appendReplayTail(session, 'first\n');
+
+    expect(session.replayBuffer).toBeDefined();
+    if (!session.replayBuffer) return;
+    const materialize = vi.spyOn(session.replayBuffer, 'toString');
+    for (let index = 0; index < 64; index += 1) {
+      appendReplayTail(session, `line ${index}\n`);
+    }
+    const expected = `first\n${Array.from({ length: 64 }, (_, index) => `line ${index}\n`).join('')}`;
+
+    expect(materialize).not.toHaveBeenCalled();
+    expect(session.replayBuffer.length).toBe(expected.length);
+    expect(getSessionReplay(session)).toBe(expected);
+    expect(materialize).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses the generated local supervisor source', () => {
+    const source = getLocalSupervisorSource().replace(/^#!.*\r?\n/, '');
+
+    expect(() => new Function(source)).not.toThrow();
+  });
+
+  it('materializes current supervisor replay for attach and non-attaching snapshots', async () => {
+    const session = { sessionId: 'supervisor-snapshot', kind: 'agent' as const, attachCount: 0 };
+    const { appendReplayTail, attachSession, getSessionSnapshot } =
+      createGeneratedLocalSnapshotFunctions(
+        getLocalSupervisorSource(),
+        new Map([[session.sessionId, session]])
+      );
+    appendReplayTail(session, 'first\n');
+
+    const attached = await attachSession({ sessionId: session.sessionId });
+    expect(attached.replay).toBe('first\n');
+    expect(attached.session.sessionId).toBe(session.sessionId);
+    expect(attached.session).not.toHaveProperty('replayBuffer');
+    expect(session.attachCount).toBe(1);
+
+    appendReplayTail(session, 'second\n');
+    const snapshot = await getSessionSnapshot({ sessionId: session.sessionId });
+
+    expect(snapshot.replay).toBe('first\nsecond\n');
+    expect(session.attachCount).toBe(1);
+  });
+
+  it.each(['agent', 'terminal'] as const)('enforces the supervisor %s replay budget', (kind) => {
+    const session: GeneratedLocalSupervisorSession = { kind };
+    const { appendReplayTail, getSessionReplay } = createGeneratedLocalReplayFunctions(
+      getLocalSupervisorSource()
+    );
+    const limit =
+      kind === 'agent' ? AGENT_SESSION_REPLAY_CHAR_LIMIT : TERMINAL_SESSION_REPLAY_CHAR_LIMIT;
+
+    appendReplayTail(session, 'x'.repeat(limit - 1));
+    appendReplayTail(session, 'tail');
+
+    expect(session.replayBuffer?.length).toBe(limit);
+    expect(getSessionReplay(session)).toBe(`${'x'.repeat(limit - 4)}tail`);
+  });
+
   it('keeps the generated runtime version available in the source', () => {
     expect(getLocalSupervisorSource()).toContain(
       `const LOCAL_SUPERVISOR_RUNTIME_VERSION = ${JSON.stringify(LOCAL_SUPERVISOR_RUNTIME_VERSION)};`
@@ -92,43 +196,50 @@ describe('getLocalSupervisorSource', () => {
       `const AGENT_SESSION_REPLAY_CHAR_LIMIT = ${AGENT_SESSION_REPLAY_CHAR_LIMIT};`
     );
     expect(source).toContain('function getSessionReplayCharLimit(session) {');
-    expect(source).toContain('session.replay = appendReplayTail(session, data);');
+    expect(source).toContain('appendReplayTail(session, data);');
+    expect(source).not.toContain('session.replay =');
     expect(source).not.toContain('REPLAY_LIMIT_CHARS');
   });
 
   it('keeps generated local supervisor replay tails Unicode-safe', () => {
-    const appendReplayTail = createGeneratedLocalReplayAppender(getLocalSupervisorSource());
-    const trailing = 't'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT - 1);
-
-    expect(appendReplayTail({ kind: 'terminal', replay: '' }, `A\u{1F680}${trailing}`)).toBe(
-      trailing
+    const { appendReplayTail, getSessionReplay } = createGeneratedLocalReplayFunctions(
+      getLocalSupervisorSource()
     );
+    const trailing = 't'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT - 1);
+    const session: GeneratedLocalSupervisorSession = { kind: 'terminal' };
+
+    appendReplayTail(session, `A\u{1F680}${trailing}`);
+
+    expect(getSessionReplay(session)).toBe(trailing);
   });
 
   it('drops partial terminal control strings from generated local supervisor replays', () => {
-    const appendReplayTail = createGeneratedLocalReplayAppender(getLocalSupervisorSource());
+    const { appendReplayTail, getSessionReplay } = createGeneratedLocalReplayFunctions(
+      getLocalSupervisorSource()
+    );
     const controlString = '\x1bP>|xterm.js(6.1.0-beta.141)\x1b\\';
     const visibleOutput = 'prompt ready\n';
     const retainedOutput = `${visibleOutput}${'x'.repeat(
       TERMINAL_SESSION_REPLAY_CHAR_LIMIT - (controlString.length - 2 + visibleOutput.length)
     )}`;
 
-    expect(
-      appendReplayTail({ kind: 'terminal', replay: '' }, `${controlString}${retainedOutput}`)
-    ).toBe(retainedOutput);
+    const session: GeneratedLocalSupervisorSession = { kind: 'terminal' };
+
+    appendReplayTail(session, `${controlString}${retainedOutput}`);
+
+    expect(getSessionReplay(session)).toBe(retainedOutput);
   });
 
   it('keeps generated local supervisor replay parser state across an oversized control string', () => {
-    const appendReplayTail = createGeneratedLocalReplayAppender(getLocalSupervisorSource());
-    const session = { kind: 'terminal' as const, replay: '' };
-
-    session.replay = appendReplayTail(
-      session,
-      `\x1bP${'x'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT + 1)}`
+    const { appendReplayTail, getSessionReplay } = createGeneratedLocalReplayFunctions(
+      getLocalSupervisorSource()
     );
-    session.replay = appendReplayTail(session, '\x1b\\prompt ready\n');
+    const session = { kind: 'terminal' as const };
 
-    expect(session.replay).toBe('prompt ready\n');
+    appendReplayTail(session, `\x1bP${'x'.repeat(TERMINAL_SESSION_REPLAY_CHAR_LIMIT + 1)}`);
+    appendReplayTail(session, '\x1b\\prompt ready\n');
+
+    expect(getSessionReplay(session)).toBe('prompt ready\n');
   });
 
   it('archives generated supervisor agent output before broadcasting it to clients', () => {
@@ -174,18 +285,17 @@ describe('getLocalSupervisorSource', () => {
       payload: { sessionId?: string; data?: string; replay?: string };
     }> = [];
     const queues = new Map<string, unknown>();
-    const { queueSessionOutput, flushSessionOutput } = createGeneratedLocalOutputFunctions(
-      getLocalSupervisorSource(),
-      queues,
-      (event, payload) =>
+    const { queueSessionOutput, flushSessionOutput, appendReplayTail } =
+      createGeneratedLocalOutputFunctions(getLocalSupervisorSource(), queues, (event, payload) =>
         events.push({
           event,
           payload: payload as { sessionId?: string; data?: string; replay?: string },
         })
-    );
-    const session = { sessionId: 'supervisor-output', replay: 'replay snapshot' };
+      );
+    const session = { sessionId: 'supervisor-output', kind: 'agent' as const };
     const output = 'x'.repeat(64 * 1024 + 7);
 
+    appendReplayTail(session, 'replay snapshot');
     queueSessionOutput(session, output);
     flushSessionOutput(session.sessionId, true);
 
