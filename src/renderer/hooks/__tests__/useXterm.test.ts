@@ -117,6 +117,8 @@ const testState = vi.hoisted(() => ({
     dispose: () => undefined,
   })),
   terminalInstanceCount: 0,
+  terminalRows: 24,
+  terminalBufferType: 'normal' as 'normal' | 'alternate',
   terminalConstructorOptions: [] as Array<Record<string, unknown>>,
   terminalScrollToBottom: vi.fn(),
   terminalScrollToLine: vi.fn(),
@@ -190,7 +192,9 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     private readonly instanceId = testState.terminalInstanceCount++;
     cols = 80;
-    rows = 24;
+    get rows() {
+      return testState.terminalRows;
+    }
     element = document.createElement('div');
     textarea: HTMLTextAreaElement | null = document.createElement('textarea');
     options: Record<string, unknown>;
@@ -206,7 +210,9 @@ vi.mock('@xterm/xterm', () => ({
     buffer = {
       onBufferChange: () => ({ dispose: () => undefined }),
       active: {
-        type: 'normal',
+        get type() {
+          return testState.terminalBufferType;
+        },
         get cursorY() {
           return testState.terminalCursorY;
         },
@@ -744,6 +750,8 @@ describe('useXterm startup loading state', () => {
     testState.terminalParserRegisterDcsHandler.mockClear();
     testState.terminalParserRegisterOscHandler.mockClear();
     testState.terminalInstanceCount = 0;
+    testState.terminalRows = 24;
+    testState.terminalBufferType = 'normal';
     testState.terminalConstructorOptions = [];
     testState.terminalScrollToBottom.mockClear();
     testState.terminalScrollToLine.mockClear();
@@ -5267,6 +5275,189 @@ describe('useXterm startup loading state', () => {
     }
   });
 
+  it.each([
+    [false, '/repo/worktree'],
+    [true, '/repo/worktree'],
+    [false, '/__enso_remote__/connection-1/workspace'],
+    [true, '/__enso_remote__/connection-1/workspace'],
+  ])('clears missing-host scroll state before hostless fallback (parent rerender: %s, cwd: %s)', async (rerenderParent, cwd) => {
+    const primary = createDeferredResult<SessionOpenResult>();
+    const fallbackResult: SessionOpenResult = {
+      session: {
+        ...createTestSessionResult('backend-session-1').session,
+        backend: cwd.startsWith('/__enso_remote__/') ? 'remote' : 'local',
+        cwd,
+      },
+    };
+    testState.sessionCreate.mockReturnValueOnce(primary.promise).mockResolvedValue(fallbackResult);
+    testState.sessionAttach.mockResolvedValueOnce(fallbackResult);
+    testState.tmuxScrollClient.mockResolvedValue({ applied: false });
+    const onInputError = vi.fn();
+    const onRetry = vi.fn(() => {
+      if (rerenderParent) mounted.rerender({ hostSession: undefined });
+    });
+    const mounted = mountHookHarness({
+      cwd,
+      hostSession: { kind: 'tmux', serverName: 'infilux', sessionName: 'missing-host' },
+      persistOnDisconnect: true,
+      sessionCreateFallback: { hostSession: undefined, onRetry },
+      onInputError,
+    });
+    try {
+      await act(flushMicrotasks);
+      act(() => {
+        testState.scrollToBottom?.();
+        testState.terminalDataHandler?.('queued for fallback');
+      });
+      await act(flushMicrotasks);
+      expect(testState.tmuxScrollClient).toHaveBeenCalledWith(
+        cwd,
+        expect.objectContaining({ sessionName: 'missing-host', direction: 'bottom' })
+      );
+      await act(async () => {
+        primary.reject(new Error('Failed to recover tmux session: missing-host'));
+        await flushMicrotasks();
+      });
+      expect(onRetry).toHaveBeenCalledTimes(1);
+      expect(testState.sessionCreate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ hostSession: undefined })
+      );
+      expect(testState.sessionWrite.mock.calls).toEqual([
+        ['backend-session-1', 'queued for fallback'],
+      ]);
+
+      const oldHostCalls = testState.tmuxScrollClient.mock.calls.length;
+      await act(async () => {
+        testState.scrollToBottom?.();
+        testState.terminalDataHandler?.('first message');
+        testState.terminalDataHandler?.('second message');
+        await flushMicrotasks();
+      });
+      expect(testState.tmuxScrollClient).toHaveBeenCalledTimes(oldHostCalls);
+      expect(testState.sessionWrite.mock.calls).toEqual([
+        ['backend-session-1', 'queued for fallback'],
+        ['backend-session-1', 'first message'],
+        ['backend-session-1', 'second message'],
+      ]);
+      expect(onInputError).not.toHaveBeenCalled();
+
+      vi.useFakeTimers();
+      mounted.rerender({ isActive: false, isVisible: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(XTERM_HIBERNATION_IDLE_MS);
+        await flushMicrotasks();
+      });
+      expect(testState.terminalDispose).toHaveBeenCalledWith(0);
+      mounted.rerender({ isActive: true, isVisible: true });
+      await act(flushMicrotasks);
+      expect(testState.terminalInstanceCount).toBe(2);
+      await act(async () => {
+        testState.scrollToBottom?.();
+        testState.terminalDataHandler?.('after fallback surface restore');
+        await flushMicrotasks();
+      });
+      expect(testState.tmuxScrollClient).toHaveBeenCalledTimes(oldHostCalls);
+      expect(testState.sessionWrite).toHaveBeenLastCalledWith(
+        'backend-session-1',
+        'after fallback surface restore'
+      );
+      expect(onInputError).not.toHaveBeenCalled();
+    } finally {
+      primary.resolve(fallbackResult);
+      await mounted.unmount();
+    }
+  });
+
+  it('deduplicates copy-mode and IPC input failures until a newer send succeeds', async () => {
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    testState.tmuxScrollClient.mockResolvedValue({ applied: false });
+    const onInputError = vi.fn();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const mounted = mountHookHarness({
+      hostSession: { kind: 'tmux', serverName: 'infilux', sessionName: 'tmux-session-1' },
+      onInputError,
+    });
+    try {
+      await act(flushMicrotasks);
+      await act(async () => {
+        testState.scrollToBottom?.();
+        await flushMicrotasks();
+      });
+      for (const data of ['private blocked input', 'second input', 'third input']) {
+        await act(async () => {
+          testState.terminalDataHandler?.(data);
+          await flushMicrotasks();
+        });
+      }
+      expect(testState.sessionWrite).not.toHaveBeenCalled();
+      expect(onInputError).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(warning.mock.calls)).not.toContain('private blocked input');
+
+      testState.tmuxScrollClient.mockResolvedValue({ applied: true, inMode: false });
+      await act(async () => {
+        testState.terminalDataHandler?.('accepted');
+        await flushMicrotasks();
+      });
+      expect(testState.sessionWrite).toHaveBeenCalledWith('backend-session-1', 'accepted');
+
+      testState.sessionWrite.mockRejectedValueOnce(new Error('IPC write rejected'));
+      await act(async () => {
+        testState.terminalDataHandler?.('IPC failure');
+        await flushMicrotasks();
+      });
+      expect(onInputError).toHaveBeenCalledTimes(2);
+      testState.tmuxScrollClient.mockResolvedValue({ applied: false });
+      await act(async () => {
+        testState.scrollToBottom?.();
+        await flushMicrotasks();
+        testState.terminalDataHandler?.('copy-mode failure in the same episode');
+        await flushMicrotasks();
+      });
+      expect(onInputError).toHaveBeenCalledTimes(2);
+      expect(testState.sessionWrite).toHaveBeenCalledTimes(2);
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('does not let an older IPC success clear a newer copy-mode input failure', async () => {
+    const oldSend = createDeferredResult<undefined>();
+    testState.sessionWrite.mockReturnValueOnce(oldSend.promise);
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    testState.tmuxScrollClient.mockResolvedValue({ applied: false });
+    const onInputError = vi.fn();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const mounted = mountHookHarness({
+      hostSession: { kind: 'tmux', serverName: 'infilux', sessionName: 'tmux-session-1' },
+      onInputError,
+    });
+    try {
+      await act(flushMicrotasks);
+      await act(async () => {
+        testState.terminalDataHandler?.('old pending send');
+        testState.scrollToBottom?.();
+        await flushMicrotasks();
+        testState.terminalDataHandler?.('new blocked input');
+        await flushMicrotasks();
+      });
+      expect(onInputError).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        oldSend.resolve(undefined);
+        await flushMicrotasks();
+        testState.terminalDataHandler?.('still blocked');
+        await flushMicrotasks();
+      });
+      expect(onInputError).toHaveBeenCalledTimes(1);
+      expect(testState.sessionWrite.mock.calls).toEqual([
+        ['backend-session-1', 'old pending send'],
+      ]);
+    } finally {
+      oldSend.resolve(undefined);
+      await mounted.unmount();
+    }
+  });
+
   it('sends Codex alternate-buffer program scrolling to the session instead of tmux', async () => {
     testState.resolveAgentWheelPolicy.mockReturnValue({
       action: 'program-scroll',
@@ -5332,6 +5523,90 @@ describe('useXterm startup loading state', () => {
     await mounted.unmount();
   });
 
+  it.each([
+    ['codex', false, '/repo/worktree'],
+    ['claude', true, '/repo/worktree'],
+    ['codex', true, '/__enso_remote__/connection-1/workspace'],
+  ])('sizes %s compatibility paging from the live viewport (tmux=%s, cwd=%s)', async (agentId, hosted, cwd) => {
+    const actual =
+      await vi.importActual<typeof import('../xtermWheelPolicy')>('../xtermWheelPolicy');
+    testState.resolveAgentWheelPolicy.mockImplementation((input) =>
+      actual.resolveAgentWheelPolicy(input as Parameters<typeof actual.resolveAgentWheelPolicy>[0])
+    );
+    testState.terminalRows = 40;
+    testState.terminalBufferType = 'alternate';
+    testState.tmuxScrollClient.mockResolvedValue({
+      applied: false,
+      inMode: false,
+      paneId: '%0',
+      alternateScreen: true,
+    });
+    testState.sessionAttach.mockResolvedValueOnce(createTestSessionResult('backend-session-1'));
+    const mounted = mountHookHarness({
+      agentId,
+      cwd,
+      hostSession: hosted
+        ? { kind: 'tmux', serverName: 'infilux', sessionName: 'tmux-session-1' }
+        : undefined,
+    });
+    try {
+      await act(async () => await flushMicrotasks());
+      vi.useFakeTimers();
+      const scroll = async (deltaY: number) => {
+        await act(async () => {
+          testState.attachedWheelHandler?.({
+            deltaMode: 1,
+            deltaY,
+            preventDefault: vi.fn(),
+            stopPropagation: vi.fn(),
+          } as unknown as WheelEvent);
+          await vi.advanceTimersByTimeAsync(16);
+          await flushMicrotasks();
+        });
+      };
+      for (let index = 0; index < 9; index += 1) {
+        await scroll(-4);
+      }
+      expect(testState.sessionWrite).not.toHaveBeenCalled();
+      await scroll(-4);
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'backend-session-1',
+        '\x1b[5~'
+      );
+      testState.sessionWrite.mockClear();
+      await scroll(161);
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'backend-session-1',
+        '\x1b[6~'
+      );
+      testState.sessionWrite.mockClear();
+      await scroll(-1);
+      await scroll(-36);
+      expect(testState.sessionWrite).not.toHaveBeenCalled();
+      testState.terminalRows = 20;
+      await scroll(1);
+      expect(testState.sessionWrite).not.toHaveBeenCalled();
+      await scroll(35);
+      expect(testState.sessionWrite).toHaveBeenCalledExactlyOnceWith(
+        'backend-session-1',
+        '\x1b[6~'
+      );
+      expect(testState.terminalScrollLines).not.toHaveBeenCalled();
+      if (hosted) {
+        expect(testState.tmuxScrollClient).toHaveBeenCalledWith(cwd, {
+          sessionName: 'tmux-session-1',
+          serverName: 'infilux',
+          direction: 'up',
+          amount: 4,
+        });
+      } else {
+        expect(testState.tmuxScrollClient).not.toHaveBeenCalled();
+      }
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
   it('uses Claude compatibility paging only when tmux confirms a native alternate screen', async () => {
     const actual =
       await vi.importActual<typeof import('../xtermWheelPolicy')>('../xtermWheelPolicy');
@@ -5339,7 +5614,7 @@ describe('useXterm startup loading state', () => {
       .mockReturnValueOnce({
         action: 'host-scroll',
         carryY: 0,
-        scrollLines: -8,
+        scrollLines: -24,
         fallbackToProgramScroll: true,
       })
       .mockImplementation((input) =>

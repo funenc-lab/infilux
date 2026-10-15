@@ -7,9 +7,10 @@ export const DOM_DELTA_PAGE = 2;
 export const PAGE_UP_SEQUENCE = '\x1b[5~';
 export const PAGE_DOWN_SEQUENCE = '\x1b[6~';
 
-const TRACKPAD_PIXEL_DELTA_THRESHOLD = 50;
-const PROGRAM_SCROLL_LINES_PER_PAGE = 8;
-const MAX_PROGRAM_SCROLL_PAGES_PER_EVENT = 3;
+const PIXEL_SCROLL_SENSITIVITY = 0.3;
+const DEFAULT_VIEWPORT_ROWS = 24;
+const MAX_PROGRAM_SCROLL_PAGES_PER_EVENT = 1;
+const WHEEL_LINE_ROUNDING_TOLERANCE = 1e-9;
 
 export type XtermBufferType = 'normal' | 'alternate';
 export type XtermMouseTrackingMode = 'none' | 'x10' | 'vt200' | 'drag' | 'any';
@@ -30,6 +31,7 @@ interface AgentWheelPolicyInput extends AgentScrollContext {
   carryY: number;
   cellHeightPx?: number;
   devicePixelRatio?: number;
+  viewportRows?: number;
 }
 
 type AgentWheelPolicyDecision =
@@ -55,10 +57,28 @@ type AgentWheelPolicyDecision =
       scrollLines: number;
     };
 
-export function resolveAgentProgramScrollRepeat(scrollLines: number): number {
+function resolveViewportRows(viewportRows?: number): number {
+  return typeof viewportRows === 'number' && Number.isFinite(viewportRows) && viewportRows >= 1
+    ? Math.trunc(viewportRows)
+    : DEFAULT_VIEWPORT_ROWS;
+}
+
+function normalizeWheelAmount(amount: number): { steps: number; carryY: number } {
+  // Fragmented pixel events must still reach exact line and page boundaries.
+  const nearestLine = Math.round(amount);
+  const totalAmount =
+    Math.abs(amount - nearestLine) < WHEEL_LINE_ROUNDING_TOLERANCE ? nearestLine : amount;
+  const steps = Math.trunc(totalAmount);
+  return { steps, carryY: totalAmount - steps };
+}
+
+export function resolveAgentProgramScrollRepeat(
+  scrollLines: number,
+  viewportRows?: number
+): number {
   return Math.min(
     MAX_PROGRAM_SCROLL_PAGES_PER_EVENT,
-    Math.floor(Math.abs(scrollLines) / PROGRAM_SCROLL_LINES_PER_PAGE)
+    Math.floor(Math.abs(scrollLines) / resolveViewportRows(viewportRows))
   );
 }
 
@@ -87,18 +107,10 @@ function normalizePixelWheelDelta(
     return null;
   }
 
-  let amount = deltaY / (cellHeightPx / devicePixelRatio);
-  if (Math.abs(deltaY) < TRACKPAD_PIXEL_DELTA_THRESHOLD) {
-    amount *= 0.3;
-  }
+  // Wheel event batching must not change the distance of a gesture.
+  const amount = (deltaY / (cellHeightPx / devicePixelRatio)) * PIXEL_SCROLL_SENSITIVITY;
 
-  const totalAmount = carryY + amount;
-  const steps = Math.trunc(totalAmount);
-
-  return {
-    steps,
-    carryY: totalAmount - steps,
-  };
+  return normalizeWheelAmount(carryY + amount);
 }
 
 function normalizeWheelDelta(
@@ -109,22 +121,10 @@ function normalizeWheelDelta(
   switch (deltaMode) {
     case DOM_DELTA_PIXEL:
       return normalizePixelWheelDelta(deltaY, carryY, cellHeightPx, devicePixelRatio);
-    case DOM_DELTA_PAGE: {
-      const totalAmount = carryY + deltaY * PROGRAM_SCROLL_LINES_PER_PAGE;
-      const steps = Math.trunc(totalAmount);
-      return {
-        steps,
-        carryY: totalAmount - steps,
-      };
-    }
-    default: {
-      const totalAmount = carryY + deltaY;
-      const steps = Math.trunc(totalAmount);
-      return {
-        steps,
-        carryY: totalAmount - steps,
-      };
-    }
+    case DOM_DELTA_PAGE:
+      return normalizeWheelAmount(carryY + deltaY * resolveViewportRows(input.viewportRows));
+    default:
+      return normalizeWheelAmount(carryY + deltaY);
   }
 }
 
@@ -151,7 +151,11 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
     };
   }
 
-  const normalizedWheelDelta = normalizeWheelDelta(input);
+  const viewportRows = resolveViewportRows(input.viewportRows);
+  // A smaller viewport must not replay old whole-page carry on the next gesture.
+  const normalizedWheelDelta = normalizeWheelDelta(
+    owner === 'program' ? { ...input, carryY: input.carryY % viewportRows } : input
+  );
   if (!normalizedWheelDelta) {
     return {
       action: 'delegate',
@@ -171,8 +175,8 @@ export function resolveAgentWheelPolicy(input: AgentWheelPolicyInput): AgentWhee
 
   if (owner === 'program') {
     const totalLines = steps + carryY;
-    const repeat = resolveAgentProgramScrollRepeat(totalLines);
-    const remainder = totalLines % PROGRAM_SCROLL_LINES_PER_PAGE || 0;
+    const repeat = resolveAgentProgramScrollRepeat(totalLines, viewportRows);
+    const remainder = totalLines % viewportRows || 0;
     if (repeat === 0) {
       return { action: 'consume', carryY: totalLines, scrollLines: 0 };
     }

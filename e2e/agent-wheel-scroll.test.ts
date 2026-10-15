@@ -1,5 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+  IPC_CHANNELS,
+  type SessionCreateOptions,
+  type SessionOpenResult,
+  type TmuxKillSessionRequest,
+  type TmuxScrollClientRequest,
+  type TmuxScrollClientResult,
+} from '../src/shared/types';
 import {
   type AgentWheelProbeScenario,
   createAgentWheelProbeScenario,
@@ -87,6 +96,75 @@ describe.sequential('electron agent transcript interactions', () => {
     }
   });
 
+  it.each([
+    [false, -10],
+    [false, -50],
+    [true, -10],
+    [true, -50],
+  ])('keeps gentle history gestures consistent across wheel event sizes (tmux=%s, delta=%s)', async (tmuxEnabled, deltaY) => {
+    const scenario = await createAgentWheelProbeScenario({ tmuxEnabled });
+    cleanupTasks.push(scenario.cleanup);
+    const launch = await launchInfiluxForScenario(scenario);
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await waitForProbeMarker(scenario.probeLogPath, 'READY');
+      await expect
+        .poll(() => readVisibleTerminalText(launch.page, scenario))
+        .toContain('TRANSCRIPT-LINE-180');
+      const cellHeight = await launch.page.evaluate(() => {
+        const terminal = (
+          window as typeof window & {
+            __INFILUX_E2E_LAST_XTERM__?: {
+              dimensions?: { css: { cell: { height: number } } };
+            };
+          }
+        ).__INFILUX_E2E_LAST_XTERM__;
+        const height = terminal?.dimensions?.css.cell.height;
+        if (!height || !Number.isFinite(height)) throw new Error('Missing terminal cell height');
+        return height;
+      });
+      const firstVisibleLine = async () => {
+        const visibleText = await readVisibleTerminalText(launch.page, scenario);
+        const line = visibleText.match(/TRANSCRIPT-LINE-(\d{3})/);
+        if (!line) throw new Error(`Missing visible transcript marker: ${visibleText}`);
+        return Number(line[1]);
+      };
+      const initialLine = await firstVisibleLine();
+      const expectedLines = Math.floor((500 / cellHeight) * 0.3);
+      const surface = resolveSessionPanelLocator(launch.page, scenario).locator(
+        '[data-agent-terminal-scroll-owner]'
+      );
+      await expect
+        .poll(() => surface.getAttribute('data-agent-terminal-scroll-owner'))
+        .toBe(tmuxEnabled ? 'host' : 'local');
+      const bottom = resolveSessionPanelLocator(launch.page, scenario).getByRole('button', {
+        name: 'Scroll to bottom',
+        exact: true,
+      });
+      for (let index = 0; index < 500 / Math.abs(deltaY); index += 1) {
+        await dispatchWheel(launch.page, scenario, deltaY);
+      }
+      await expect.poll(firstVisibleLine, { timeout: 15000 }).toBe(initialLine - expectedLines);
+      if (tmuxEnabled) expect(readTmuxCopyMode(scenario)).toBe('1');
+      const log = await readProbeLog(scenario.probeLogPath);
+      expect(log).not.toContain('PAGE_UP');
+      expect(log).not.toContain('ARROW_UP');
+      await launch.page.screenshot({
+        path: `.tmp/e2e/agent-gentle-scroll-${tmuxEnabled ? 'tmux' : 'local'}-${Math.abs(deltaY)}.png`,
+      });
+      await bottom.click();
+      await expect.poll(firstVisibleLine).toBe(initialLine);
+      if (tmuxEnabled) expect(readTmuxCopyMode(scenario)).toBe('0');
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
   it('returns managed tmux history to live mode before accepting input', async () => {
     const scenario = await createAgentWheelProbeScenario({ tmuxEnabled: true });
     cleanupTasks.push(scenario.cleanup);
@@ -116,6 +194,59 @@ describe.sequential('electron agent transcript interactions', () => {
       await waitForProbeMarker(scenario.probeLogPath, 'TEXT:history-input-still-live');
       expect(readTmuxCopyMode(scenario)).toBe('0');
       await launch.page.screenshot({ path: '.tmp/e2e/agent-tmux-history-return-live.png' });
+    } catch (error) {
+      throw await buildScenarioError(error, launch, scenario);
+    } finally {
+      await quitElectronApplication(launch.app);
+    }
+  });
+
+  it('accepts input after a missing tmux host falls back to a direct agent session', async () => {
+    const scenario = await createAgentWheelProbeScenario({ tmuxEnabled: true, echoInput: true });
+    cleanupTasks.push(scenario.cleanup);
+    const launch = await launchInfiluxForScenario(scenario);
+    try {
+      await enableE2ETerminalHooks(launch.page);
+      await installMissingHostFallbackProbe(launch, scenario);
+      await seedRendererLocalStorageAndReload(launch.page, scenario.browserLocalStorage);
+      await waitForRepositoryAndWorktree(launch.page, scenario);
+      await openSeededSession(launch.page, scenario);
+      await expect
+        .poll(() => readVisibleTerminalText(launch.page, scenario), { timeout: 30000 })
+        .toContain('TRANSCRIPT-LINE-180');
+      const surface = resolveSessionPanelLocator(launch.page, scenario).locator(
+        '[data-agent-terminal-scroll-owner]'
+      );
+      await expect
+        .poll(() => surface.getAttribute('data-agent-terminal-scroll-owner'))
+        .toBe('local');
+      await clickTerminalAt(launch.page, scenario, { xRatio: 0.45, yRatio: 0.2 });
+      for (const marker of ['fallback-input-first', 'fallback-input-second']) {
+        await launch.page.keyboard.type(marker);
+        await launch.page.keyboard.press('Enter');
+        await waitForProbeMarker(scenario.probeLogPath, `TEXT:${marker}`);
+        await expect
+          .poll(() => readVisibleTerminalText(launch.page, scenario))
+          .toContain(`ECHO:${marker}`);
+      }
+      const probe = await launch.app.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __INFILUX_E2E_MISSING_HOST__?: MissingHostFallbackProbe;
+            }
+          ).__INFILUX_E2E_MISSING_HOST__
+      );
+      expect(probe?.hostedAttempts).toBe(1);
+      expect(probe?.hostlessSessionId).toBeTruthy();
+      expect(probe?.unconfirmedExits).toBeGreaterThan(0);
+      expect(formatElectronDiagnostics(launch)).not.toContain(
+        'Input delivery could not be confirmed'
+      );
+      expect(await launch.page.getByText('Failed to send message', { exact: true }).count()).toBe(
+        0
+      );
+      await launch.page.screenshot({ path: '.tmp/e2e/agent-missing-host-fallback-input.png' });
     } catch (error) {
       throw await buildScenarioError(error, launch, scenario);
     } finally {
@@ -721,6 +852,111 @@ async function openSeededSession(
 
   const terminal = resolveTerminalLocator(page, scenario);
   await terminal.waitFor({ state: 'visible', timeout: 30000 });
+}
+
+interface MissingHostFallbackProbe {
+  hostedAttempts: number;
+  hostlessSessionId?: string;
+  unconfirmedExits: number;
+}
+
+async function installMissingHostFallbackProbe(
+  launch: Awaited<ReturnType<typeof launchInfiluxForScenario>>,
+  scenario: AgentWheelProbeScenario
+): Promise<void> {
+  await launch.app.evaluate(
+    ({ ipcMain }, { hostSessionName, createChannel, killChannel, scrollChannel }) => {
+      // The context bridge is immutable; inject the race at this isolated app's IPC boundary.
+      const handlers = (ipcMain as typeof ipcMain & { _invokeHandlers: Map<string, unknown> })
+        ._invokeHandlers;
+      const originalCreate = handlers.get(createChannel) as
+        | ((event: IpcMainInvokeEvent, options: SessionCreateOptions) => Promise<SessionOpenResult>)
+        | undefined;
+      const originalKill = handlers.get(killChannel) as
+        | ((
+            event: IpcMainInvokeEvent,
+            cwd: string | undefined,
+            request: TmuxKillSessionRequest
+          ) => Promise<void>)
+        | undefined;
+      const originalScroll = handlers.get(scrollChannel) as
+        | ((
+            event: IpcMainInvokeEvent,
+            cwd: string | undefined,
+            request: TmuxScrollClientRequest
+          ) => Promise<TmuxScrollClientResult>)
+        | undefined;
+      if (!originalCreate || !originalKill || !originalScroll) {
+        throw new Error('Missing session or tmux IPC handlers for the fallback scenario');
+      }
+      const probe: MissingHostFallbackProbe = { hostedAttempts: 0, unconfirmedExits: 0 };
+      (
+        globalThis as typeof globalThis & {
+          __INFILUX_E2E_MISSING_HOST__?: MissingHostFallbackProbe;
+        }
+      ).__INFILUX_E2E_MISSING_HOST__ = probe;
+      let confirmHostRemoved!: () => void;
+      const hostRemoved = new Promise<void>((resolve) => {
+        confirmHostRemoved = resolve;
+      });
+      let confirmInitialExit!: () => void;
+      const initialExit = new Promise<void>((resolve) => {
+        confirmInitialExit = resolve;
+      });
+      ipcMain.removeHandler(createChannel);
+      ipcMain.handle(createChannel, async (event, options: SessionCreateOptions) => {
+        if (options.hostSession?.sessionName === hostSessionName && probe.hostedAttempts === 0) {
+          probe.hostedAttempts += 1;
+          try {
+            await originalKill(event, options.cwd, {
+              name: hostSessionName,
+              serverName: options.hostSession.serverName,
+            });
+          } finally {
+            confirmHostRemoved();
+          }
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              initialExit,
+              new Promise<void>((_, reject) => {
+                timeout = setTimeout(
+                  () => reject(new Error('Missing recovery copy-mode exit request')),
+                  15000
+                );
+              }),
+            ]);
+          } finally {
+            clearTimeout(timeout);
+          }
+        }
+        const result = await originalCreate(event, options);
+        if (options.kind === 'agent' && !options.hostSession && probe.hostedAttempts > 0) {
+          probe.hostlessSessionId = result.session.sessionId;
+        }
+        return result;
+      });
+      ipcMain.removeHandler(scrollChannel);
+      ipcMain.handle(
+        scrollChannel,
+        async (event, cwd: string | undefined, request: TmuxScrollClientRequest) => {
+          if (request.sessionName === hostSessionName) await hostRemoved;
+          const result = await originalScroll(event, cwd, request);
+          if (request.sessionName === hostSessionName && typeof result.inMode !== 'boolean') {
+            probe.unconfirmedExits += 1;
+            confirmInitialExit();
+          }
+          return result;
+        }
+      );
+    },
+    {
+      hostSessionName: scenario.hostSessionName,
+      createChannel: IPC_CHANNELS.SESSION_CREATE,
+      killChannel: IPC_CHANNELS.TMUX_KILL_SESSION,
+      scrollChannel: IPC_CHANNELS.TMUX_SCROLL_CLIENT,
+    }
+  );
 }
 
 async function writeAgentSessionDisplayMode(

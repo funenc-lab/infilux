@@ -666,6 +666,9 @@ export function useXterm({
   const programFallbackCarryRef = useRef(0);
   const scrollOwnerRef = useRef<AgentScrollOwner>('local');
   const hostInCopyModeRef = useRef(false);
+  const activeHostSessionRef = useRef<Pick<SessionCreateOptions, 'cwd' | 'hostSession'> | null>(
+    null
+  );
   const pendingHostScrollRef = useRef<PendingHostScrollRequest | null>(null);
   const hostScrollFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hostScrollControllerRef = useRef<{
@@ -704,7 +707,10 @@ export function useXterm({
       kind,
       activeBufferType: terminal.buffer.active.type,
       mouseTrackingMode: terminal.modes.mouseTrackingMode,
-      hostScrollMode: hostSession?.kind === 'tmux' ? 'tmux' : undefined,
+      hostScrollMode:
+        (activeHostSessionRef.current ?? sessionLaunchRef.current).hostSession?.kind === 'tmux'
+          ? 'tmux'
+          : undefined,
       hostInCopyMode: hostInCopyModeRef.current,
       isStaticContent: Boolean(staticContent),
     });
@@ -715,7 +721,7 @@ export function useXterm({
     clearPendingHostScroll();
     hostScrollControllerRef.current?.controller.cancelQueuedScroll();
     setScrollOwner(owner);
-  }, [agentId, clearPendingHostScroll, hostSession, kind, staticContent]);
+  }, [agentId, clearPendingHostScroll, kind, staticContent]);
 
   const disposeHostScrollController = useCallback(() => {
     const binding = hostScrollControllerRef.current;
@@ -725,26 +731,54 @@ export function useXterm({
     if (binding) void binding.controller.dispose().catch(() => {});
   }, []);
 
+  const bindHostScrollSession = useCallback(
+    (options: Pick<SessionCreateOptions, 'cwd' | 'hostSession'>) => {
+      const previous = activeHostSessionRef.current ?? sessionLaunchRef.current;
+      activeHostSessionRef.current = {
+        cwd: options.cwd,
+        hostSession: options.hostSession,
+      };
+      if (
+        previous.cwd !== options.cwd ||
+        previous.hostSession?.kind !== options.hostSession?.kind ||
+        previous.hostSession?.sessionName !== options.hostSession?.sessionName ||
+        previous.hostSession?.serverName !== options.hostSession?.serverName
+      ) {
+        clearPendingHostScroll();
+        disposeHostScrollController();
+        wheelCarryRef.current = 0;
+        programFallbackCarryRef.current = 0;
+      }
+      syncScrollOwner();
+    },
+    [clearPendingHostScroll, disposeHostScrollController, syncScrollOwner]
+  );
+
   const getHostScrollController = useCallback(
     (terminal: Terminal) => {
-      if (kind !== 'agent' || hostSession?.kind !== 'tmux' || staticContent) return null;
+      const { cwd: hostCwd, hostSession: activeHostSession } =
+        activeHostSessionRef.current ?? sessionLaunchRef.current;
+      if (kind !== 'agent' || activeHostSession?.kind !== 'tmux' || staticContent) {
+        if (hostScrollControllerRef.current) disposeHostScrollController();
+        return null;
+      }
       const sessionEpoch = createRequestIdRef.current;
       const current = hostScrollControllerRef.current;
       if (
         current &&
         current.terminal === terminal &&
         current.sessionEpoch === sessionEpoch &&
-        current.cwd === cwd &&
-        current.sessionName === hostSession.sessionName &&
-        current.serverName === hostSession.serverName
+        current.cwd === hostCwd &&
+        current.sessionName === activeHostSession.sessionName &&
+        current.serverName === activeHostSession.serverName
       )
         return current.controller;
       disposeHostScrollController();
       const controller = new XtermHostScrollController({
         scroll: (direction, amount) =>
-          window.electronAPI.tmux.scrollClient(cwd, {
-            sessionName: hostSession.sessionName,
-            serverName: hostSession.serverName,
+          window.electronAPI.tmux.scrollClient(hostCwd, {
+            sessionName: activeHostSession.sessionName,
+            serverName: activeHostSession.serverName,
             direction,
             amount,
           }),
@@ -763,15 +797,15 @@ export function useXterm({
       });
       hostScrollControllerRef.current = {
         controller,
-        cwd,
+        cwd: hostCwd,
         terminal,
         sessionEpoch,
-        sessionName: hostSession.sessionName,
-        serverName: hostSession.serverName,
+        sessionName: activeHostSession.sessionName,
+        serverName: activeHostSession.serverName,
       };
       return controller;
     },
-    [cwd, disposeHostScrollController, hostSession, kind, staticContent, syncScrollOwner]
+    [disposeHostScrollController, kind, staticContent, syncScrollOwner]
   );
 
   const buildSearchOptions = useCallback(
@@ -795,15 +829,14 @@ export function useXterm({
     replaySnapshotParserStateRef.current = 'text';
   }, [recoveredReplaySnapshot]);
 
-  const sendTerminalInput = useCallback((sessionId: string, data: string) => {
-    const attemptId = initAttemptIdRef.current;
-    const sequence = ++inputSendSequenceRef.current;
-    const isCurrentSend = () =>
-      !isUnmountedRef.current &&
-      attemptId === initAttemptIdRef.current &&
-      ptyIdRef.current === sessionId;
-    const reportFailure = () => {
-      if (!isCurrentSend()) return;
+  const reportTerminalInputFailure = useCallback(
+    (sessionId: string, attemptId: number, sequence: number) => {
+      if (
+        isUnmountedRef.current ||
+        attemptId !== initAttemptIdRef.current ||
+        ptyIdRef.current !== sessionId
+      )
+        return;
       inputFailureRef.current.sequence = Math.max(inputFailureRef.current.sequence, sequence);
       if (sequence === inputSendSequenceRef.current) {
         interactiveResponseRef.current = null;
@@ -812,31 +845,44 @@ export function useXterm({
       inputFailureRef.current.reported = true;
       console.warn('[xterm] Input delivery could not be confirmed', { sessionId });
       onInputErrorRef.current?.();
-    };
-    try {
-      void Promise.resolve(window.electronAPI.session.write(sessionId, data)).then(() => {
-        if (isCurrentSend() && sequence > inputFailureRef.current.sequence) {
-          inputFailureRef.current.reported = false;
-        }
-      }, reportFailure);
-    } catch {
-      reportFailure();
-      return;
-    }
-    interactiveResponseRef.current =
-      isVisibleRef.current && !isHibernatedRef.current
-        ? {
-            inputDeadline: Date.now() + INTERACTIVE_RESPONSE_WINDOW_MS,
-            burstDeadline: null,
-            remainingEvents: INTERACTIVE_RESPONSE_EVENT_LIMIT,
-            remainingChars: INTERACTIVE_RESPONSE_CHAR_LIMIT,
+    },
+    []
+  );
+
+  const sendTerminalInput = useCallback(
+    (sessionId: string, data: string, sequence: number) => {
+      const attemptId = initAttemptIdRef.current;
+      const isCurrentSend = () =>
+        !isUnmountedRef.current &&
+        attemptId === initAttemptIdRef.current &&
+        ptyIdRef.current === sessionId;
+      const reportFailure = () => reportTerminalInputFailure(sessionId, attemptId, sequence);
+      try {
+        void Promise.resolve(window.electronAPI.session.write(sessionId, data)).then(() => {
+          if (isCurrentSend() && sequence > inputFailureRef.current.sequence) {
+            inputFailureRef.current.reported = false;
           }
-        : null;
-    if (!agentStartupFirstInputLoggedRef.current) {
-      agentStartupFirstInputLoggedRef.current = true;
-      agentStartupLoggerRef.current?.markStage('first-input-sent');
-    }
-  }, []);
+        }, reportFailure);
+      } catch {
+        reportFailure();
+        return;
+      }
+      interactiveResponseRef.current =
+        isVisibleRef.current && !isHibernatedRef.current
+          ? {
+              inputDeadline: Date.now() + INTERACTIVE_RESPONSE_WINDOW_MS,
+              burstDeadline: null,
+              remainingEvents: INTERACTIVE_RESPONSE_EVENT_LIMIT,
+              remainingChars: INTERACTIVE_RESPONSE_CHAR_LIMIT,
+            }
+          : null;
+      if (!agentStartupFirstInputLoggedRef.current) {
+        agentStartupFirstInputLoggedRef.current = true;
+        agentStartupLoggerRef.current?.markStage('first-input-sent');
+      }
+    },
+    [reportTerminalInputFailure]
+  );
 
   const write = useCallback(
     (data: string) => {
@@ -852,23 +898,21 @@ export function useXterm({
         clearPendingHostScroll();
         const sessionId = ptyIdRef.current;
         const attemptId = initAttemptIdRef.current;
+        const sequence = ++inputSendSequenceRef.current;
         const deliverInput = () => {
           if (
             !isUnmountedRef.current &&
             ptyIdRef.current === sessionId &&
             initAttemptIdRef.current === attemptId
           )
-            sendTerminalInput(sessionId, data);
+            sendTerminalInput(sessionId, data, sequence);
         };
-        const controller = hostScrollControllerRef.current?.controller;
+        const controller = terminalRef.current
+          ? getHostScrollController(terminalRef.current)
+          : null;
         if (controller) {
           void controller.returnToLive(deliverInput).catch(() => {
-            if (
-              !isUnmountedRef.current &&
-              ptyIdRef.current === sessionId &&
-              initAttemptIdRef.current === attemptId
-            )
-              onInputErrorRef.current?.();
+            reportTerminalInputFailure(sessionId, attemptId, sequence);
           });
         } else {
           deliverInput();
@@ -880,7 +924,7 @@ export function useXterm({
         appendPendingTerminalInput(pendingTerminalInputRef, data);
       }
     },
-    [clearPendingHostScroll, sendTerminalInput]
+    [clearPendingHostScroll, getHostScrollController, reportTerminalInputFailure, sendTerminalInput]
   );
 
   const flushPendingTerminalInput = useCallback(
@@ -1664,6 +1708,7 @@ export function useXterm({
           deltaMode: DOM_DELTA_LINE,
           deltaY: request.direction === 'up' ? -request.amount : request.amount,
           carryY: programFallbackCarryRef.current,
+          viewportRows: request.terminal.rows,
         });
         programFallbackCarryRef.current = fallback.carryY;
         if (fallback.action === 'program-scroll') {
@@ -1760,6 +1805,7 @@ export function useXterm({
   const resetSessionBinding = useCallback(async () => {
     createRequestIdRef.current += 1;
     activeSessionBindingRef.current = null;
+    activeHostSessionRef.current = null;
     deadRecoveryAttemptKeyRef.current = null;
     hasReceivedDataRef.current = false;
     hasRenderableRenderedDataRef.current = false;
@@ -1800,13 +1846,15 @@ export function useXterm({
       }
 
       syncScrollOwner();
+      const { cwd: hostCwd, hostSession: activeHostSession } =
+        activeHostSessionRef.current ?? sessionLaunchRef.current;
 
       const decision = resolveAgentWheelPolicy({
         agentId,
         kind,
         activeBufferType: terminal.buffer.active.type,
         mouseTrackingMode: terminal.modes.mouseTrackingMode,
-        hostScrollMode: kind === 'agent' && hostSession?.kind === 'tmux' ? 'tmux' : undefined,
+        hostScrollMode: kind === 'agent' && activeHostSession?.kind === 'tmux' ? 'tmux' : undefined,
         hostInCopyMode: hostInCopyModeRef.current,
         isStaticContent: Boolean(staticContent),
         deltaMode: event.deltaMode,
@@ -1814,6 +1862,7 @@ export function useXterm({
         carryY: wheelCarryRef.current,
         cellHeightPx: terminal.dimensions?.device.cell.height,
         devicePixelRatio: window.devicePixelRatio || 1,
+        viewportRows: terminal.rows,
       });
 
       wheelCarryRef.current = decision.carryY;
@@ -1822,11 +1871,11 @@ export function useXterm({
       }
 
       if (decision.action === 'host-scroll') {
-        if (hostSession?.kind === 'tmux' && decision.scrollLines !== 0) {
+        if (activeHostSession?.kind === 'tmux' && decision.scrollLines !== 0) {
           scheduleHostScroll({
-            cwd,
-            sessionName: hostSession.sessionName,
-            serverName: hostSession.serverName,
+            cwd: hostCwd,
+            sessionName: activeHostSession.sessionName,
+            serverName: activeHostSession.serverName,
             direction: decision.scrollLines < 0 ? 'up' : 'down',
             amount: Math.abs(decision.scrollLines),
             fallbackToProgramScroll: decision.fallbackToProgramScroll === true,
@@ -1860,7 +1909,7 @@ export function useXterm({
       event.stopPropagation();
       return false;
     },
-    [cwd, hostSession, kind, scheduleHostScroll, write, agentId, staticContent, syncScrollOwner]
+    [kind, scheduleHostScroll, write, agentId, staticContent, syncScrollOwner]
   );
 
   const scrollToBottom = useCallback(() => {
@@ -2473,6 +2522,7 @@ export function useXterm({
           };
         };
         const createOptions = buildCreateOptions();
+        bindHostScrollSession(createOptions);
 
         const setCurrentSessionId = (sessionId: string) => {
           if (ptyIdRef.current !== sessionId) {
@@ -2724,11 +2774,11 @@ export function useXterm({
               throw error;
             }
 
+            const fallbackOptions = buildCreateOptions(launchSnapshot.sessionCreateFallback);
+            // Switch scroll ownership before callbacks can rerender or flush queued input.
+            bindHostScrollSession(fallbackOptions);
             launchSnapshot.sessionCreateFallback?.onRetry?.();
-            return createAndAttachSessionWithOptions(
-              buildCreateOptions(launchSnapshot.sessionCreateFallback),
-              'session-create-fallback'
-            );
+            return createAndAttachSessionWithOptions(fallbackOptions, 'session-create-fallback');
           }
         };
 
@@ -2902,6 +2952,7 @@ export function useXterm({
     },
     [
       backendSessionId,
+      bindHostScrollSession,
       cwd,
       command,
       shellConfig,
